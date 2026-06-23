@@ -1,0 +1,10 @@
+{
+  "myplugin_notes": "Notes",
+  "myplugin_note_title": "Title",
+  "myplugin_note_content": "Content",
+  "myplugin_note_create": "Create Note",
+  "myplugin_note_created": "Note created successfully",
+  "myplugin_note_error": "Failed to load notes",
+  "myplugin_loading": "Loading...",
+  "myplugin_no_results": "No notes found"
+}

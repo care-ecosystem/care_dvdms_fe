@@ -1,4 +1,4 @@
-import { FC } from "react";
+import { FC, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useFieldArray, useForm } from "react-hook-form";
 import { PlusIcon, SettingsIcon, Trash2Icon } from "lucide-react";
@@ -47,7 +47,7 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
         disable_auto_sync: false,
         allow_manual_entry: false,
       },
-      suppliers: [{ supplier_code: "" }],
+      suppliers: [],
     },
   });
 
@@ -55,6 +55,15 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
     control: form.control,
     name: "suppliers",
   });
+
+  const [draftSupplierCode, setDraftSupplierCode] = useState("");
+
+  const commitDraftSupplier = () => {
+    const supplier_code = draftSupplierCode.trim();
+    if (!supplier_code) return;
+    append({ supplier_code });
+    setDraftSupplierCode("");
+  };
 
   if (!facility) {
     return null;
@@ -170,43 +179,52 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                       <FormField
                         control={form.control}
                         name={`suppliers.${index}.supplier_code`}
-                        rules={{ required: t("supplier_code_required") }}
                         render={({ field }) => (
                           <FormItem className="flex-1">
                             <FormControl>
-                              <Input
-                                placeholder={t("supplier_code_placeholder")}
-                                className="h-9"
-                                {...field}
-                              />
+                              <Input className="h-9" {...field} />
                             </FormControl>
                           </FormItem>
                         )}
                       />
-                      {fields.length > 1 && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => remove(index)}
-                          className="size-9"
-                          aria-label={t("remove_supplier")}
-                        >
-                          <Trash2Icon className="size-4" />
-                        </Button>
-                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => remove(index)}
+                        className="size-9 shrink-0"
+                        aria-label={t("remove_supplier")}
+                      >
+                        <Trash2Icon className="size-4" />
+                      </Button>
                     </div>
                   ))}
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => append({ supplier_code: "" })}
-                    className="w-full"
-                  >
-                    <PlusIcon className="mr-2 size-4" />
-                    {t("add_supplier")}
-                  </Button>
+                  <div className="flex items-end gap-2">
+                    <Input
+                      value={draftSupplierCode}
+                      onChange={(e) => setDraftSupplierCode(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitDraftSupplier();
+                        }
+                      }}
+                      placeholder={t("supplier_code_placeholder")}
+                      className="h-9"
+                    />
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="icon"
+                      onClick={commitDraftSupplier}
+                      disabled={!draftSupplierCode.trim()}
+                      className="size-9 shrink-0"
+                      aria-label={t("add_supplier")}
+                    >
+                      <PlusIcon className="size-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
 

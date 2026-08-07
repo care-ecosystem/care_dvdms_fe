@@ -20,9 +20,8 @@
   "suppliers": "Suppliers",
   "suppliers_subtitle": "Add the supplier codes linked to this facility.",
   "supplier_code_placeholder": "Enter supplier code",
-  "supplier_code_required": "Supplier code is required",
   "add_supplier": "Add Supplier",
-  "remove_supplier": "Remove supplier",
+  "remove_supplier": "Remove Supplier",
   "cancel": "Cancel",
   "save": "Save"
 }

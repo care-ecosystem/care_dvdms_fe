@@ -1,7 +1,7 @@
 {
-  "name": "care_myplugin_fe",
+  "name": "care_dvdms_fe",
   "version": "0.1.0",
-  "description": "A CARE frontend plugin template.",
+  "description": "CARE frontend plugin for DVDMS integration.",
   "main": "src/index.tsx",
   "type": "module",
   "scripts": {
@@ -12,7 +12,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/care-ecosystem/care_fe_plugin_template.git"
+    "url": "git+https://github.com/care-ecosystem/care_dvdms_fe.git"
   },
   "author": {
     "name": "Jagankumar E",
@@ -22,9 +22,9 @@
   "license": "MIT",
   "keywords": ["care", "plugin", "micro-frontend", "healthcare", "india"],
   "bugs": {
-    "url": "https://github.com/care-ecosystem/care_fe_plugin_template/issues"
+    "url": "https://github.com/care-ecosystem/care_dvdms_fe/issues"
   },
-  "homepage": "https://github.com/care-ecosystem/care_fe_plugin_template#readme",
+  "homepage": "https://github.com/care-ecosystem/care_dvdms_fe#readme",
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@tanstack/react-query": "^5.72.2",

@@ -7,7 +7,7 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [
     federation({
-      name: "care_myplugin",        // TODO: rename to your plugin name
+      name: "care_dvdms",
       filename: "remoteEntry.js",
       exposes: {
         "./manifest": "./src/manifest.tsx",

@@ -1,6 +1,5 @@
 {
-  // TODO: update name, routes, and pattern for your plugin
-  "name": "care-myplugin-fe",
+  "name": "care-dvdms-fe",
   "compatibility_date": "2024-01-01",
   "assets": {
     "directory": "./dist",
@@ -8,7 +7,7 @@
   },
   "routes": [
     {
-      "pattern": "myplugin.care-ecosystem.workers.dev/*",
+      "pattern": "dvdms.care-ecosystem.workers.dev/*",
       "zone_name": "care-ecosystem.workers.dev"
     }
   ]

@@ -16,6 +16,7 @@
   "manage_dvdms_config_for": "Manage DVDMS configuration for",
   "remove_supplier": "Remove Supplier",
   "save": "Save",
+  "set_as_default": "Set as default",
   "settings": "Settings",
   "settings_subtitle": "Control how this facility syncs with DVDMS.",
   "store_code": "Store Code",
@@ -24,10 +25,12 @@
   "store_name": "Store Name",
   "store_name_placeholder": "Enter store name",
   "store_name_required": "Store name is required",
+  "supplier": "Supplier",
   "supplier_code": "Supplier Code",
-  "supplier_code_duplicate": "This supplier code has already been added",
-  "supplier_code_placeholder": "Enter supplier code",
-  "supplier_code_required": "At least one supplier is required",
+  "supplier_code_required": "Supplier code is required",
+  "supplier_placeholder": "Select a supplier",
+  "supplier_required": "Supplier is required",
   "suppliers": "Suppliers",
+  "suppliers_required": "At least one supplier is required",
   "suppliers_subtitle": "Add the supplier codes linked to this facility."
 }

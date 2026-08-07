@@ -1,5 +1,7 @@
 export interface DvdmsSupplierMapping {
+  supplier_id: string;
   supplier_code: string;
+  is_default: boolean;
 }
 
 export interface DvdmsFacilityConfigMeta {

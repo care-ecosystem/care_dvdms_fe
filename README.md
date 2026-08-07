@@ -1,12 +1,12 @@
-# Care Frontend Plugin Template
+# Care DVDMS Frontend Plugin
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/care-ecosystem/care_fe_plugin_template)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/care-ecosystem/care_dvdms_fe)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19.x-blue.svg)](https://react.dev/)
 [![eGov Foundation](https://img.shields.io/badge/eGov-Foundation-orange.svg)](https://egov.org.in)
 
-A starter template for building CARE frontend plugins using React + TypeScript + Module Federation.
+CARE frontend plugin for DVDMS integration, built with React + TypeScript + Module Federation.
 
 **Developed by**: [eGov Foundation](https://egov.org.in)
 
@@ -14,20 +14,13 @@ A starter template for building CARE frontend plugins using React + TypeScript +
 
 - 🔧 **Backend Template**: [care_plugin_template](https://github.com/care-ecosystem/care_plugin_template)
 - 📖 **CARE Frontend**: [ohcnetwork/care_fe](https://github.com/ohcnetwork/care_fe)
-- 🐛 **Report Issues**: [GitHub Issues](https://github.com/care-ecosystem/care_fe_plugin_template/issues)
+- 🐛 **Report Issues**: [GitHub Issues](https://github.com/care-ecosystem/care_dvdms_fe/issues)
 - 🏢 **eGov Foundation**: [egov.org.in](https://egov.org.in)
 - 📧 **Contact**: [jagan.kumar@egovernments.org](mailto:jagan.kumar@egovernments.org)
 
 ## Getting Started
 
-### 1. Use this template
-Click **Use this template** on GitHub to create your repo.
-
-### 2. Rename the plugin
-Search and replace `care_myplugin` → `care_yourplugin` across all files.
-Update `package.json` name, `vite.config.ts` federation name, and `manifest.tsx` plugin key.
-
-### 3. Install dependencies
+### 1. Install dependencies
 ```bash
 npm install
 ```

@@ -104,7 +104,10 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
           {t("configure_dvdms")}
         </button>
       </SheetTrigger>
-      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+      <SheetContent
+        className="w-full sm:max-w-2xl overflow-y-auto"
+        closeLabel={t("close")}
+      >
         <SheetHeader>
           <SheetTitle>{t("dvdms_configuration")}</SheetTitle>
           <SheetDescription>
@@ -276,9 +279,9 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                     </Button>
                   </div>
 
-                  {form.formState.errors.suppliers?.root?.message && (
+                  {form.formState.errors.suppliers?.message && (
                     <p className="text-sm text-red-500">
-                      {form.formState.errors.suppliers.root.message}
+                      {form.formState.errors.suppliers.message}
                     </p>
                   )}
                 </div>

@@ -1,4 +1,4 @@
-import { FC, useState } from "react";
+import { FC, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useFieldArray, useForm } from "react-hook-form";
 import { PlusIcon, SettingsIcon, Trash2Icon } from "lucide-react";
@@ -10,9 +10,11 @@ import { Switch } from "@/components/ui/switch";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
+  FormMessage,
 } from "@/components/ui/form";
 import {
   Sheet,
@@ -56,13 +58,35 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
     name: "suppliers",
   });
 
+  const [open, setOpen] = useState(false);
   const [draftSupplierCode, setDraftSupplierCode] = useState("");
+  const [draftSupplierError, setDraftSupplierError] = useState("");
+  const draftSupplierInputRef = useRef<HTMLInputElement>(null);
 
   const commitDraftSupplier = () => {
     const supplier_code = draftSupplierCode.trim();
     if (!supplier_code) return;
-    append({ supplier_code });
+    const isDuplicate = fields.some(
+      (f) => f.supplier_code.toLowerCase() === supplier_code.toLowerCase(),
+    );
+    if (isDuplicate) {
+      setDraftSupplierError(t("supplier_code_duplicate"));
+      return;
+    }
+    append({ supplier_code }, { shouldFocus: false });
     setDraftSupplierCode("");
+    setDraftSupplierError("");
+    form.clearErrors("suppliers");
+    draftSupplierInputRef.current?.focus();
+  };
+
+  const onOpenChange = (next: boolean) => {
+    if (!next) {
+      form.reset();
+      setDraftSupplierCode("");
+      setDraftSupplierError("");
+    }
+    setOpen(next);
   };
 
   if (!facility) {
@@ -70,7 +94,7 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
   }
 
   return (
-    <Sheet>
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
         <button
           type="button"
@@ -92,6 +116,13 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
           <Form {...form}>
             <form
               onSubmit={form.handleSubmit(() => {
+                if (fields.length === 0) {
+                  form.setError("suppliers", {
+                    type: "manual",
+                    message: t("supplier_code_required"),
+                  });
+                  return;
+                }
                 // TODO: wire up create/update API call
               })}
               className="space-y-8"
@@ -121,6 +152,7 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                             {...field}
                           />
                         </FormControl>
+                        <FormMessage />
                       </FormItem>
                     )}
                   />
@@ -139,6 +171,7 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                             {...field}
                           />
                         </FormControl>
+                        <FormMessage />
                       </FormItem>
                     )}
                   />
@@ -157,6 +190,7 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                             {...field}
                           />
                         </FormControl>
+                        <FormMessage />
                       </FormItem>
                     )}
                   />
@@ -167,7 +201,7 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
 
               <div>
                 <h3 className="text-base font-semibold text-gray-900 mb-1">
-                  {t("suppliers")}
+                  {t("suppliers")} <span className="text-red-500">*</span>
                 </h3>
                 <p className="text-sm text-gray-500 mb-4">
                   {t("suppliers_subtitle")}
@@ -182,7 +216,11 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                         render={({ field }) => (
                           <FormItem className="flex-1">
                             <FormControl>
-                              <Input className="h-9" {...field} />
+                              <Input
+                                aria-label={t("supplier_code")}
+                                className="h-9"
+                                {...field}
+                              />
                             </FormControl>
                           </FormItem>
                         )}
@@ -192,7 +230,7 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                         variant="outline"
                         size="icon"
                         onClick={() => remove(index)}
-                        className="size-9 shrink-0"
+                        className="shrink-0"
                         aria-label={t("remove_supplier")}
                       >
                         <Trash2Icon className="size-4" />
@@ -200,31 +238,49 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                     </div>
                   ))}
 
-                  <div className="flex items-end gap-2">
-                    <Input
-                      value={draftSupplierCode}
-                      onChange={(e) => setDraftSupplierCode(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          commitDraftSupplier();
-                        }
-                      }}
-                      placeholder={t("supplier_code_placeholder")}
-                      className="h-9"
-                    />
+                  <div key="draft-supplier-row" className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <Input
+                        ref={draftSupplierInputRef}
+                        aria-label={t("supplier_code")}
+                        value={draftSupplierCode}
+                        onChange={(e) => {
+                          setDraftSupplierCode(e.target.value);
+                          setDraftSupplierError("");
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitDraftSupplier();
+                          }
+                        }}
+                        placeholder={t("supplier_code_placeholder")}
+                        className="h-9"
+                      />
+                      {draftSupplierError && (
+                        <p className="text-sm text-red-500 mt-1">
+                          {draftSupplierError}
+                        </p>
+                      )}
+                    </div>
                     <Button
                       type="button"
                       variant="primary"
                       size="icon"
                       onClick={commitDraftSupplier}
                       disabled={!draftSupplierCode.trim()}
-                      className="size-9 shrink-0"
+                      className="shrink-0"
                       aria-label={t("add_supplier")}
                     >
                       <PlusIcon className="size-4" />
                     </Button>
                   </div>
+
+                  {form.formState.errors.suppliers?.root?.message && (
+                    <p className="text-sm text-red-500">
+                      {form.formState.errors.suppliers.root.message}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -244,9 +300,14 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                     name="meta.disable_auto_sync"
                     render={({ field }) => (
                       <FormItem className="flex flex-row items-start justify-between">
-                        <FormLabel className="text-sm font-medium text-gray-900">
-                          {t("disable_auto_sync")}
-                        </FormLabel>
+                        <div className="space-y-0.5">
+                          <FormLabel className="text-sm font-medium text-gray-900">
+                            {t("disable_auto_sync")}
+                          </FormLabel>
+                          <FormDescription>
+                            {t("disable_auto_sync_description")}
+                          </FormDescription>
+                        </div>
                         <FormControl>
                           <Switch
                             checked={field.value}
@@ -262,9 +323,14 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                     name="meta.allow_manual_entry"
                     render={({ field }) => (
                       <FormItem className="flex flex-row items-start justify-between">
-                        <FormLabel className="text-sm font-medium text-gray-900">
-                          {t("allow_manual_entry")}
-                        </FormLabel>
+                        <div className="space-y-0.5">
+                          <FormLabel className="text-sm font-medium text-gray-900">
+                            {t("allow_manual_entry")}
+                          </FormLabel>
+                          <FormDescription>
+                            {t("allow_manual_entry_description")}
+                          </FormDescription>
+                        </div>
                         <FormControl>
                           <Switch
                             checked={field.value}

@@ -60,7 +60,7 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
         disable_auto_sync: false,
         allow_manual_entry: false,
       },
-      suppliers: [{ supplier_id: "", supplier_code: "", is_default: false }],
+      suppliers: [{ supplier_id: "", supplier_code: "", is_default: true }],
     },
   });
 
@@ -69,7 +69,7 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
     name: "suppliers",
   });
 
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
 
   const { data: suppliersData } = useQuery({
     queryKey: ["dvdms_supplier_organizations"],
@@ -98,6 +98,7 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
   };
 
   const onOpenChange = (next: boolean) => {
+    return;
     if (!next) {
       form.reset();
     }
@@ -230,14 +231,14 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                     {fields.map((field, index) => (
                       <div
                         key={field.id}
-                        className="relative border border-gray-200 rounded-lg p-3 pt-11"
+                        className="relative border border-gray-200 rounded-lg p-3 pt-5"
                       >
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
                           onClick={() => remove(index)}
-                          className="absolute top-2 right-2 shrink-0"
+                          className="absolute top-1 right-1 shrink-0 hover:bg-white hover:text-gray-900"
                           aria-label={t("remove_supplier")}
                         >
                           <Trash2Icon className="size-4" />

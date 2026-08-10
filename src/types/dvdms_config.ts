@@ -16,3 +16,9 @@ export interface DvdmsFacilityConfig {
   meta: DvdmsFacilityConfigMeta;
   suppliers: DvdmsSupplierMapping[];
 }
+
+export interface DvdmsProductMapping {
+  id: string;
+  product_knowledge_id: string;
+  eaushadhi_drug_id: string;
+}

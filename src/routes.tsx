@@ -1,6 +1,11 @@
-// Standalone route map — mirrors manifest.routes.
-// Keep in sync with manifest.tsx.
+import ProductMappings from "./pages/ProductMappings";
 
-const routes = {};
+const routes = {
+  "/facility/:facilityId/dvdms/product-mappings": ({
+    facilityId,
+  }: {
+    facilityId: string;
+  }) => <ProductMappings facilityId={facilityId} />,
+};
 
 export default routes;

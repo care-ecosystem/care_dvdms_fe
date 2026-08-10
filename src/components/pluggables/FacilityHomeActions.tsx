@@ -2,7 +2,13 @@ import { FC, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useFieldArray, useForm } from "react-hook-form";
-import { PlusIcon, SettingsIcon, Trash2Icon } from "lucide-react";
+import { navigate } from "raviger";
+import {
+  BoxesIcon,
+  PlusIcon,
+  SettingsIcon,
+  Trash2Icon,
+} from "lucide-react";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE } from "@/lib/constants";
@@ -403,6 +409,32 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                       )}
                     />
                   </div>
+                </div>
+
+                <hr className="border-gray-200" />
+
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900 mb-1">
+                    {t("product_mappings")}
+                  </h3>
+                  <p className="text-sm text-gray-500 mb-4">
+                    {t("product_mappings_subtitle")}
+                  </p>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      onOpenChange(false);
+                      navigate(
+                        `/facility/${facility.id}/dvdms/product-mappings`,
+                      );
+                    }}
+                  >
+                    <BoxesIcon className="mr-2 size-4" />
+                    {t("configure_product_mappings")}
+                  </Button>
                 </div>
 
                 <div className="flex justify-end mt-6 gap-3">

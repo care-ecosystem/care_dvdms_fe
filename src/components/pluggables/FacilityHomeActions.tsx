@@ -69,7 +69,7 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
     name: "suppliers",
   });
 
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   const { data: suppliersData } = useQuery({
     queryKey: ["dvdms_supplier_organizations"],
@@ -98,7 +98,6 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
   };
 
   const onOpenChange = (next: boolean) => {
-    return;
     if (!next) {
       form.reset();
     }

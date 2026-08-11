@@ -10,7 +10,6 @@ import {
 
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Page from "@/components/ui/page";
 import {
@@ -24,6 +23,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import FileDropzone from "@/components/FileDropzone";
+import DvdmsDrugCombobox from "@/components/DvdmsDrugCombobox";
 import ProductKnowledgeCombobox from "@/components/ProductKnowledgeCombobox";
 import { DvdmsProductMapping } from "@/types/dvdms_config";
 import { ProductKnowledge } from "@/types/productKnowledge";
@@ -32,14 +32,16 @@ type ProductMappingsProps = {
   facilityId: string;
 };
 
+type DvdmsDrug = { id: string; name: string };
+
 type MappingForm = {
   productKnowledge: ProductKnowledge | null;
-  eaushadhi_drug_id: string;
+  dvdmsDrug: DvdmsDrug | null;
 };
 
 const EMPTY_MAPPING: MappingForm = {
   productKnowledge: null,
-  eaushadhi_drug_id: "",
+  dvdmsDrug: null,
 };
 
 const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
@@ -69,19 +71,23 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
         slug: mapping.product_knowledge_id,
         name: mapping.product_knowledge_name,
       },
-      eaushadhi_drug_id: mapping.eaushadhi_drug_id,
+      dvdmsDrug: {
+        id: mapping.dvdms_drug_id,
+        name: mapping.dvdms_drug_name,
+      },
     });
     setMappingOpen(true);
   };
 
   const saveMapping = () => {
-    if (!mappingForm.productKnowledge) {
+    if (!mappingForm.productKnowledge || !mappingForm.dvdmsDrug) {
       return;
     }
     const mapping = {
       product_knowledge_id: mappingForm.productKnowledge.id,
       product_knowledge_name: mappingForm.productKnowledge.name,
-      eaushadhi_drug_id: mappingForm.eaushadhi_drug_id,
+      dvdms_drug_id: mappingForm.dvdmsDrug.id,
+      dvdms_drug_name: mappingForm.dvdmsDrug.name,
     };
     if (editingId) {
       setMappings((prev) =>
@@ -162,28 +168,23 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
               />
             </div>
             <div className="space-y-2">
-              <Label>{t("eaushadhi_drug_id")}</Label>
-              <Input
-                className="h-9"
-                placeholder={t("eaushadhi_drug_id_placeholder")}
-                value={mappingForm.eaushadhi_drug_id}
-                onChange={(e) =>
-                  setMappingForm((prev) => ({
-                    ...prev,
-                    eaushadhi_drug_id: e.target.value,
-                  }))
+              <Label>{t("dvdms_drug")}</Label>
+              <DvdmsDrugCombobox
+                value={mappingForm.dvdmsDrug}
+                onChange={(dvdmsDrug) =>
+                  setMappingForm((prev) => ({ ...prev, dvdmsDrug }))
                 }
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="mt-4">
             <DialogClose asChild>
               <Button variant="outline">{t("cancel")}</Button>
             </DialogClose>
             <Button
               variant="primary"
               disabled={
-                !mappingForm.productKnowledge || !mappingForm.eaushadhi_drug_id
+                !mappingForm.productKnowledge || !mappingForm.dvdmsDrug
               }
               onClick={saveMapping}
             >
@@ -226,7 +227,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           <div className="overflow-hidden rounded-lg border border-gray-200">
             <div className="grid grid-cols-[1fr_1fr_auto] gap-4 bg-gray-100 px-4 py-2 text-xs font-medium uppercase text-gray-500">
               <span>{t("product_knowledge")}</span>
-              <span>{t("eaushadhi_drug_id")}</span>
+              <span>{t("dvdms_drug")}</span>
               <span>{t("actions")}</span>
             </div>
             <div className="divide-y divide-gray-200 bg-white">
@@ -239,7 +240,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                     {mapping.product_knowledge_name}
                   </span>
                   <span className="text-sm text-gray-500">
-                    {mapping.eaushadhi_drug_id}
+                    {mapping.dvdms_drug_name}
                   </span>
                   <div className="flex gap-1">
                     <Button

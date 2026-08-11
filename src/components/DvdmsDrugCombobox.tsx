@@ -1,9 +1,7 @@
-import { FC, useEffect, useState } from "react";
+import { FC, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
 import { CheckIcon, ChevronsUpDownIcon, SearchIcon } from "lucide-react";
 
-import { apis } from "@/apis";
 import { cn } from "@/lib/utils";
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
@@ -12,41 +10,31 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ProductKnowledge } from "@/types/productKnowledge";
 
-type ProductKnowledgeComboboxProps = {
-  facilityId: string;
-  value: ProductKnowledge | null;
-  onChange: (productKnowledge: ProductKnowledge) => void;
+interface DvdmsDrug {
+  id: string;
+  name: string;
+}
+
+type DvdmsDrugComboboxProps = {
+  value: DvdmsDrug | null;
+  onChange: (drug: DvdmsDrug) => void;
 };
 
-const ProductKnowledgeCombobox: FC<ProductKnowledgeComboboxProps> = ({
-  facilityId,
+// TODO: Replace with API call once backend endpoint is available
+const DVDMS_DRUGS: DvdmsDrug[] = [];
+
+const DvdmsDrugCombobox: FC<DvdmsDrugComboboxProps> = ({
   value,
   onChange,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  useEffect(() => {
-    const timeout = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(timeout);
-  }, [search]);
-
-  const { data, isLoading } = useQuery({
-    queryKey: ["product-knowledge-search", facilityId, debouncedSearch],
-    queryFn: () =>
-      apis.productKnowledge.list({
-        facility: facilityId,
-        name: debouncedSearch || undefined,
-        limit: 10,
-      }),
-    enabled: open,
-  });
-
-  const results = data?.results ?? [];
+  const filteredDrugs = DVDMS_DRUGS.filter((drug) =>
+    drug.name.toLowerCase().includes(search.toLowerCase()),
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -59,7 +47,7 @@ const ProductKnowledgeCombobox: FC<ProductKnowledgeComboboxProps> = ({
           className="w-full justify-between font-normal"
         >
           <span className={cn("truncate", !value && "text-gray-500")}>
-            {value ? value.name : t("product_knowledge_placeholder")}
+            {value ? value.name : t("dvdms_drug_placeholder")}
           </span>
           <ChevronsUpDownIcon className="size-4 shrink-0 opacity-50" />
         </Button>
@@ -72,42 +60,35 @@ const ProductKnowledgeCombobox: FC<ProductKnowledgeComboboxProps> = ({
           <SearchIcon className="size-4 shrink-0 opacity-50" />
           <input
             autoFocus
-            placeholder={t("search_product_knowledge")}
+            placeholder={t("search_dvdms_drug")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="flex h-9 w-full border-0 bg-transparent text-sm focus:outline-none focus:ring-0 placeholder:text-gray-500"
           />
         </div>
         <div className="max-h-60 overflow-y-auto p-1">
-          {isLoading && (
+          {filteredDrugs.length === 0 && (
             <p className="py-6 text-center text-sm text-gray-500">
-              {t("loading")}
+              {t("no_dvdms_drug_found")}
             </p>
           )}
-          {!isLoading && results.length === 0 && (
-            <p className="py-6 text-center text-sm text-gray-500">
-              {t("no_product_knowledge_found")}
-            </p>
-          )}
-          {results.map((productKnowledge) => (
+          {filteredDrugs.map((drug) => (
             <button
-              key={productKnowledge.id}
+              key={drug.id}
               type="button"
               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-hidden hover:bg-gray-100 focus-visible:bg-gray-100"
               onClick={() => {
-                onChange(productKnowledge);
+                onChange(drug);
                 setOpen(false);
               }}
             >
               <CheckIcon
                 className={cn(
                   "size-4 shrink-0 text-gray-900",
-                  value?.id === productKnowledge.id
-                    ? "opacity-100"
-                    : "opacity-0",
+                  value?.id === drug.id ? "opacity-100" : "opacity-0",
                 )}
               />
-              {productKnowledge.name}
+              {drug.name}
             </button>
           ))}
         </div>
@@ -116,4 +97,4 @@ const ProductKnowledgeCombobox: FC<ProductKnowledgeComboboxProps> = ({
   );
 };
 
-export default ProductKnowledgeCombobox;
+export default DvdmsDrugCombobox;

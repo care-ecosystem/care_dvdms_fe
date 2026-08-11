@@ -17,7 +17,7 @@ export const apis = {
       request<PaginatedResponse<ProductKnowledge>>(
         "/api/v1/product_knowledge/",
         HttpMethod.GET,
-        { status: "active", ...params },
+        { include_instance: "true", ...params },
       ),
   },
 };

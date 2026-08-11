@@ -21,5 +21,6 @@ export interface DvdmsProductMapping {
   id: string;
   product_knowledge_id: string;
   product_knowledge_name: string;
-  eaushadhi_drug_id: string;
+  dvdms_drug_id: string;
+  dvdms_drug_name: string;
 }

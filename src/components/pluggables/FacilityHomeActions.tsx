@@ -428,7 +428,7 @@ const FacilityHomeActions: FC<FacilityHomeActionsProps> = ({ facility }) => {
                     onClick={() => {
                       onOpenChange(false);
                       navigate(
-                        `/facility/${facility.id}/dvdms/product-mappings`,
+                        `/facility/${facility.id}/settings/dvdms/product-mappings`,
                       );
                     }}
                   >

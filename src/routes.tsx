@@ -1,7 +1,7 @@
 import ProductMappings from "./pages/ProductMappings";
 
 const routes = {
-  "/facility/:facilityId/dvdms/product-mappings": ({
+  "/facility/:facilityId/settings/dvdms/product-mappings": ({
     facilityId,
   }: {
     facilityId: string;

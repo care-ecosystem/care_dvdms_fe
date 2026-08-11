@@ -20,5 +20,6 @@ export interface DvdmsFacilityConfig {
 export interface DvdmsProductMapping {
   id: string;
   product_knowledge_id: string;
+  product_knowledge_name: string;
   eaushadhi_drug_id: string;
 }

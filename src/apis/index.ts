@@ -1,6 +1,7 @@
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { request } from "@/apis/query";
 import { Organization } from "@/types/organization";
+import { ProductKnowledge } from "@/types/productKnowledge";
 
 export const apis = {
   organizations: {
@@ -9,6 +10,14 @@ export const apis = {
         "/api/v1/organization/",
         HttpMethod.GET,
         params,
+      ),
+  },
+  productKnowledge: {
+    list: (params: { facility: string; name?: string; limit?: number }) =>
+      request<PaginatedResponse<ProductKnowledge>>(
+        "/api/v1/product_knowledge/",
+        HttpMethod.GET,
+        { status: "active", ...params },
       ),
   },
 };

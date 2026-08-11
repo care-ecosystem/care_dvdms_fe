@@ -14,22 +14,35 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Page from "@/components/ui/page";
 import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import FileDropzone from "@/components/FileDropzone";
+import ProductKnowledgeCombobox from "@/components/ProductKnowledgeCombobox";
 import { DvdmsProductMapping } from "@/types/dvdms_config";
+import { ProductKnowledge } from "@/types/productKnowledge";
 
 type ProductMappingsProps = {
   facilityId: string;
 };
 
-const EMPTY_MAPPING = { product_knowledge_id: "", eaushadhi_drug_id: "" };
+type MappingForm = {
+  productKnowledge: ProductKnowledge | null;
+  eaushadhi_drug_id: string;
+};
 
-const ProductMappings: FC<ProductMappingsProps> = () => {
+const EMPTY_MAPPING: MappingForm = {
+  productKnowledge: null,
+  eaushadhi_drug_id: "",
+};
+
+const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
   // ponytail: local state until the mapping list/create/update/delete APIs exist
@@ -40,7 +53,7 @@ const ProductMappings: FC<ProductMappingsProps> = () => {
 
   const [mappingOpen, setMappingOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [mappingForm, setMappingForm] = useState(EMPTY_MAPPING);
+  const [mappingForm, setMappingForm] = useState<MappingForm>(EMPTY_MAPPING);
 
   const openAddMapping = () => {
     setEditingId(null);
@@ -51,22 +64,31 @@ const ProductMappings: FC<ProductMappingsProps> = () => {
   const openEditMapping = (mapping: DvdmsProductMapping) => {
     setEditingId(mapping.id);
     setMappingForm({
-      product_knowledge_id: mapping.product_knowledge_id,
+      productKnowledge: {
+        id: mapping.product_knowledge_id,
+        slug: mapping.product_knowledge_id,
+        name: mapping.product_knowledge_name,
+      },
       eaushadhi_drug_id: mapping.eaushadhi_drug_id,
     });
     setMappingOpen(true);
   };
 
   const saveMapping = () => {
+    if (!mappingForm.productKnowledge) {
+      return;
+    }
+    const mapping = {
+      product_knowledge_id: mappingForm.productKnowledge.id,
+      product_knowledge_name: mappingForm.productKnowledge.name,
+      eaushadhi_drug_id: mappingForm.eaushadhi_drug_id,
+    };
     if (editingId) {
       setMappings((prev) =>
-        prev.map((m) => (m.id === editingId ? { ...m, ...mappingForm } : m)),
+        prev.map((m) => (m.id === editingId ? { ...m, ...mapping } : m)),
       );
     } else {
-      setMappings((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), ...mappingForm },
-      ]);
+      setMappings((prev) => [...prev, { id: crypto.randomUUID(), ...mapping }]);
     }
     setMappingOpen(false);
   };
@@ -83,59 +105,59 @@ const ProductMappings: FC<ProductMappingsProps> = () => {
 
   const actions = (
     <div className="flex flex-wrap gap-2">
-      <Sheet open={uploadOpen} onOpenChange={setUploadOpen}>
-        <Button variant="outline" onClick={() => setUploadOpen(true)}>
-          <UploadIcon className="mr-2 size-4" />
-          {t("upload_mapping_csv")}
-        </Button>
-        <SheetContent closeLabel={t("close")}>
-          <SheetHeader>
-            <SheetTitle>{t("upload_mapping_csv")}</SheetTitle>
-            <SheetDescription>
+      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+        <DialogTrigger asChild>
+          <Button variant="outline">
+            <UploadIcon className="mr-2 size-4" />
+            {t("upload_mapping_csv")}
+          </Button>
+        </DialogTrigger>
+        <DialogContent closeLabel={t("close")} className="max-w-md w-[95%] rounded-md">
+          <DialogHeader>
+            <DialogTitle>{t("upload_mapping_csv")}</DialogTitle>
+            <DialogDescription>
               {t("upload_mapping_csv_subtitle")}
-            </SheetDescription>
-          </SheetHeader>
-          <div className="py-5 space-y-4">
-            <Input
-              type="file"
-              accept=".csv"
-              onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)}
-            />
-          </div>
-          <div className="flex justify-end gap-3">
-            <SheetClose asChild>
+            </DialogDescription>
+          </DialogHeader>
+          <FileDropzone
+            accept=".csv"
+            selectedFile={csvFile}
+            onFileChange={setCsvFile}
+            dropLabel={t("drag_drop_csv_to_upload")}
+            browseLabel={t("browse_file")}
+          />
+          <DialogFooter>
+            <DialogClose asChild>
               <Button variant="outline">{t("cancel")}</Button>
-            </SheetClose>
+            </DialogClose>
             <Button variant="primary" disabled={!csvFile} onClick={uploadCsv}>
               {t("upload")}
             </Button>
-          </div>
-        </SheetContent>
-      </Sheet>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <Sheet open={mappingOpen} onOpenChange={setMappingOpen}>
-        <Button variant="primary" onClick={openAddMapping}>
-          <PlusIcon className="mr-2 size-4" />
-          {t("add_mapping_manually")}
-        </Button>
-        <SheetContent closeLabel={t("close")}>
-          <SheetHeader>
-            <SheetTitle>
+      <Dialog open={mappingOpen} onOpenChange={setMappingOpen}>
+        <DialogTrigger asChild>
+          <Button variant="primary" onClick={openAddMapping}>
+            <PlusIcon className="mr-2 size-4" />
+            {t("add_mapping_manually")}
+          </Button>
+        </DialogTrigger>
+        <DialogContent closeLabel={t("close")} className="max-w-md w-[95%] rounded-md">
+          <DialogHeader>
+            <DialogTitle>
               {editingId ? t("edit_mapping") : t("add_mapping")}
-            </SheetTitle>
-          </SheetHeader>
-          <div className="py-5 space-y-4">
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
             <div className="space-y-2">
               <Label>{t("product_knowledge")}</Label>
-              <Input
-                className="h-9"
-                placeholder={t("product_knowledge_placeholder")}
-                value={mappingForm.product_knowledge_id}
-                onChange={(e) =>
-                  setMappingForm((prev) => ({
-                    ...prev,
-                    product_knowledge_id: e.target.value,
-                  }))
+              <ProductKnowledgeCombobox
+                facilityId={facilityId}
+                value={mappingForm.productKnowledge}
+                onChange={(productKnowledge) =>
+                  setMappingForm((prev) => ({ ...prev, productKnowledge }))
                 }
               />
             </div>
@@ -154,23 +176,22 @@ const ProductMappings: FC<ProductMappingsProps> = () => {
               />
             </div>
           </div>
-          <div className="flex justify-end gap-3">
-            <SheetClose asChild>
+          <DialogFooter>
+            <DialogClose asChild>
               <Button variant="outline">{t("cancel")}</Button>
-            </SheetClose>
+            </DialogClose>
             <Button
               variant="primary"
               disabled={
-                !mappingForm.product_knowledge_id ||
-                !mappingForm.eaushadhi_drug_id
+                !mappingForm.productKnowledge || !mappingForm.eaushadhi_drug_id
               }
               onClick={saveMapping}
             >
               {t("save")}
             </Button>
-          </div>
-        </SheetContent>
-      </Sheet>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 
@@ -180,7 +201,7 @@ const ProductMappings: FC<ProductMappingsProps> = () => {
       hideTitleOnPage
       className="p-0 care-dvdms-container"
     >
-      <div className="container mx-auto">
+      <div className="container mx-auto p-4">
         <div className="mb-4 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">
@@ -215,7 +236,7 @@ const ProductMappings: FC<ProductMappingsProps> = () => {
                   className="grid grid-cols-[1fr_1fr_auto] items-center gap-4 px-4 py-3"
                 >
                   <span className="text-sm font-medium text-gray-900">
-                    {mapping.product_knowledge_id}
+                    {mapping.product_knowledge_name}
                   </span>
                   <span className="text-sm text-gray-500">
                     {mapping.eaushadhi_drug_id}

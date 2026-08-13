@@ -1,1 +1,18 @@
-@import "tailwindcss";
+@config '../tailwind.config.js';
+
+.care-dvdms-container {
+  @import 'tailwindcss/theme' layer(theme);
+  @import 'tailwindcss/preflight' layer(base);
+  @import 'tailwindcss/utilities' layer(utilities);
+}
+
+@layer base {
+  .care-dvdms-container,
+  .care-dvdms-container *,
+  .care-dvdms-container ::after,
+  .care-dvdms-container ::before,
+  .care-dvdms-container ::backdrop,
+  .care-dvdms-container ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}

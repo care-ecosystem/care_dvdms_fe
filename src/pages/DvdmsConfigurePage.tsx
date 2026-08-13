@@ -45,6 +45,11 @@ type DvdmsConfigurePageProps = {
 const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
+  const { data: facility } = useQuery({
+    queryKey: ["facility", facilityId],
+    queryFn: () => apis.facilities.get(facilityId),
+  });
+
   const form = useForm<DvdmsFacilityConfig>({
     defaultValues: {
       institute_code: "",
@@ -107,7 +112,8 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         <SheetHeader>
           <SheetTitle>{t("dvdms_configuration")}</SheetTitle>
           <SheetDescription>
-            {t("manage_dvdms_config_for")} <strong>{facilityId}</strong>.
+            {t("manage_dvdms_config_for")}{" "}
+            <strong>{facility?.name ?? facilityId}</strong>.
           </SheetDescription>
         </SheetHeader>
 

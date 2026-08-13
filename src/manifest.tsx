@@ -1,11 +1,12 @@
 import { lazy } from "react";
 
 import en from "../public/locale/en.json";
+import routes from "./routes";
 
 const manifest = {
   plugin: "care_dvdms",
   i18n: { en },
-  routes: {},
+  routes,
   components: {
     FacilityHomeActions: lazy(
       () => import("./components/pluggables/FacilityHomeActions"),

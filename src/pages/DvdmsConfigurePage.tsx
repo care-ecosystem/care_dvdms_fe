@@ -8,6 +8,8 @@ import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE } from "@/lib/constants";
+import { LocationPicker } from "@/components/LocationPicker";
+import { EaushadhiStorePicker } from "@/components/EaushadhiStorePicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -38,9 +40,13 @@ import {
 import {
   DvdmsFacilityConfig,
   DvdmsInstitutePayload,
+  DvdmsLookupStore,
 } from "@/types/dvdms_config";
+import { Organization } from "@/types/organization";
 
 const SUPPLIER_ORG_TYPE = "product_supplier";
+const EMPTY_STORES: DvdmsLookupStore[] = [];
+const EMPTY_SUPPLIERS: Organization[] = [];
 
 type DvdmsConfigurePageProps = {
   facilityId: string;
@@ -60,6 +66,13 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     queryFn: () => apis.institutes.get(facilityId),
   });
   const hasInstitute = !!institute;
+
+  const { data: stores } = useQuery({
+    queryKey: ["dvdms_lookup_stores", institute?.id],
+    queryFn: () => apis.institutes.lookupStores(institute!.id),
+    enabled: hasInstitute,
+  });
+  const storeOptions = stores ?? EMPTY_STORES;
 
   const { mutate: saveInstitute, isPending: isSaving } = useMutation({
     mutationFn: (payload: DvdmsInstitutePayload) =>
@@ -86,7 +99,16 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         disable_auto_sync: false,
         allow_manual_entry: false,
       },
-      suppliers: [{ supplier_id: "", supplier_code: "", is_default: true }],
+      suppliers: [
+        {
+          eaushadhi_store_id: "",
+          eaushadhi_store_name: "",
+          eaushadhi_warehouse_name: "",
+          location: null,
+          supplier_id: "",
+          is_default: true,
+        },
+      ],
     },
   });
 
@@ -111,13 +133,16 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     queryFn: () =>
       apis.organizations.list({ org_type: SUPPLIER_ORG_TYPE, limit: 100 }),
   });
-  const supplierOptions = suppliersData?.results ?? [];
+  const supplierOptions = suppliersData?.results ?? EMPTY_SUPPLIERS;
 
   const addSupplier = () => {
     append(
       {
+        eaushadhi_store_id: "",
+        eaushadhi_store_name: "",
+        eaushadhi_warehouse_name: "",
+        location: null,
         supplier_id: "",
-        supplier_code: "",
         is_default: false,
       },
       { shouldFocus: false },
@@ -276,10 +301,11 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
 
               <div>
                 <h3 className="text-base font-semibold text-gray-900 mb-1">
-                  {t("suppliers")} <span className="text-red-500">*</span>
+                  {t("store_supplier_mapping")}{" "}
+                  <span className="text-red-500">*</span>
                 </h3>
                 <p className="text-sm text-gray-500 mb-4">
-                  {t("suppliers_subtitle")}
+                  {t("store_supplier_mapping_subtitle")}
                 </p>
 
                 <div className="space-y-3">
@@ -299,38 +325,64 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                         <Trash2Icon className="size-4" />
                       </Button>
                       <div className="space-y-3">
+                        <FormField
+                          control={form.control}
+                          name={`suppliers.${index}.eaushadhi_store_id`}
+                          rules={{ required: t("eaushadhi_store_required") }}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel
+                                aria-required
+                                className="text-xs font-medium text-gray-600"
+                              >
+                                {t("eaushadhi_store")}
+                              </FormLabel>
+                              <FormControl>
+                                <EaushadhiStorePicker
+                                  storeOptions={storeOptions}
+                                  value={field.value}
+                                  onValueChange={(store) => {
+                                    field.onChange(
+                                      store ? String(store.hstnumStoreId) : "",
+                                    );
+                                    form.setValue(
+                                      `suppliers.${index}.eaushadhi_store_name`,
+                                      store?.hststrStoreName ?? "",
+                                    );
+                                    form.setValue(
+                                      `suppliers.${index}.eaushadhi_warehouse_name`,
+                                      store?.hststrParentStoreName ?? "",
+                                    );
+                                  }}
+                                  placeholder={t("eaushadhi_store_placeholder")}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
                         <div className="grid grid-cols-2 gap-3 w-full">
                           <FormField
                             control={form.control}
-                            name={`suppliers.${index}.supplier_id`}
-                            rules={{ required: t("supplier_required") }}
+                            name={`suppliers.${index}.location`}
+                            rules={{ required: t("location_required") }}
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel
                                   aria-required
                                   className="text-xs font-medium text-gray-600"
                                 >
-                                  {t("supplier")}
+                                  {t("location")}
                                 </FormLabel>
-                                <Select
-                                  onValueChange={field.onChange}
-                                  value={field.value}
-                                >
-                                  <FormControl>
-                                    <SelectTrigger className="w-full h-9">
-                                      <SelectValue
-                                        placeholder={t("supplier_placeholder")}
-                                      />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    {supplierOptions.map((org) => (
-                                      <SelectItem key={org.id} value={org.id}>
-                                        {org.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                <FormControl>
+                                  <LocationPicker
+                                    facilityId={facilityId}
+                                    value={field.value}
+                                    onValueChange={field.onChange}
+                                    placeholder={t("location_placeholder")}
+                                  />
+                                </FormControl>
                                 <FormMessage />
                               </FormItem>
                             )}
@@ -338,18 +390,18 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
 
                           <FormField
                             control={form.control}
-                            name={`suppliers.${index}.supplier_code`}
-                            rules={{ required: t("supplier_code_required") }}
+                            name={`suppliers.${index}.eaushadhi_warehouse_name`}
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel
-                                  aria-required
-                                  className="text-xs font-medium text-gray-600"
-                                >
-                                  {t("supplier_code")}
+                                <FormLabel className="text-xs font-medium text-gray-600">
+                                  {t("eaushadhi_warehouse_name")}
                                 </FormLabel>
                                 <FormControl>
-                                  <Input className="h-9" {...field} />
+                                  <Input
+                                    className="h-9 bg-gray-50 cursor-default"
+                                    readOnly
+                                    {...field}
+                                  />
                                 </FormControl>
                                 <FormMessage />
                               </FormItem>
@@ -359,9 +411,45 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
 
                         <FormField
                           control={form.control}
+                          name={`suppliers.${index}.supplier_id`}
+                          rules={{ required: t("supplier_required") }}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel
+                                aria-required
+                                className="text-xs font-medium text-gray-600"
+                              >
+                                {t("supplier")}
+                              </FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value}
+                              >
+                                <FormControl>
+                                  <SelectTrigger className="w-full h-9">
+                                    <SelectValue
+                                      placeholder={t("supplier_placeholder")}
+                                    />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {supplierOptions.map((org) => (
+                                    <SelectItem key={org.id} value={org.id}>
+                                      {org.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
                           name={`suppliers.${index}.is_default`}
                           render={({ field }) => (
-                            <FormItem className="flex items-center gap-2">
+                            <FormItem className="flex items-center gap-2 space-y-0 mt-4">
                               <FormControl>
                                 <Switch
                                   checked={field.value}

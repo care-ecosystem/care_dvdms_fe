@@ -1,7 +1,24 @@
+import { LocationRead } from "@/types/location";
+
 export interface DvdmsSupplierMapping {
+  eaushadhi_store_id: string;
+  eaushadhi_store_name: string;
+  eaushadhi_warehouse_name: string;
+  location: LocationRead | null;
   supplier_id: string;
-  supplier_code: string;
   is_default: boolean;
+}
+
+export interface DvdmsLookupStore {
+  hstnumStoreId: number;
+  hststrStoreName: string;
+  sststrTypeName: string;
+  gnumSeatid: number;
+  hststrLocation: string;
+  sstnumDwhTypeId: number;
+  hstnumParentStoreId: number;
+  hststrParentStoreName: string;
+  parentTypeName: string;
 }
 
 export interface DvdmsFacilityConfigMeta {

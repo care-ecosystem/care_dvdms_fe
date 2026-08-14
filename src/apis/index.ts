@@ -2,7 +2,12 @@ import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { request } from "@/apis/query";
 import { Organization } from "@/types/organization";
 import { Facility } from "@/types/facility";
-import { DvdmsInstitute, DvdmsInstitutePayload } from "@/types/dvdms_config";
+import { LocationRead } from "@/types/location";
+import {
+  DvdmsInstitute,
+  DvdmsInstitutePayload,
+  DvdmsLookupStore,
+} from "@/types/dvdms_config";
 
 export const apis = {
   organizations: {
@@ -37,6 +42,28 @@ export const apis = {
         `/api/care_dvdms/facility/${facilityId}/institute/`,
         HttpMethod.PATCH,
         payload,
+      ),
+    lookupStores: (instituteId: string) =>
+      request<DvdmsLookupStore[]>(
+        `/api/care_dvdms/institute/${instituteId}/lookup/stores/`,
+        HttpMethod.GET,
+      ),
+  },
+  locations: {
+    list: (
+      facilityId: string,
+      params: {
+        status?: string;
+        mine?: boolean;
+        parent?: string;
+        mode?: string;
+        name?: string;
+      } = {},
+    ) =>
+      request<PaginatedResponse<LocationRead>>(
+        `/api/v1/facility/${facilityId}/location/`,
+        HttpMethod.GET,
+        { ordering: "sort_index", ...params },
       ),
   },
 };

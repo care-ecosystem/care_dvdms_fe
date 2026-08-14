@@ -1,9 +1,10 @@
-import { FC } from "react";
+import { FC, useEffect } from "react";
 import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFieldArray, useForm } from "react-hook-form";
 import { PlusIcon, Trash2Icon } from "lucide-react";
+import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE } from "@/lib/constants";
@@ -34,7 +35,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { DvdmsFacilityConfig } from "@/types/dvdms_config";
+import {
+  DvdmsFacilityConfig,
+  DvdmsInstitutePayload,
+} from "@/types/dvdms_config";
 
 const SUPPLIER_ORG_TYPE = "product_supplier";
 
@@ -44,17 +48,38 @@ type DvdmsConfigurePageProps = {
 
 const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
+  const queryClient = useQueryClient();
 
   const { data: facility } = useQuery({
     queryKey: ["facility", facilityId],
     queryFn: () => apis.facilities.get(facilityId),
   });
 
+  const { data: institute } = useQuery({
+    queryKey: ["dvdms_institute", facilityId],
+    queryFn: () => apis.institutes.get(facilityId),
+  });
+
+  const { mutate: saveInstitute, isPending: isSaving } = useMutation({
+    mutationFn: (payload: DvdmsInstitutePayload) =>
+      institute
+        ? apis.institutes.update(facilityId, payload)
+        : apis.institutes.create(facilityId, payload),
+    onSuccess: () => {
+      toast.success(t("dvdms_institute_save_success"));
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_institute", facilityId],
+      });
+    },
+    onError: () => toast.error(t("dvdms_institute_save_error")),
+  });
+
   const form = useForm<DvdmsFacilityConfig>({
     defaultValues: {
-      institute_code: "",
-      store_code: "",
-      store_name: "",
+      eaushadhi_institute_id: "",
+      eaushadhi_user_ref_id: "",
+      eaushadhi_institute_name: "",
+      schema_version: "",
       meta: {
         disable_auto_sync: false,
         allow_manual_entry: false,
@@ -62,6 +87,17 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       suppliers: [{ supplier_id: "", supplier_code: "", is_default: true }],
     },
   });
+
+  useEffect(() => {
+    if (!institute) return;
+    form.reset({
+      ...form.getValues(),
+      eaushadhi_institute_id: institute.eaushadhi_institute_id,
+      eaushadhi_user_ref_id: institute.eaushadhi_user_ref_id,
+      eaushadhi_institute_name: institute.eaushadhi_institute_name,
+      schema_version: institute.schema_version,
+    });
+  }, [institute]);
 
   const { fields, append, remove } = useFieldArray({
     control: form.control,
@@ -120,7 +156,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         <div className="px-1 py-5">
           <Form {...form}>
             <form
-              onSubmit={form.handleSubmit(() => {
+              onSubmit={form.handleSubmit((values) => {
                 if (fields.length === 0) {
                   form.setError("suppliers", {
                     type: "manual",
@@ -128,7 +164,12 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                   });
                   return;
                 }
-                // TODO: wire up create/update API call
+                saveInstitute({
+                  eaushadhi_institute_id: values.eaushadhi_institute_id,
+                  eaushadhi_user_ref_id: values.eaushadhi_user_ref_id,
+                  eaushadhi_institute_name: values.eaushadhi_institute_name,
+                  schema_version: values.schema_version,
+                });
               })}
               className="space-y-8"
             >
@@ -143,16 +184,16 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 <div className="space-y-4">
                   <FormField
                     control={form.control}
-                    name="institute_code"
-                    rules={{ required: t("institute_code_required") }}
+                    name="eaushadhi_institute_id"
+                    rules={{ required: t("eaushadhi_institute_id_required") }}
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel aria-required>
-                          {t("institute_code")}
+                          {t("eaushadhi_institute_id")}
                         </FormLabel>
                         <FormControl>
                           <Input
-                            placeholder={t("institute_code_placeholder")}
+                            placeholder={t("eaushadhi_institute_id_placeholder")}
                             className="h-9"
                             {...field}
                           />
@@ -164,14 +205,16 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
 
                   <FormField
                     control={form.control}
-                    name="store_code"
-                    rules={{ required: t("store_code_required") }}
+                    name="eaushadhi_user_ref_id"
+                    rules={{ required: t("eaushadhi_user_ref_id_required") }}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel aria-required>{t("store_code")}</FormLabel>
+                        <FormLabel aria-required>
+                          {t("eaushadhi_user_ref_id")}
+                        </FormLabel>
                         <FormControl>
                           <Input
-                            placeholder={t("store_code_placeholder")}
+                            placeholder={t("eaushadhi_user_ref_id_placeholder")}
                             className="h-9"
                             {...field}
                           />
@@ -183,14 +226,37 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
 
                   <FormField
                     control={form.control}
-                    name="store_name"
-                    rules={{ required: t("store_name_required") }}
+                    name="eaushadhi_institute_name"
+                    rules={{ required: t("eaushadhi_institute_name_required") }}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel aria-required>{t("store_name")}</FormLabel>
+                        <FormLabel aria-required>
+                          {t("eaushadhi_institute_name")}
+                        </FormLabel>
                         <FormControl>
                           <Input
-                            placeholder={t("store_name_placeholder")}
+                            placeholder={t("eaushadhi_institute_name_placeholder")}
+                            className="h-9"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="schema_version"
+                    rules={{ required: t("schema_version_required") }}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel aria-required>
+                          {t("schema_version")}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t("schema_version_placeholder")}
                             className="h-9"
                             {...field}
                           />
@@ -397,8 +463,8 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                     {t("cancel")}
                   </Button>
                 </SheetClose>
-                <Button type="submit" variant="primary">
-                  {t("save")}
+                <Button type="submit" variant="primary" disabled={isSaving}>
+                  {isSaving ? t("saving") : t("save")}
                 </Button>
               </div>
             </form>

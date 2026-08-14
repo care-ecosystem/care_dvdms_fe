@@ -59,6 +59,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     queryKey: ["dvdms_institute", facilityId],
     queryFn: () => apis.institutes.get(facilityId),
   });
+  const hasInstitute = !!institute;
 
   const { mutate: saveInstitute, isPending: isSaving } = useMutation({
     mutationFn: (payload: DvdmsInstitutePayload) =>
@@ -71,7 +72,8 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         queryKey: ["dvdms_institute", facilityId],
       });
     },
-    onError: () => toast.error(t("dvdms_institute_save_error")),
+    onError: (error: { message?: string }) =>
+      toast.error(error?.message || t("dvdms_institute_save_error")),
   });
 
   const form = useForm<DvdmsFacilityConfig>({
@@ -157,7 +159,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
           <Form {...form}>
             <form
               onSubmit={form.handleSubmit((values) => {
-                if (fields.length === 0) {
+                if (hasInstitute && fields.length === 0) {
                   form.setError("suppliers", {
                     type: "manual",
                     message: t("suppliers_required"),
@@ -268,6 +270,8 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 </div>
               </div>
 
+              {hasInstitute && (
+              <>
               <hr className="border-gray-200" />
 
               <div>
@@ -456,6 +460,8 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                   />
                 </div>
               </div>
+              </>
+              )}
 
               <div className="flex justify-end mt-6 gap-3">
                 <SheetClose asChild>

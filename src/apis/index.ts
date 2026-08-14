@@ -22,7 +22,10 @@ export const apis = {
       request<DvdmsInstitute>(
         `/api/care_dvdms/facility/${facilityId}/institute/`,
         HttpMethod.GET,
-      ),
+      ).catch((error: { status?: number }) => {
+        if (error?.status === 404) return null;
+        throw error;
+      }),
     create: (facilityId: string, payload: DvdmsInstitutePayload) =>
       request<DvdmsInstitute>(
         `/api/care_dvdms/facility/${facilityId}/institute/`,

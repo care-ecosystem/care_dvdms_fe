@@ -14,10 +14,19 @@ import {
   DvdmsSupplierOrgMappingPayload,
   DvdmsSupplierOrgMappingUpdatePayload,
 } from "@/types/dvdms_config";
+import { RecordOrder, RecordOrderPayload } from "@/types/recordOrder";
+import {
+  RecordItemOrder,
+  RecordItemOrderPayload,
+} from "@/types/recordOrderItem";
+import { RequestOrder } from "@/types/requestOrder";
+import { SupplyRequest } from "@/types/supplyRequest";
+import { TagConfig } from "@/types/tagConfig";
+import { ProductKnowledge } from "@/types/productKnowledge";
 
 export const apis = {
   organizations: {
-    list: (params: { org_type: string; limit?: number }) =>
+    list: (params: { org_type: string; limit?: number; name?: string }) =>
       request<PaginatedResponse<Organization>>(
         "/api/v1/organization/",
         HttpMethod.GET,
@@ -27,6 +36,105 @@ export const apis = {
   facilities: {
     get: (facilityId: string) =>
       request<Facility>(`/api/v1/facility/${facilityId}/`, HttpMethod.GET),
+  },
+  requestOrders: {
+    list: (
+      facilityId: string,
+      params: {
+        destination: string;
+        limit?: number;
+        offset?: number;
+        status?: string;
+        origin_isnull?: boolean;
+        supplier?: string;
+      },
+    ) =>
+      request<PaginatedResponse<RequestOrder>>(
+        `/api/v1/facility/${facilityId}/order/request/`,
+        HttpMethod.GET,
+        params,
+      ),
+    retrieve: (facilityId: string, requestOrderId: string) =>
+      request<RequestOrder>(
+        `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/`,
+        HttpMethod.GET,
+      ),
+    setTags: (facilityId: string, requestOrderId: string, tags: string[]) =>
+      request<RequestOrder>(
+        `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/set_tags/`,
+        HttpMethod.POST,
+        { tags },
+      ),
+    removeTags: (facilityId: string, requestOrderId: string, tags: string[]) =>
+      request<RequestOrder>(
+        `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/remove_tags/`,
+        HttpMethod.POST,
+        { tags },
+      ),
+  },
+  supplyRequests: {
+    list: (params: {
+      order: string;
+      limit?: number;
+      offset?: number;
+      ordering?: string;
+    }) =>
+      request<PaginatedResponse<SupplyRequest>>(
+        "/api/v1/supply_request/",
+        HttpMethod.GET,
+        params,
+      ),
+  },
+  recordOrders: {
+    list: (
+      instituteId: string,
+      params: {
+        limit?: number;
+        offset?: number;
+        order?: string;
+        status?: string;
+        ordering?: string;
+      } = {},
+    ) =>
+      request<PaginatedResponse<RecordOrder>>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/`,
+        HttpMethod.GET,
+        params,
+      ),
+    create: (instituteId: string, payload: RecordOrderPayload) =>
+      request<RecordOrder>(
+        `/api/care_dvdms/institute/${instituteId}/record_order`,
+        HttpMethod.POST,
+        { ...payload },
+      ),
+  },
+  item: {
+    list: (
+      instituteId: string,
+      recordOrderId: string,
+      params: {
+        limit?: number;
+        offset?: number;
+        record_order?: string;
+        order?: string;
+        ordering?: string;
+      } = {},
+    ) =>
+      request<PaginatedResponse<RecordItemOrder>>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
+        HttpMethod.GET,
+        params,
+      ),
+    create: (
+      instituteId: string,
+      recordOrderId: string,
+      payload: RecordItemOrderPayload,
+    ) =>
+      request<RecordItemOrder>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
+        HttpMethod.POST,
+        { ...payload },
+      ),
   },
   institutes: {
     get: (facilityId: string) =>
@@ -121,6 +229,36 @@ export const apis = {
         `/api/care_dvdms/institute/${instituteId}/suppliers/${mappingId}/`,
         HttpMethod.PATCH,
         payload,
+      ),
+  },
+  productKnowledge: {
+    list: (params: {
+      facility: string;
+      limit?: number;
+      offset?: number;
+      category?: string;
+      status?: string;
+      include_instance?: boolean;
+    }) =>
+      request<PaginatedResponse<ProductKnowledge>>(
+        "/api/v1/product_knowledge/",
+        HttpMethod.GET,
+        params,
+      ),
+  },
+  tagConfigs: {
+    list: (params: {
+      resource: string;
+      status?: string;
+      display?: string;
+      parent_is_null?: boolean;
+      parent?: string;
+      facility?: string;
+    }) =>
+      request<PaginatedResponse<TagConfig>>(
+        "/api/v1/tag_config/",
+        HttpMethod.GET,
+        params,
       ),
   },
 };

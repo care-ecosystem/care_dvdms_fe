@@ -13,3 +13,8 @@ export function formatDate(dateStr: string | null | undefined): string {
     year: "numeric",
   });
 }
+
+export function formatQuantity(quantity: string | number): string {
+  const value = Number(quantity);
+  return Number.isFinite(value) ? value.toFixed(2) : String(quantity);
+}

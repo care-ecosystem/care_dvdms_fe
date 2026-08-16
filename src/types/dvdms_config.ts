@@ -101,3 +101,29 @@ export type DvdmsInstitutePayload = Pick<
   | "schema_version"
   | "meta"
 >;
+export interface DvdmsInstituteUser {
+  id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+}
+
+export interface DvdmsInstituteSupplierOrg {
+  id: string;
+  name: string;
+  org_type: string;
+}
+
+export interface DvdmsInstituteSupplier {
+  id: string;
+  institute_id: string;
+  supplier_id: string;
+  eaushadhi_warehouse_id: string;
+  eaushadhi_warehouse_name: string;
+  is_default: boolean;
+  supplier: DvdmsInstituteSupplierOrg;
+  created_by: DvdmsInstituteUser | null;
+  updated_by: DvdmsInstituteUser | null;
+  created_date: string;
+  modified_date: string;
+}

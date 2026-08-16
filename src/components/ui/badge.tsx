@@ -4,32 +4,34 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-md border border-gray-200 px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-hidden focus:ring-2 focus:ring-gray-950 focus:ring-offset-2 dark:border-gray-800 dark:focus:ring-gray-300",
+  "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-px text-sm font-medium whitespace-nowrap text-gray-950",
   {
     variants: {
       variant: {
-        default:
-          "border-transparent bg-gray-900 text-gray-50 shadow-sm hover:bg-gray-900/80 dark:bg-gray-50 dark:text-gray-900 dark:hover:bg-gray-50/80",
-        secondary:
-          "border-gray-300 bg-gray-100 text-gray-900 hover:bg-gray-100/80 dark:bg-gray-800 dark:text-gray-50 dark:hover:bg-gray-800/80",
-        destructive:
-          "border-red-300 bg-red-500 text-gray-50 shadow-sm hover:bg-red-500/80 dark:bg-red-900 dark:text-gray-50 dark:hover:bg-red-900/80",
-        outline: "border-gray-300 text-gray-950 dark:text-gray-50",
+        secondary: "border-gray-300 bg-gray-100 text-gray-900",
+        yellow: "border-yellow-300 bg-yellow-100 text-yellow-900",
+        green: "border-green-300 bg-green-100 text-green-900",
+        destructive: "border-red-300 bg-red-100 text-red-900",
+        indigo: "border-indigo-300 bg-indigo-100 text-indigo-900",
       },
     },
     defaultVariants: {
-      variant: "default",
+      variant: "secondary",
     },
   },
 );
 
-export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {}
-
-function Badge({ className, variant, ...props }: BadgeProps) {
+function Badge({
+  className,
+  variant,
+  ...props
+}: React.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
   return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props} />
+    <span
+      data-slot="badge"
+      className={cn(badgeVariants({ variant }), className)}
+      {...props}
+    />
   );
 }
 

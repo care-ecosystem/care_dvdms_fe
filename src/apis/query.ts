@@ -2,6 +2,47 @@ import { HttpMethod, RequestOptions } from "@/apis/types";
 
 const CARE_ACCESS_TOKEN_KEY = "care_access_token";
 
+export function extractErrorMessage(data: unknown): string | null {
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+
+  const obj = data as Record<string, unknown>;
+
+  if (typeof obj.detail === "string") {
+    return obj.detail;
+  }
+
+  if (Array.isArray(obj.errors) && obj.errors.length > 0) {
+    const firstError = obj.errors[0] as Record<string, unknown>;
+
+    if (
+      firstError.ctx &&
+      typeof firstError.ctx === "object" &&
+      typeof (firstError.ctx as Record<string, unknown>).error === "string"
+    ) {
+      return (firstError.ctx as Record<string, unknown>).error as string;
+    }
+
+    if (typeof firstError.msg === "string") {
+      return firstError.msg;
+    }
+
+    if (firstError.msg && typeof firstError.msg === "object") {
+      const value = Object.values(firstError.msg)[0];
+      if (typeof value === "string") {
+        return value;
+      }
+    }
+
+    if (typeof firstError.error === "string") {
+      return firstError.error;
+    }
+  }
+
+  return null;
+}
+
 export const request = async <T>(
   endpoint: string,
   method: HttpMethod = HttpMethod.GET,
@@ -46,7 +87,11 @@ export const request = async <T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw { status: response.status, data: error };
+    throw {
+      status: response.status,
+      data: error,
+      message: extractErrorMessage(error) || "An error occurred",
+    };
   }
 
   if (response.status === 204) return undefined as T;

@@ -147,27 +147,41 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
               }
             } catch (error: unknown) {
               if (hydrated?.location) {
-                const restored = await apis.storeMappings.create(
-                  facilityId,
-                  savedInstitute.id,
-                  {
-                    store: hydrated.location.id,
-                    eaushadhi_store_id: hydrated.eaushadhi_store_id,
-                    eaushadhi_store_name: hydrated.eaushadhi_store_name,
-                    is_default: true,
-                  },
-                );
-                form.setValue(
-                  "mapping.eaushadhi_store_id",
-                  hydrated.eaushadhi_store_id,
-                );
-                form.setValue(
-                  "mapping.eaushadhi_store_name",
-                  hydrated.eaushadhi_store_name,
-                );
-                form.setValue("mapping.location", hydrated.location);
-                form.setValue("mapping.store_mapping_id", restored.id);
+                try {
+                  const restored = await apis.storeMappings.create(
+                    facilityId,
+                    savedInstitute.id,
+                    {
+                      store: hydrated.location.id,
+                      eaushadhi_store_id: hydrated.eaushadhi_store_id,
+                      eaushadhi_store_name: hydrated.eaushadhi_store_name,
+                      is_default: true,
+                    },
+                  );
+                  form.setValue(
+                    "mapping.eaushadhi_store_id",
+                    hydrated.eaushadhi_store_id,
+                  );
+                  form.setValue(
+                    "mapping.eaushadhi_store_name",
+                    hydrated.eaushadhi_store_name,
+                  );
+                  form.setValue("mapping.location", hydrated.location);
+                  form.setValue("mapping.store_mapping_id", restored.id);
+                } catch {
+                  form.setValue("mapping.eaushadhi_store_id", "");
+                  form.setValue("mapping.eaushadhi_store_name", "");
+                  form.setValue("mapping.location", null);
+                  form.setValue("mapping.store_mapping_id", undefined);
+                }
               }
+              hydratedMappingRef.current = {
+                ...(hydratedMappingRef.current ?? EMPTY_MAPPING),
+                eaushadhi_store_id: form.getValues("mapping.eaushadhi_store_id"),
+                eaushadhi_store_name: form.getValues("mapping.eaushadhi_store_name"),
+                location: form.getValues("mapping.location"),
+                store_mapping_id: form.getValues("mapping.store_mapping_id"),
+              };
               throw error;
             }
           } else if (!row.store_mapping_id && row.location) {
@@ -184,7 +198,13 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
             form.setValue("mapping.store_mapping_id", created.id);
           }
 
-          hydratedMappingRef.current = form.getValues("mapping");
+          hydratedMappingRef.current = {
+            ...(hydratedMappingRef.current ?? EMPTY_MAPPING),
+            eaushadhi_store_id: form.getValues("mapping.eaushadhi_store_id"),
+            eaushadhi_store_name: form.getValues("mapping.eaushadhi_store_name"),
+            location: form.getValues("mapping.location"),
+            store_mapping_id: form.getValues("mapping.store_mapping_id"),
+          };
 
           const supplierChanged =
             !!row.supplier_mapping_id &&
@@ -213,26 +233,44 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
               }
             } catch (error: unknown) {
               if (hydrated?.supplier_id) {
-                const restored = await apis.supplierMappings.create(
-                  savedInstitute.id,
-                  {
-                    supplier: hydrated.supplier_id,
-                    eaushadhi_warehouse_id: hydrated.eaushadhi_warehouse_id,
-                    eaushadhi_warehouse_name: hydrated.eaushadhi_warehouse_name,
-                    is_default: true,
-                  },
-                );
-                form.setValue("mapping.supplier_id", hydrated.supplier_id);
-                form.setValue(
-                  "mapping.eaushadhi_warehouse_id",
-                  hydrated.eaushadhi_warehouse_id,
-                );
-                form.setValue(
-                  "mapping.eaushadhi_warehouse_name",
-                  hydrated.eaushadhi_warehouse_name,
-                );
-                form.setValue("mapping.supplier_mapping_id", restored.id);
+                try {
+                  const restored = await apis.supplierMappings.create(
+                    savedInstitute.id,
+                    {
+                      supplier: hydrated.supplier_id,
+                      eaushadhi_warehouse_id: hydrated.eaushadhi_warehouse_id,
+                      eaushadhi_warehouse_name: hydrated.eaushadhi_warehouse_name,
+                      is_default: true,
+                    },
+                  );
+                  form.setValue("mapping.supplier_id", hydrated.supplier_id);
+                  form.setValue(
+                    "mapping.eaushadhi_warehouse_id",
+                    hydrated.eaushadhi_warehouse_id,
+                  );
+                  form.setValue(
+                    "mapping.eaushadhi_warehouse_name",
+                    hydrated.eaushadhi_warehouse_name,
+                  );
+                  form.setValue("mapping.supplier_mapping_id", restored.id);
+                } catch {
+                  form.setValue("mapping.supplier_id", "");
+                  form.setValue("mapping.eaushadhi_warehouse_id", "");
+                  form.setValue("mapping.eaushadhi_warehouse_name", "");
+                  form.setValue("mapping.supplier_mapping_id", undefined);
+                }
               }
+              hydratedMappingRef.current = {
+                ...(hydratedMappingRef.current ?? EMPTY_MAPPING),
+                supplier_id: form.getValues("mapping.supplier_id"),
+                eaushadhi_warehouse_id: form.getValues(
+                  "mapping.eaushadhi_warehouse_id",
+                ),
+                eaushadhi_warehouse_name: form.getValues(
+                  "mapping.eaushadhi_warehouse_name",
+                ),
+                supplier_mapping_id: form.getValues("mapping.supplier_mapping_id"),
+              };
               throw error;
             }
           } else if (!row.supplier_mapping_id && row.supplier_id) {

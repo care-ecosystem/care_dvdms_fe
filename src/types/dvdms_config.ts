@@ -8,7 +8,6 @@ export interface DvdmsSupplierMapping {
   eaushadhi_warehouse_name: string;
   location: LocationRead | null;
   supplier_id: string;
-  is_default: boolean;
   store_mapping_id?: string;
   supplier_mapping_id?: string;
 }
@@ -58,8 +57,7 @@ export interface DvdmsLookupStore {
 }
 
 export interface DvdmsFacilityConfigMeta {
-  disable_auto_sync: boolean;
-  allow_manual_entry: boolean;
+  allow_updating_quantity_after_received: boolean;
 }
 
 export interface DvdmsFacilityConfig {
@@ -68,7 +66,7 @@ export interface DvdmsFacilityConfig {
   eaushadhi_institute_name: string;
   schema_version: string;
   meta: DvdmsFacilityConfigMeta;
-  suppliers: DvdmsSupplierMapping[];
+  mapping: DvdmsSupplierMapping;
 }
 
 export interface DvdmsInstitute {
@@ -78,6 +76,7 @@ export interface DvdmsInstitute {
   eaushadhi_user_ref_id: string;
   eaushadhi_institute_name: string;
   schema_version: string;
+  meta: DvdmsFacilityConfigMeta | null;
 }
 
 export type DvdmsInstitutePayload = Pick<
@@ -86,4 +85,5 @@ export type DvdmsInstitutePayload = Pick<
   | "eaushadhi_user_ref_id"
   | "eaushadhi_institute_name"
   | "schema_version"
+  | "meta"
 >;

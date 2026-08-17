@@ -1,13 +1,10 @@
 {
-  "add_supplier": "Add Supplier",
-  "allow_manual_entry": "Allow Manual Entry",
-  "allow_manual_entry_description": "Let users manually enter records instead of relying on DVDMS sync alone.",
+  "allow_updating_quantity_after_received": "Allow Updating Quantity After Received",
+  "allow_updating_quantity_after_received_description": "Let users modify quantities after items have been marked as received.",
   "cancel": "Cancel",
   "clear": "Clear",
   "close": "Close",
   "configure_dvdms": "Configure DVDMS",
-  "disable_auto_sync": "Disable Auto Sync",
-  "disable_auto_sync_description": "Stop this facility from automatically syncing data with DVDMS.",
   "dvdms_configuration": "DVDMS Configuration",
   "dvdms_institute_save_error": "Failed to save DVDMS institute configuration",
   "dvdms_institute_save_success": "DVDMS institute configuration saved",
@@ -50,13 +47,11 @@
   "schema_version_required": "Schema version is required",
   "search_locations": "Search locations...",
   "select_location": "Select location",
-  "set_as_default": "Set as default",
   "settings": "Settings",
   "settings_subtitle": "Control how this facility syncs with DVDMS.",
   "store_supplier_mapping": "Store Supplier Mapping",
   "store_supplier_mapping_subtitle": "Map eAushadhi stores and locations to suppliers for this facility.",
   "supplier": "Supplier",
   "supplier_placeholder": "Select a supplier",
-  "supplier_required": "Supplier is required",
-  "suppliers_required": "At least one store supplier mapping is required"
+  "supplier_required": "Supplier is required"
 }

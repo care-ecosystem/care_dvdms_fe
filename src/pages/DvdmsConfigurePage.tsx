@@ -3,7 +3,6 @@ import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
-import { Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
@@ -61,6 +60,20 @@ const EMPTY_MAPPING: DvdmsSupplierMapping = {
   supplier_id: "",
 };
 
+type MappingSnapshot = {
+  storeLocationId: string | null;
+  eaushadhiStoreId: string;
+  supplierId: string;
+  eaushadhiWarehouseId: string;
+};
+
+const snapshotMapping = (row: DvdmsSupplierMapping): MappingSnapshot => ({
+  storeLocationId: row.location?.id ?? null,
+  eaushadhiStoreId: row.eaushadhi_store_id,
+  supplierId: row.supplier_id,
+  eaushadhiWarehouseId: row.eaushadhi_warehouse_id,
+});
+
 type DvdmsConfigurePageProps = {
   facilityId: string;
 };
@@ -117,23 +130,60 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       try {
         if (hasInstitute) {
           const row = form.getValues("mapping");
-          if (!row.store_mapping_id && row.location) {
-            await apis.storeMappings.create(facilityId, savedInstitute.id, {
-              store: row.location.id,
-              eaushadhi_store_id: row.eaushadhi_store_id,
-              eaushadhi_store_name: row.eaushadhi_store_name,
-              is_default: true,
-            });
+          const hydrated = hydratedMappingRef.current;
+
+          const storeChanged =
+            !!row.store_mapping_id &&
+            (row.location?.id !== hydrated?.storeLocationId ||
+              row.eaushadhi_store_id !== hydrated?.eaushadhiStoreId);
+
+          if (storeChanged && row.store_mapping_id) {
+            await apis.storeMappings.delete(
+              facilityId,
+              savedInstitute.id,
+              row.store_mapping_id,
+            );
+            form.setValue("mapping.store_mapping_id", undefined);
           }
-          if (!row.supplier_mapping_id && row.supplier_id) {
-            await apis.supplierMappings.create(savedInstitute.id, {
+          if ((!row.store_mapping_id || storeChanged) && row.location) {
+            const created = await apis.storeMappings.create(
+              facilityId,
+              savedInstitute.id,
+              {
+                store: row.location.id,
+                eaushadhi_store_id: row.eaushadhi_store_id,
+                eaushadhi_store_name: row.eaushadhi_store_name,
+                is_default: true,
+              },
+            );
+            form.setValue("mapping.store_mapping_id", created.id);
+          }
+
+          const supplierChanged =
+            !!row.supplier_mapping_id &&
+            (row.supplier_id !== hydrated?.supplierId ||
+              row.eaushadhi_warehouse_id !== hydrated?.eaushadhiWarehouseId);
+
+          if (supplierChanged && row.supplier_mapping_id) {
+            await apis.supplierMappings.delete(
+              savedInstitute.id,
+              row.supplier_mapping_id,
+            );
+            form.setValue("mapping.supplier_mapping_id", undefined);
+          }
+          if ((!row.supplier_mapping_id || supplierChanged) && row.supplier_id) {
+            const created = await apis.supplierMappings.create(savedInstitute.id, {
               supplier: row.supplier_id,
               eaushadhi_warehouse_id: row.eaushadhi_warehouse_id,
               eaushadhi_warehouse_name: row.eaushadhi_warehouse_name,
               is_default: true,
             });
+            form.setValue("mapping.supplier_mapping_id", created.id);
           }
+
+          hydratedMappingRef.current = snapshotMapping(form.getValues("mapping"));
         }
+
         toast.success(t("dvdms_institute_save_success"));
         queryClient.invalidateQueries({
           queryKey: ["dvdms_institute", facilityId],
@@ -176,10 +226,12 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   }, [institute]);
 
   const hydratedInstituteId = useRef<string | null>(null);
+  const hydratedMappingRef = useRef<MappingSnapshot | null>(null);
 
   useEffect(() => {
     if (!institute) {
       hydratedInstituteId.current = null;
+      hydratedMappingRef.current = null;
       return;
     }
     if (!storeMappingsData || !supplierMappingsData) return;
@@ -188,7 +240,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     const store = storeMappingsData.results[0];
     const supplier = supplierMappingsData.results[0];
     if (store || supplier) {
-      form.setValue("mapping", {
+      const mapping: DvdmsSupplierMapping = {
         eaushadhi_store_id: store?.eaushadhi_store_id ?? "",
         eaushadhi_store_name: store?.eaushadhi_store_name ?? "",
         eaushadhi_warehouse_id: supplier?.eaushadhi_warehouse_id ?? "",
@@ -197,7 +249,9 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         supplier_id: supplier?.supplier?.id ?? "",
         store_mapping_id: store?.id,
         supplier_mapping_id: supplier?.id,
-      });
+      };
+      form.setValue("mapping", mapping);
+      hydratedMappingRef.current = snapshotMapping(mapping);
     }
     hydratedInstituteId.current = institute.id;
   }, [institute, storeMappingsData, supplierMappingsData]);
@@ -208,30 +262,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       apis.organizations.list({ org_type: SUPPLIER_ORG_TYPE, limit: 100 }),
   });
   const supplierOptions = suppliersData?.results ?? EMPTY_SUPPLIERS;
-
-  const removeMapping = async () => {
-    const row = form.getValues("mapping");
-    try {
-      if (row.store_mapping_id) {
-        await apis.storeMappings.delete(
-          facilityId,
-          institute!.id,
-          row.store_mapping_id,
-        );
-      }
-      if (row.supplier_mapping_id) {
-        await apis.supplierMappings.delete(
-          institute!.id,
-          row.supplier_mapping_id,
-        );
-      }
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error) || t("dvdms_mapping_delete_error"));
-      return;
-    }
-    form.setValue("mapping", EMPTY_MAPPING);
-    invalidateMappingQueries();
-  };
 
   const goBackToFacility = () => {
     navigate(`/facility/${facilityId}/settings/general`);
@@ -384,16 +414,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 <div
                   className="relative border border-gray-200 rounded-lg p-3 pt-5"
                 >
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={removeMapping}
-                    className="absolute top-1 right-1 shrink-0 hover:bg-white hover:text-gray-900"
-                    aria-label={t("remove_supplier")}
-                  >
-                    <Trash2Icon className="size-4" />
-                  </Button>
                   <div className="space-y-3">
                     <FormField
                       control={form.control}

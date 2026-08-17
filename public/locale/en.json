@@ -11,6 +11,8 @@
   "dvdms_configuration": "DVDMS Configuration",
   "dvdms_institute_save_error": "Failed to save DVDMS institute configuration",
   "dvdms_institute_save_success": "DVDMS institute configuration saved",
+  "dvdms_mapping_delete_error": "Failed to remove store supplier mapping",
+  "dvdms_mapping_save_error": "Failed to save store supplier mapping",
   "eaushadhi_institute_id": "eAushadhi Institute ID",
   "eaushadhi_institute_id_placeholder": "Enter eAushadhi institute ID",
   "eaushadhi_institute_id_required": "eAushadhi institute ID is required",

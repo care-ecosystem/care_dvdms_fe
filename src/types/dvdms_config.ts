@@ -1,13 +1,49 @@
 import { LocationRead } from "@/types/location";
+import { Organization } from "@/types/organization";
 
 export interface DvdmsSupplierMapping {
   eaushadhi_store_id: string;
   eaushadhi_store_name: string;
+  eaushadhi_warehouse_id: string;
   eaushadhi_warehouse_name: string;
   location: LocationRead | null;
   supplier_id: string;
   is_default: boolean;
+  store_mapping_id?: string;
+  supplier_mapping_id?: string;
 }
+
+export interface DvdmsStoreMapping {
+  id: string;
+  institute_id: string;
+  eaushadhi_store_id: string;
+  eaushadhi_store_name: string;
+  is_default: boolean;
+  store: Pick<LocationRead, "id" | "name" | "form"> | null;
+}
+
+export type DvdmsStoreMappingPayload = {
+  store: string;
+  eaushadhi_store_id: string;
+  eaushadhi_store_name: string;
+  is_default: boolean;
+};
+
+export interface DvdmsSupplierOrgMapping {
+  id: string;
+  institute_id: string;
+  eaushadhi_warehouse_id: string;
+  eaushadhi_warehouse_name: string;
+  is_default: boolean;
+  supplier: Pick<Organization, "id" | "name"> | null;
+}
+
+export type DvdmsSupplierOrgMappingPayload = {
+  supplier: string;
+  eaushadhi_warehouse_id: string;
+  eaushadhi_warehouse_name: string;
+  is_default: boolean;
+};
 
 export interface DvdmsLookupStore {
   hstnumStoreId: number;

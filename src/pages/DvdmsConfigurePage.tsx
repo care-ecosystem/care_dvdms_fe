@@ -1,4 +1,4 @@
-import { FC, useEffect } from "react";
+import { FC, useEffect, useRef } from "react";
 import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -41,12 +41,22 @@ import {
   DvdmsFacilityConfig,
   DvdmsInstitutePayload,
   DvdmsLookupStore,
+  DvdmsSupplierMapping,
 } from "@/types/dvdms_config";
 import { Organization } from "@/types/organization";
 
 const SUPPLIER_ORG_TYPE = "product_supplier";
 const EMPTY_STORES: DvdmsLookupStore[] = [];
 const EMPTY_SUPPLIERS: Organization[] = [];
+const NEW_SUPPLIER_ROW: DvdmsSupplierMapping = {
+  eaushadhi_store_id: "",
+  eaushadhi_store_name: "",
+  eaushadhi_warehouse_id: "",
+  eaushadhi_warehouse_name: "",
+  location: null,
+  supplier_id: "",
+  is_default: false,
+};
 
 type DvdmsConfigurePageProps = {
   facilityId: string;
@@ -74,16 +84,64 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   });
   const storeOptions = stores ?? EMPTY_STORES;
 
+  const { data: storeMappingsData } = useQuery({
+    queryKey: ["dvdms_store_mappings", facilityId, institute?.id],
+    queryFn: () => apis.storeMappings.list(facilityId, institute!.id),
+    enabled: hasInstitute,
+  });
+
+  const { data: supplierMappingsData } = useQuery({
+    queryKey: ["dvdms_supplier_mappings", institute?.id],
+    queryFn: () => apis.supplierMappings.list(institute!.id),
+    enabled: hasInstitute,
+  });
+
+  const invalidateMappingQueries = () => {
+    queryClient.invalidateQueries({
+      queryKey: ["dvdms_store_mappings", facilityId, institute?.id],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["dvdms_supplier_mappings", institute?.id],
+    });
+  };
+
   const { mutate: saveInstitute, isPending: isSaving } = useMutation({
     mutationFn: (payload: DvdmsInstitutePayload) =>
       institute
         ? apis.institutes.update(facilityId, payload)
         : apis.institutes.create(facilityId, payload),
-    onSuccess: () => {
-      toast.success(t("dvdms_institute_save_success"));
-      queryClient.invalidateQueries({
-        queryKey: ["dvdms_institute", facilityId],
-      });
+    onSuccess: async (savedInstitute) => {
+      try {
+        if (hasInstitute) {
+          const rows = form.getValues("suppliers");
+          for (const row of rows) {
+            if (!row.store_mapping_id && row.location) {
+              await apis.storeMappings.create(facilityId, savedInstitute.id, {
+                store: row.location.id,
+                eaushadhi_store_id: row.eaushadhi_store_id,
+                eaushadhi_store_name: row.eaushadhi_store_name,
+                is_default: row.is_default,
+              });
+            }
+            if (!row.supplier_mapping_id && row.supplier_id) {
+              await apis.supplierMappings.create(savedInstitute.id, {
+                supplier: row.supplier_id,
+                eaushadhi_warehouse_id: row.eaushadhi_warehouse_id,
+                eaushadhi_warehouse_name: row.eaushadhi_warehouse_name,
+                is_default: row.is_default,
+              });
+            }
+          }
+        }
+        toast.success(t("dvdms_institute_save_success"));
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_institute", facilityId],
+        });
+        invalidateMappingQueries();
+      } catch (error: unknown) {
+        const message = (error as { message?: string })?.message;
+        toast.error(message || t("dvdms_mapping_save_error"));
+      }
     },
     onError: (error: { message?: string }) =>
       toast.error(error?.message || t("dvdms_institute_save_error")),
@@ -99,16 +157,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         disable_auto_sync: false,
         allow_manual_entry: false,
       },
-      suppliers: [
-        {
-          eaushadhi_store_id: "",
-          eaushadhi_store_name: "",
-          eaushadhi_warehouse_name: "",
-          location: null,
-          supplier_id: "",
-          is_default: true,
-        },
-      ],
+      suppliers: [{ ...NEW_SUPPLIER_ROW, is_default: true }],
     },
   });
 
@@ -123,10 +172,50 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     });
   }, [institute]);
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, replace } = useFieldArray({
     control: form.control,
     name: "suppliers",
   });
+
+  const hydratedInstituteId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!institute) {
+      hydratedInstituteId.current = null;
+      return;
+    }
+    if (!storeMappingsData || !supplierMappingsData) return;
+    // Only hydrate once per institute load — after that, the form is the
+    // source of truth and server refetches (from saves/deletes) must not
+    // clobber rows the user is still editing.
+    if (hydratedInstituteId.current === institute.id) return;
+
+    const storeRows = storeMappingsData.results;
+    const supplierRows = supplierMappingsData.results;
+    const count = Math.max(storeRows.length, supplierRows.length);
+    if (count > 0) {
+      const rows: DvdmsSupplierMapping[] = Array.from(
+        { length: count },
+        (_, i) => {
+          const store = storeRows[i];
+          const supplier = supplierRows[i];
+          return {
+            eaushadhi_store_id: store?.eaushadhi_store_id ?? "",
+            eaushadhi_store_name: store?.eaushadhi_store_name ?? "",
+            eaushadhi_warehouse_id: supplier?.eaushadhi_warehouse_id ?? "",
+            eaushadhi_warehouse_name: supplier?.eaushadhi_warehouse_name ?? "",
+            location: store?.store ?? null,
+            supplier_id: supplier?.supplier?.id ?? "",
+            is_default: store?.is_default || supplier?.is_default || false,
+            store_mapping_id: store?.id,
+            supplier_mapping_id: supplier?.id,
+          };
+        },
+      );
+      replace(rows);
+    }
+    hydratedInstituteId.current = institute.id;
+  }, [institute, storeMappingsData, supplierMappingsData, replace]);
 
   const { data: suppliersData } = useQuery({
     queryKey: ["dvdms_supplier_organizations"],
@@ -136,17 +225,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   const supplierOptions = suppliersData?.results ?? EMPTY_SUPPLIERS;
 
   const addSupplier = () => {
-    append(
-      {
-        eaushadhi_store_id: "",
-        eaushadhi_store_name: "",
-        eaushadhi_warehouse_name: "",
-        location: null,
-        supplier_id: "",
-        is_default: false,
-      },
-      { shouldFocus: false },
-    );
+    append(NEW_SUPPLIER_ROW, { shouldFocus: false });
     form.clearErrors("suppliers");
   };
 
@@ -154,6 +233,31 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     fields.forEach((_, i) => {
       form.setValue(`suppliers.${i}.is_default`, i === index);
     });
+  };
+
+  const removeSupplier = async (index: number) => {
+    const row = form.getValues(`suppliers.${index}`);
+    try {
+      if (row.store_mapping_id) {
+        await apis.storeMappings.delete(
+          facilityId,
+          institute!.id,
+          row.store_mapping_id,
+        );
+      }
+      if (row.supplier_mapping_id) {
+        await apis.supplierMappings.delete(
+          institute!.id,
+          row.supplier_mapping_id,
+        );
+      }
+    } catch (error: unknown) {
+      const message = (error as { message?: string })?.message;
+      toast.error(message || t("dvdms_mapping_delete_error"));
+      return;
+    }
+    remove(index);
+    invalidateMappingQueries();
   };
 
   const goBackToFacility = () => {
@@ -318,7 +422,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                         type="button"
                         variant="ghost"
                         size="icon"
-                        onClick={() => remove(index)}
+                        onClick={() => removeSupplier(index)}
                         className="absolute top-1 right-1 shrink-0 hover:bg-white hover:text-gray-900"
                         aria-label={t("remove_supplier")}
                       >
@@ -348,6 +452,10 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                                     form.setValue(
                                       `suppliers.${index}.eaushadhi_store_name`,
                                       store?.hststrStoreName ?? "",
+                                    );
+                                    form.setValue(
+                                      `suppliers.${index}.eaushadhi_warehouse_id`,
+                                      store ? String(store.hstnumParentStoreId) : "",
                                     );
                                     form.setValue(
                                       `suppliers.${index}.eaushadhi_warehouse_name`,

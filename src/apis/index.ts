@@ -7,6 +7,10 @@ import {
   DvdmsInstitute,
   DvdmsInstitutePayload,
   DvdmsLookupStore,
+  DvdmsStoreMapping,
+  DvdmsStoreMappingPayload,
+  DvdmsSupplierOrgMapping,
+  DvdmsSupplierOrgMappingPayload,
 } from "@/types/dvdms_config";
 
 export const apis = {
@@ -64,6 +68,46 @@ export const apis = {
         `/api/v1/facility/${facilityId}/location/`,
         HttpMethod.GET,
         { ordering: "sort_index", ...params },
+      ),
+  },
+  storeMappings: {
+    list: (facilityId: string, instituteId: string) =>
+      request<PaginatedResponse<DvdmsStoreMapping>>(
+        `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
+        HttpMethod.GET,
+      ),
+    create: (
+      facilityId: string,
+      instituteId: string,
+      payload: DvdmsStoreMappingPayload,
+    ) =>
+      request<DvdmsStoreMapping>(
+        `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
+        HttpMethod.POST,
+        payload,
+      ),
+    delete: (facilityId: string, instituteId: string, mappingId: string) =>
+      request<{ message: string }>(
+        `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/${mappingId}/`,
+        HttpMethod.DELETE,
+      ),
+  },
+  supplierMappings: {
+    list: (instituteId: string) =>
+      request<PaginatedResponse<DvdmsSupplierOrgMapping>>(
+        `/api/care_dvdms/institute/${instituteId}/suppliers/`,
+        HttpMethod.GET,
+      ),
+    create: (instituteId: string, payload: DvdmsSupplierOrgMappingPayload) =>
+      request<DvdmsSupplierOrgMapping>(
+        `/api/care_dvdms/institute/${instituteId}/suppliers/`,
+        HttpMethod.POST,
+        payload,
+      ),
+    delete: (instituteId: string, mappingId: string) =>
+      request<{ message: string }>(
+        `/api/care_dvdms/institute/${instituteId}/suppliers/${mappingId}/`,
+        HttpMethod.DELETE,
       ),
   },
 };

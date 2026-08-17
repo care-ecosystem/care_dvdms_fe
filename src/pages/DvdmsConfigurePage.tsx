@@ -1,4 +1,4 @@
-import { FC, useEffect, useRef } from "react";
+import { FC, useEffect } from "react";
 import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -98,15 +98,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     enabled: hasInstitute,
   });
 
-  const invalidateMappingQueries = () => {
-    queryClient.invalidateQueries({
-      queryKey: ["dvdms_store_mappings", facilityId, institute?.id],
-    });
-    queryClient.invalidateQueries({
-      queryKey: ["dvdms_supplier_mappings", institute?.id],
-    });
-  };
-
   const { mutate: saveInstitute, isPending: isSaving } = useMutation({
     mutationFn: (payload: DvdmsInstitutePayload) =>
       institute
@@ -116,75 +107,19 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       try {
         if (hasInstitute) {
           const row = form.getValues("mapping");
-          const hydrated = hydratedMappingRef.current;
 
-          const storeChanged =
-            !!row.store_mapping_id &&
-            (row.location?.id !== hydrated?.location?.id ||
-              row.eaushadhi_store_id !== hydrated?.eaushadhi_store_id);
-
-          if (storeChanged && row.store_mapping_id) {
-            await apis.storeMappings.delete(
+          if (row.store_mapping_id) {
+            await apis.storeMappings.update(
               facilityId,
               savedInstitute.id,
               row.store_mapping_id,
+              {
+                store: row.location?.id,
+                eaushadhi_store_id: row.eaushadhi_store_id,
+                eaushadhi_store_name: row.eaushadhi_store_name,
+              },
             );
-            form.setValue("mapping.store_mapping_id", undefined);
-
-            try {
-              if (row.location) {
-                const created = await apis.storeMappings.create(
-                  facilityId,
-                  savedInstitute.id,
-                  {
-                    store: row.location.id,
-                    eaushadhi_store_id: row.eaushadhi_store_id,
-                    eaushadhi_store_name: row.eaushadhi_store_name,
-                    is_default: true,
-                  },
-                );
-                form.setValue("mapping.store_mapping_id", created.id);
-              }
-            } catch (error: unknown) {
-              if (hydrated?.location) {
-                try {
-                  const restored = await apis.storeMappings.create(
-                    facilityId,
-                    savedInstitute.id,
-                    {
-                      store: hydrated.location.id,
-                      eaushadhi_store_id: hydrated.eaushadhi_store_id,
-                      eaushadhi_store_name: hydrated.eaushadhi_store_name,
-                      is_default: true,
-                    },
-                  );
-                  form.setValue(
-                    "mapping.eaushadhi_store_id",
-                    hydrated.eaushadhi_store_id,
-                  );
-                  form.setValue(
-                    "mapping.eaushadhi_store_name",
-                    hydrated.eaushadhi_store_name,
-                  );
-                  form.setValue("mapping.location", hydrated.location);
-                  form.setValue("mapping.store_mapping_id", restored.id);
-                } catch {
-                  form.setValue("mapping.eaushadhi_store_id", "");
-                  form.setValue("mapping.eaushadhi_store_name", "");
-                  form.setValue("mapping.location", null);
-                  form.setValue("mapping.store_mapping_id", undefined);
-                }
-              }
-              hydratedMappingRef.current = {
-                ...(hydratedMappingRef.current ?? EMPTY_MAPPING),
-                eaushadhi_store_id: form.getValues("mapping.eaushadhi_store_id"),
-                eaushadhi_store_name: form.getValues("mapping.eaushadhi_store_name"),
-                location: form.getValues("mapping.location"),
-                store_mapping_id: form.getValues("mapping.store_mapping_id"),
-              };
-              throw error;
-            }
-          } else if (!row.store_mapping_id && row.location) {
+          } else if (row.location) {
             const created = await apis.storeMappings.create(
               facilityId,
               savedInstitute.id,
@@ -198,82 +133,17 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
             form.setValue("mapping.store_mapping_id", created.id);
           }
 
-          hydratedMappingRef.current = {
-            ...(hydratedMappingRef.current ?? EMPTY_MAPPING),
-            eaushadhi_store_id: form.getValues("mapping.eaushadhi_store_id"),
-            eaushadhi_store_name: form.getValues("mapping.eaushadhi_store_name"),
-            location: form.getValues("mapping.location"),
-            store_mapping_id: form.getValues("mapping.store_mapping_id"),
-          };
-
-          const supplierChanged =
-            !!row.supplier_mapping_id &&
-            (row.supplier_id !== hydrated?.supplier_id ||
-              row.eaushadhi_warehouse_id !== hydrated?.eaushadhi_warehouse_id);
-
-          if (supplierChanged && row.supplier_mapping_id) {
-            await apis.supplierMappings.delete(
+          if (row.supplier_mapping_id) {
+            await apis.supplierMappings.update(
               savedInstitute.id,
               row.supplier_mapping_id,
+              {
+                supplier: row.supplier_id,
+                eaushadhi_warehouse_id: row.eaushadhi_warehouse_id,
+                eaushadhi_warehouse_name: row.eaushadhi_warehouse_name,
+              },
             );
-            form.setValue("mapping.supplier_mapping_id", undefined);
-
-            try {
-              if (row.supplier_id) {
-                const created = await apis.supplierMappings.create(
-                  savedInstitute.id,
-                  {
-                    supplier: row.supplier_id,
-                    eaushadhi_warehouse_id: row.eaushadhi_warehouse_id,
-                    eaushadhi_warehouse_name: row.eaushadhi_warehouse_name,
-                    is_default: true,
-                  },
-                );
-                form.setValue("mapping.supplier_mapping_id", created.id);
-              }
-            } catch (error: unknown) {
-              if (hydrated?.supplier_id) {
-                try {
-                  const restored = await apis.supplierMappings.create(
-                    savedInstitute.id,
-                    {
-                      supplier: hydrated.supplier_id,
-                      eaushadhi_warehouse_id: hydrated.eaushadhi_warehouse_id,
-                      eaushadhi_warehouse_name: hydrated.eaushadhi_warehouse_name,
-                      is_default: true,
-                    },
-                  );
-                  form.setValue("mapping.supplier_id", hydrated.supplier_id);
-                  form.setValue(
-                    "mapping.eaushadhi_warehouse_id",
-                    hydrated.eaushadhi_warehouse_id,
-                  );
-                  form.setValue(
-                    "mapping.eaushadhi_warehouse_name",
-                    hydrated.eaushadhi_warehouse_name,
-                  );
-                  form.setValue("mapping.supplier_mapping_id", restored.id);
-                } catch {
-                  form.setValue("mapping.supplier_id", "");
-                  form.setValue("mapping.eaushadhi_warehouse_id", "");
-                  form.setValue("mapping.eaushadhi_warehouse_name", "");
-                  form.setValue("mapping.supplier_mapping_id", undefined);
-                }
-              }
-              hydratedMappingRef.current = {
-                ...(hydratedMappingRef.current ?? EMPTY_MAPPING),
-                supplier_id: form.getValues("mapping.supplier_id"),
-                eaushadhi_warehouse_id: form.getValues(
-                  "mapping.eaushadhi_warehouse_id",
-                ),
-                eaushadhi_warehouse_name: form.getValues(
-                  "mapping.eaushadhi_warehouse_name",
-                ),
-                supplier_mapping_id: form.getValues("mapping.supplier_mapping_id"),
-              };
-              throw error;
-            }
-          } else if (!row.supplier_mapping_id && row.supplier_id) {
+          } else if (row.supplier_id) {
             const created = await apis.supplierMappings.create(
               savedInstitute.id,
               {
@@ -285,15 +155,12 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
             );
             form.setValue("mapping.supplier_mapping_id", created.id);
           }
-
-          hydratedMappingRef.current = form.getValues("mapping");
         }
 
         toast.success(t("dvdms_institute_save_success"));
         queryClient.invalidateQueries({
           queryKey: ["dvdms_institute", facilityId],
         });
-        invalidateMappingQueries();
       } catch (error: unknown) {
         toast.error(getErrorMessage(error) || t("dvdms_mapping_save_error"));
       }
@@ -314,9 +181,10 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       mapping: EMPTY_MAPPING,
     },
   });
+  const isDirty = form.formState.isDirty;
 
   useEffect(() => {
-    if (!institute) return;
+    if (!institute || isDirty) return;
     form.reset({
       ...form.getValues(),
       eaushadhi_institute_id: institute.eaushadhi_institute_id,
@@ -328,19 +196,11 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
           institute.meta?.allow_updating_quantity_after_received ?? false,
       },
     });
-  }, [institute]);
-
-  const hydratedInstituteId = useRef<string | null>(null);
-  const hydratedMappingRef = useRef<DvdmsSupplierMapping | null>(null);
+  }, [institute, isDirty]);
 
   useEffect(() => {
-    if (!institute) {
-      hydratedInstituteId.current = null;
-      hydratedMappingRef.current = null;
-      return;
-    }
+    if (!institute || isDirty) return;
     if (!storeMappingsData || !supplierMappingsData) return;
-    if (hydratedInstituteId.current === institute.id) return;
 
     const store = storeMappingsData.results[0];
     const supplier = supplierMappingsData.results[0];
@@ -356,10 +216,8 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         supplier_mapping_id: supplier?.id,
       };
       form.setValue("mapping", mapping);
-      hydratedMappingRef.current = mapping;
     }
-    hydratedInstituteId.current = institute.id;
-  }, [institute, storeMappingsData, supplierMappingsData]);
+  }, [institute, isDirty, storeMappingsData, supplierMappingsData]);
 
   const { data: suppliersData } = useQuery({
     queryKey: ["dvdms_supplier_organizations"],

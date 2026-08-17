@@ -9,8 +9,10 @@ import {
   DvdmsLookupStore,
   DvdmsStoreMapping,
   DvdmsStoreMappingPayload,
+  DvdmsStoreMappingUpdatePayload,
   DvdmsSupplierOrgMapping,
   DvdmsSupplierOrgMappingPayload,
+  DvdmsSupplierOrgMappingUpdatePayload,
 } from "@/types/dvdms_config";
 
 export const apis = {
@@ -86,10 +88,16 @@ export const apis = {
         HttpMethod.POST,
         payload,
       ),
-    delete: (facilityId: string, instituteId: string, mappingId: string) =>
-      request<{ message: string }>(
+    update: (
+      facilityId: string,
+      instituteId: string,
+      mappingId: string,
+      payload: DvdmsStoreMappingUpdatePayload,
+    ) =>
+      request<DvdmsStoreMapping>(
         `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/${mappingId}/`,
-        HttpMethod.DELETE,
+        HttpMethod.PATCH,
+        payload,
       ),
   },
   supplierMappings: {
@@ -104,10 +112,15 @@ export const apis = {
         HttpMethod.POST,
         payload,
       ),
-    delete: (instituteId: string, mappingId: string) =>
-      request<{ message: string }>(
+    update: (
+      instituteId: string,
+      mappingId: string,
+      payload: DvdmsSupplierOrgMappingUpdatePayload,
+    ) =>
+      request<DvdmsSupplierOrgMapping>(
         `/api/care_dvdms/institute/${instituteId}/suppliers/${mappingId}/`,
-        HttpMethod.DELETE,
+        HttpMethod.PATCH,
+        payload,
       ),
   },
 };

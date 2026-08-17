@@ -28,6 +28,13 @@ export type DvdmsStoreMappingPayload = {
   is_default: boolean;
 };
 
+export type DvdmsStoreMappingUpdatePayload = {
+  store?: string;
+  eaushadhi_store_id?: string;
+  eaushadhi_store_name?: string;
+  is_default?: boolean;
+};
+
 export interface DvdmsSupplierOrgMapping {
   id: string;
   institute_id: string;
@@ -42,6 +49,13 @@ export type DvdmsSupplierOrgMappingPayload = {
   eaushadhi_warehouse_id: string;
   eaushadhi_warehouse_name: string;
   is_default: boolean;
+};
+
+export type DvdmsSupplierOrgMappingUpdatePayload = {
+  supplier?: string;
+  eaushadhi_warehouse_id?: string;
+  eaushadhi_warehouse_name?: string;
+  is_default?: boolean;
 };
 
 export interface DvdmsLookupStore {

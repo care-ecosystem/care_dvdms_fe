@@ -29,7 +29,7 @@
   "eaushadhi_warehouse_name": "Warehouse Name",
   "failed_to_load_locations": "Failed to load locations",
   "institute_details": "Institute Details",
-  "institute_details_subtitle": "Set the institute and store identifiers for this facility.",
+  "institute_details_subtitle": "Set the institute ID, user reference ID, institute name, and schema version for this facility.",
   "level": "Level",
   "location": "Location",
   "location_placeholder": "Select a location",

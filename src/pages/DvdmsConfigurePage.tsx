@@ -99,13 +99,18 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   });
 
   const { mutate: saveInstitute, isPending: isSaving } = useMutation({
-    mutationFn: (payload: DvdmsInstitutePayload) =>
-      institute
-        ? apis.institutes.update(facilityId, payload)
-        : apis.institutes.create(facilityId, payload),
-    onSuccess: async (savedInstitute) => {
+    mutationFn: async (payload: DvdmsInstitutePayload) => {
+      let savedInstitute;
       try {
-        if (hasInstitute) {
+        savedInstitute = institute
+          ? await apis.institutes.update(facilityId, payload)
+          : await apis.institutes.create(facilityId, payload);
+      } catch (error: unknown) {
+        throw new Error(getErrorMessage(error) || t("dvdms_institute_save_error"));
+      }
+
+      if (hasInstitute) {
+        try {
           const row = form.getValues("mapping");
 
           if (row.store_mapping_id) {
@@ -155,18 +160,27 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
             );
             form.setValue("mapping.supplier_mapping_id", created.id);
           }
+        } catch (error: unknown) {
+          throw new Error(getErrorMessage(error) || t("dvdms_mapping_save_error"));
         }
-
-        toast.success(t("dvdms_institute_save_success"));
-        queryClient.invalidateQueries({
-          queryKey: ["dvdms_institute", facilityId],
-        });
-      } catch (error: unknown) {
-        toast.error(getErrorMessage(error) || t("dvdms_mapping_save_error"));
       }
+
+      return savedInstitute;
+    },
+    onSuccess: (savedInstitute) => {
+      toast.success(t("dvdms_institute_save_success"));
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_institute", facilityId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_store_mappings", facilityId, savedInstitute.id],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_supplier_mappings", savedInstitute.id],
+      });
     },
     onError: (error: { message?: string }) =>
-      toast.error(error?.message || t("dvdms_institute_save_error")),
+      toast.error(error?.message || t("dvdms_mapping_save_error")),
   });
 
   const form = useForm<DvdmsFacilityConfig>({

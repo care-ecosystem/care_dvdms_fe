@@ -61,19 +61,32 @@ export const LocationPicker: FC<LocationPickerProps> = ({
     undefined,
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [searchQuery]);
 
   const {
     data: locationsResponse,
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["dvdms_locations", facilityId, currentParent, searchQuery],
+    queryKey: [
+      "dvdms_locations",
+      facilityId,
+      currentParent,
+      debouncedSearchQuery,
+    ],
     queryFn: () =>
       apis.locations.list(facilityId, {
         parent: currentParent ? currentParent : undefined,
         mode: "kind",
         status: "active",
-        name: searchQuery || undefined,
+        name: debouncedSearchQuery || undefined,
         mine: currentParent ? undefined : true,
       }),
     enabled: !!facilityId && open,
@@ -85,7 +98,10 @@ export const LocationPicker: FC<LocationPickerProps> = ({
     [locationsResponse?.results],
   );
 
-  const resetSearch = () => setSearchQuery("");
+  const resetSearch = () => {
+    setSearchQuery("");
+    setDebouncedSearchQuery("");
+  };
 
   useEffect(() => {
     if (open && value?.parent) {

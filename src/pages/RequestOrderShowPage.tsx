@@ -1,7 +1,8 @@
 import { FC, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
+import { toast } from "sonner";
 import {
   Ban,
   Box,
@@ -29,6 +30,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -48,6 +56,7 @@ import {
   REQUEST_ORDER_STATUS_VARIANTS,
 } from "@/types/requestOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
+import { RecordItemOrderDrug } from "@/types/recordOrderItem";
 
 type RequestOrderShowPageProps = {
   facilityId: string;
@@ -70,14 +79,20 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   useShortcutSubContext("facility:inventory");
+  const queryClient = useQueryClient();
 
   const [currentTab, setCurrentTab] = useState<TabValue>("requested-items");
   const [tableItems, setTableItems] = useState<SupplyRequest[]>([]);
+  const [selectedDrugs, setSelectedDrugs] = useState<
+    Record<string, RecordItemOrderDrug | undefined>
+  >({});
 
   const { data: order, isLoading } = useQuery({
     queryKey: ["dvdms_request_order", facilityId, requestOrderId],
     queryFn: () => apis.requestOrders.retrieve(facilityId, requestOrderId),
   });
+
+  const SUPPLY_REQUESTS_PAGE_SIZE = 14;
 
   const { data: supplyRequestsData } = useQuery({
     queryKey: ["dvdms_supply_requests", requestOrderId],
@@ -85,14 +100,43 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       apis.supplyRequests.list({
         order: requestOrderId,
         ordering: "-created_date",
-        limit: 14,
+        limit: SUPPLY_REQUESTS_PAGE_SIZE,
         offset: 0,
       }),
   });
 
+  const [loadedSupplyRequestsCount, setLoadedSupplyRequestsCount] =
+    useState(0);
+  const [hasSavedOnce, setHasSavedOnce] = useState(false);
+
   useEffect(() => {
     setTableItems(supplyRequestsData?.results ?? []);
+    setLoadedSupplyRequestsCount(supplyRequestsData?.results.length ?? 0);
   }, [supplyRequestsData]);
+
+  const totalSupplyRequestsCount = supplyRequestsData?.count ?? 0;
+  const hasMoreSupplyRequests =
+    loadedSupplyRequestsCount < totalSupplyRequestsCount;
+
+  const loadBalanceSupplyRequestsMutation = useMutation({
+    mutationFn: () =>
+      apis.supplyRequests.list({
+        order: requestOrderId,
+        ordering: "-created_date",
+        limit: SUPPLY_REQUESTS_PAGE_SIZE,
+        offset: loadedSupplyRequestsCount,
+      }),
+    onSuccess: (data) => {
+      setTableItems((prev) => {
+        const existingIds = new Set(prev.map((item) => item.id));
+        const balanceItems = data.results.filter(
+          (item) => !existingIds.has(item.id),
+        );
+        return [...prev, ...balanceItems];
+      });
+      setLoadedSupplyRequestsCount((prev) => prev + data.results.length);
+    },
+  });
 
   const { data: productKnowledgeData } = useQuery({
     queryKey: ["dvdms_product_knowledge", facilityId],
@@ -114,7 +158,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
 
   const { data: institute } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
-    queryFn: () => apis.dvdmsInstitute.get(facilityId),
+    queryFn: () => apis.institutes.get(facilityId),
   });
 
   const { data: recordOrdersData } = useQuery({
@@ -128,6 +172,110 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   });
   const recordOrder = recordOrdersData?.results?.[0];
 
+  const recordItemOrdersQueryKey = [
+    "dvdms_record_item_orders",
+    institute?.id,
+    recordOrder?.id,
+  ];
+
+  const { data: recordItemOrdersData } = useQuery({
+    queryKey: recordItemOrdersQueryKey,
+    queryFn: () =>
+      apis.item.list(institute!.id, recordOrder!.id, { limit: 100 }),
+    enabled: !!institute?.id && !!recordOrder?.id,
+  });
+
+  const { data: productMappingsData } = useQuery({
+    queryKey: ["dvdms_product_mappings", institute?.id, recordOrder?.id],
+    queryFn: () =>
+      apis.productMappings.list(institute!.id, recordOrder!.id, {
+        limit: 100,
+      }),
+    enabled: !!institute?.id && !!recordOrder?.id,
+  });
+
+  const existingItemBySupplyRequestId = new Map(
+    (recordItemOrdersData?.results ?? []).map((item) => [
+      item.supply_request.id,
+      item,
+    ]),
+  );
+
+  const suggestedDrugBySupplyRequestId = new Map(
+    (productMappingsData?.results ?? [])
+      .filter((mapping) => mapping.product_mapping)
+      .map((mapping) => [
+        mapping.supply_request.id,
+        mapping.product_mapping!.eaushadhi_drug_details,
+      ]),
+  );
+
+  const drugOptionsBySupplyRequestId = new Map<string, RecordItemOrderDrug[]>(
+    tableItems.map((item) => {
+      const existingDrug = existingItemBySupplyRequestId.get(item.id)?.drug;
+      const suggestedDrug = suggestedDrugBySupplyRequestId.get(item.id);
+      const options: RecordItemOrderDrug[] = [];
+      if (existingDrug) options.push(existingDrug);
+      if (suggestedDrug && suggestedDrug.id !== existingDrug?.id) {
+        options.push(suggestedDrug);
+      }
+      return [item.id, options];
+    }),
+  );
+
+  useEffect(() => {
+    setSelectedDrugs((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      tableItems.forEach((item) => {
+        if (next[item.id]) return;
+        const drug =
+          existingItemBySupplyRequestId.get(item.id)?.drug ??
+          suggestedDrugBySupplyRequestId.get(item.id);
+        if (drug) {
+          next[item.id] = drug;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableItems, recordItemOrdersData, productMappingsData]);
+
+  const saveItemsMutation = useMutation({
+    mutationFn: async () => {
+      if (!institute?.id || !recordOrder?.id) {
+        throw new Error("Missing institute or record order");
+      }
+      const instituteId = institute.id;
+      const recordOrderId = recordOrder.id;
+      await Promise.all(
+        tableItems.map((item) => {
+          const drug = selectedDrugs[item.id];
+          if (!drug) return Promise.resolve(null);
+          const existing = existingItemBySupplyRequestId.get(item.id);
+          if (existing) {
+            return apis.item.update(instituteId, recordOrderId, existing.id, {
+              drug,
+            });
+          }
+          return apis.item.create(instituteId, recordOrderId, {
+            supply_request: item.id,
+            drug,
+          });
+        }),
+      );
+    },
+    onSuccess: () => {
+      toast.success(t("items_saved"));
+      setHasSavedOnce(true);
+      queryClient.invalidateQueries({ queryKey: recordItemOrdersQueryKey });
+    },
+    onError: () => {
+      toast.error(t("save_failed"));
+    },
+  });
+
   const goToList = () =>
     navigate(
       `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms`,
@@ -136,11 +284,20 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   // TODO: wire up status-change API call once available
   const handleMarkAsStatus = (_status: string) => {};
 
-  // TODO: wire up supply-delivery mutations once available
-  const handleSupplyDeliveryAction = (_action: string) => {};
+  const handleSupplyDeliveryAction = (action: string) => {
+    if (action === "save") {
+      saveItemsMutation.mutate();
+    }
+  };
 
   const handleRemoveTableItem = (id: string) => {
     setTableItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleCancel = () => {
+    setTableItems(supplyRequestsData?.results ?? []);
+    setLoadedSupplyRequestsCount(supplyRequestsData?.results.length ?? 0);
+    setSelectedDrugs({});
   };
 
   if (isLoading) {
@@ -156,6 +313,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   }
 
   const isRequester = order.destination?.id === locationId;
+  const isDraftStatus = (recordOrder?.status ?? order.status) === "draft";
 
   const requestedItemsLabel = isRequester
     ? order.status === "completed"
@@ -430,31 +588,80 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {tableItems.map((item) => (
-                        <TableRow key={item.id}>
-                          <TableCell>{item.item.name}</TableCell>
-                          <TableCell>
-                            {categoryByProductId.get(item.item.id) ?? "—"}
-                          </TableCell>
-                          <TableCell>
-                            {formatQuantity(item.quantity)}{" "}
-                            {item.item.base_unit?.display}
-                          </TableCell>
-                          <TableCell>—</TableCell>
-                          <TableCell>—</TableCell>
-                          <TableCell>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleRemoveTableItem(item.id)}
-                              aria-label={t("remove")}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {tableItems.map((item) => {
+                        const drugOptions =
+                          drugOptionsBySupplyRequestId.get(item.id) ?? [];
+                        const selectedDrugId = selectedDrugs[item.id]?.id ?? "";
+                        const handleDrugChange = (value: string) => {
+                          const drug = drugOptions.find(
+                            (option) => option.id === value,
+                          );
+                          setSelectedDrugs((prev) => ({
+                            ...prev,
+                            [item.id]: drug,
+                          }));
+                        };
+
+                        return (
+                          <TableRow key={item.id}>
+                            <TableCell>{item.item.name}</TableCell>
+                            <TableCell>
+                              {categoryByProductId.get(item.item.id) ?? "—"}
+                            </TableCell>
+                            <TableCell>
+                              {formatQuantity(item.quantity)}{" "}
+                              {item.item.base_unit?.display}
+                            </TableCell>
+                            <TableCell>
+                              <Select
+                                value={selectedDrugId}
+                                onValueChange={handleDrugChange}
+                                disabled={drugOptions.length === 0}
+                              >
+                                <SelectTrigger className="h-8 w-full min-w-24">
+                                  <SelectValue placeholder="—" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {drugOptions.map((drug) => (
+                                    <SelectItem key={drug.id} value={drug.id}>
+                                      {drug.id}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell>
+                              <Select
+                                value={selectedDrugId}
+                                onValueChange={handleDrugChange}
+                                disabled={drugOptions.length === 0}
+                              >
+                                <SelectTrigger className="h-8 w-full min-w-32">
+                                  <SelectValue placeholder="—" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {drugOptions.map((drug) => (
+                                    <SelectItem key={drug.id} value={drug.id}>
+                                      {drug.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleRemoveTableItem(item.id)}
+                                aria-label={t("remove")}
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
 
@@ -462,13 +669,14 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setTableItems([])}
+                      onClick={handleCancel}
                     >
                       {t("cancel")}
                     </Button>
                     <Button
                       type="button"
                       onClick={() => handleSupplyDeliveryAction("save")}
+                      disabled={saveItemsMutation.isPending}
                     >
                       {t("save")}
                       <ShortcutBadge actionId="submit-action" />
@@ -481,28 +689,41 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                   icon={<Box className="text-primary size-6" />}
                 />
               )}
+
+              {isDraftStatus && hasSavedOnce && hasMoreSupplyRequests && (
+                <div className="flex justify-center">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => loadBalanceSupplyRequestsMutation.mutate()}
+                    disabled={loadBalanceSupplyRequestsMutation.isPending}
+                  >
+                    {t("show_balance_products")}
+                  </Button>
+                </div>
+              )}
+
+              {isDraftStatus && (
+                <div className="flex flex-row gap-2 justify-between bg-white p-4 items-center border border-gray-200 rounded-md">
+                  <div className="flex flex-col gap-2">
+                    <p className="font-bold">
+                      {t("review_and_finalise_request")}
+                    </p>
+                    <span className="text-sm text-gray-500">
+                      {t("review_and_finalise_request_description")}
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={() => handleMarkAsStatus("pending")}
+                  >
+                    {t("mark_as_approved")}
+                    <ShortcutBadge actionId="mark-as" />
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
-
-          {order.status === "draft" && (
-            <div className="flex flex-row gap-2 justify-between bg-white p-4 items-center border border-gray-200 rounded-md">
-              <div className="flex flex-col gap-2">
-                <p className="font-bold">
-                  {t("review_and_finalise_request")}
-                </p>
-                <span className="text-sm text-gray-500">
-                  {t("review_and_finalise_request_description")}
-                </span>
-              </div>
-              <Button
-                type="button"
-                onClick={() => handleMarkAsStatus("pending")}
-              >
-                {t("mark_as_approved")}
-                <ShortcutBadge actionId="mark-as" />
-              </Button>
-            </div>
-          )}
         </TabsContent>
 
         <TabsContent value="deliveries" className="mt-2 space-y-4">

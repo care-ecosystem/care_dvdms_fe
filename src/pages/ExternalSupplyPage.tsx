@@ -58,7 +58,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
 
   const { data: institute } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
-    queryFn: () => apis.dvdmsInstitute.get(facilityId),
+    queryFn: () => apis.institutes.get(facilityId),
   });
 
   const currentStatus = TABS_CONFIG.find(
@@ -72,6 +72,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
         limit: PAGE_SIZE,
         offset: 0,
         status: currentStatus,
+        ordering: "-created_date",
       }),
     enabled: !!institute?.id,
   });

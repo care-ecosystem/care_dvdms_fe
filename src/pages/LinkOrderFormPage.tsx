@@ -17,6 +17,7 @@ import {
   FormField,
   FormItem,
   FormLabel,
+  FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import {
@@ -31,11 +32,16 @@ import {
   ShortcutProvider,
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
-import { DvdmsInstitute, DvdmsInstituteSupplier } from "@/types/dvdms_config";
+import {
+  DvdmsInstitute,
+  DvdmsInstituteStore,
+  DvdmsSupplierOrgMapping,
+} from "@/types/dvdms_config";
 
 const PAGE_SIZE = 14;
 
 type RecordOrderFormValues = {
+  name: string;
   order: string;
   supplierName: string;
 };
@@ -62,7 +68,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
   const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms`;
 
   const form = useForm<RecordOrderFormValues>({
-    defaultValues: { order: "", supplierName: "" },
+    defaultValues: { name: "", order: "", supplierName: "" },
   });
 
   const selectedOrderId = form.watch("order");
@@ -70,7 +76,9 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
   const [confirmedInstitute, setConfirmedInstitute] =
     useState<DvdmsInstitute | null>(null);
   const [confirmedSupplier, setConfirmedSupplier] =
-    useState<DvdmsInstituteSupplier | null>(null);
+    useState<DvdmsSupplierOrgMapping | null>(null);
+  const [confirmedStore, setConfirmedStore] =
+    useState<DvdmsInstituteStore | null>(null);
 
   const { data: pendingOrdersResponse, isLoading: isPendingOrdersLoading } =
     useQuery({
@@ -94,32 +102,45 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
     form.setValue("supplierName", selectedOrder?.supplier?.name ?? "");
     setConfirmedInstitute(null);
     setConfirmedSupplier(null);
+    setConfirmedStore(null);
   }, [selectedOrder, form]);
 
   const { mutate: confirmSupplier, isPending: isConfirming } = useMutation({
     mutationFn: async () => {
-      if (!selectedOrder?.supplier) {
+      if (!selectedOrder?.supplier || !selectedOrder.destination) {
         throw new Error("Select an order first.");
       }
-      const institute = await apis.dvdmsInstitute.get(facilityId);
-      const suppliersResponse = await apis.dvdmsInstituteSuppliers.list(
-        institute.id,
-      );
+      const institute = await apis.institutes.get(facilityId);
+      if (!institute) {
+        throw new Error("No eAushadhi institute configured for this facility.");
+      }
+      const [suppliersResponse, storesResponse] = await Promise.all([
+        apis.supplierMappings.list(institute.id),
+        apis.dvdmsInstituteStores.list(facilityId, institute.id),
+      ]);
       const supplier = suppliersResponse.results.find(
-        (item) => item.supplier.id === selectedOrder.supplier!.id,
+        (item) => item.supplier?.id === selectedOrder.supplier!.id,
       );
       if (!supplier) {
         throw new Error("No matching eAushadhi supplier found.");
       }
-      return { institute, supplier };
+      const store = storesResponse.results.find(
+        (item) => item.store.id === selectedOrder.destination!.id,
+      );
+      if (!store) {
+        throw new Error("No matching eAushadhi store found.");
+      }
+      return { institute, supplier, store };
     },
-    onSuccess: ({ institute, supplier }) => {
+    onSuccess: ({ institute, supplier, store }) => {
       setConfirmedInstitute(institute);
       setConfirmedSupplier(supplier);
+      setConfirmedStore(store);
     },
     onError: () => {
       setConfirmedInstitute(null);
       setConfirmedSupplier(null);
+      setConfirmedStore(null);
       toast.error(t("failed_to_confirm_supplier"));
     },
   });
@@ -127,16 +148,17 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
   const { mutate: createRecordOrder, isPending: isCreating } = useMutation({
     mutationFn: async () => {
       if (
-        !selectedOrder?.destination ||
+        !selectedOrder ||
         !confirmedInstitute ||
-        !confirmedSupplier
+        !confirmedSupplier ||
+        !confirmedStore
       ) {
         return Promise.reject(new Error("Confirm the supplier first."));
       }
       return apis.recordOrders.create(confirmedInstitute.id, {
-        name: "eaushadhi",
+        name: form.getValues("name"),
         order: selectedOrder.id,
-        institute_store: selectedOrder.destination.id,
+        institute_store: confirmedStore.id,
         institute_supplier: confirmedSupplier.id,
         status: "draft",
       });
@@ -174,6 +196,25 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
             <Card className="p-0 bg-gray-50">
               <CardContent className="space-y-4 p-4 rounded-md">
                 <div className="grid sm:grid-cols-2 gap-4 items-start">
+                  <FormField
+                    control={form.control}
+                    name="name"
+                    rules={{ required: true }}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("name")}</FormLabel>
+                        <FormControl>
+                          <Input
+                            className="h-9"
+                            placeholder={t("name")}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
                   <FormField
                     control={form.control}
                     name="order"
@@ -224,11 +265,11 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                   />
 
                   <FormItem>
-                    <FormLabel>{t("institute_name")}</FormLabel>
+                    <FormLabel>{t("store_name")}</FormLabel>
                     <FormControl>
                       <Input
                         className="h-9"
-                        value={confirmedInstitute?.eaushadhi_institute_name ?? ""}
+                        value={confirmedStore?.eaushadhi_store_name ?? ""}
                         readOnly
                         disabled
                       />
@@ -258,7 +299,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               >
                 {t("cancel")}
               </Button>
-              {confirmedSupplier ? (
+              {confirmedSupplier && confirmedStore ? (
                 <Button type="submit" disabled={isCreating}>
                   {isCreating ? t("creating") : t("create")}
                   <ShortcutBadge actionId="enter-action" />

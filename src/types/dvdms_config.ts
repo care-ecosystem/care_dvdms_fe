@@ -127,3 +127,29 @@ export interface DvdmsInstituteSupplier {
   created_date: string;
   modified_date: string;
 }
+
+export interface DvdmsInstituteStoreRef {
+  id: string;
+  name: string;
+  form: string;
+}
+
+export interface DvdmsInstituteStore {
+  id: string;
+  store: DvdmsInstituteStoreRef;
+  eaushadhi_store_id: string;
+  eaushadhi_store_name: string;
+  is_default: boolean;
+  institute_id?: string;
+  created_by?: DvdmsInstituteUser | null;
+  updated_by?: DvdmsInstituteUser | null;
+  created_date: string;
+  modified_date?: string;
+}
+
+export interface DvdmsInstituteStorePayload {
+  store: string;
+  eaushadhi_store_id: string;
+  eaushadhi_store_name: string;
+  is_default: boolean;
+}

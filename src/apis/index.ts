@@ -13,12 +13,15 @@ import {
   DvdmsSupplierOrgMapping,
   DvdmsSupplierOrgMappingPayload,
   DvdmsSupplierOrgMappingUpdatePayload,
+  DvdmsInstituteStore,
+  DvdmsInstituteStorePayload,
 } from "@/types/dvdms_config";
 import { RecordOrder, RecordOrderPayload } from "@/types/recordOrder";
 import {
   RecordItemOrder,
   RecordItemOrderPayload,
 } from "@/types/recordOrderItem";
+import { RecordOrderProductMapping } from "@/types/productMapping";
 import { RequestOrder } from "@/types/requestOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
 import { TagConfig } from "@/types/tagConfig";
@@ -103,7 +106,7 @@ export const apis = {
       ),
     create: (instituteId: string, payload: RecordOrderPayload) =>
       request<RecordOrder>(
-        `/api/care_dvdms/institute/${instituteId}/record_order`,
+        `/api/care_dvdms/institute/${instituteId}/record_order/`,
         HttpMethod.POST,
         { ...payload },
       ),
@@ -134,6 +137,33 @@ export const apis = {
         `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
         HttpMethod.POST,
         { ...payload },
+      ),
+    update: (
+      instituteId: string,
+      recordOrderId: string,
+      recordOrderItemId: string,
+      payload: Partial<RecordItemOrderPayload>,
+    ) =>
+      request<RecordItemOrder>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/${recordOrderItemId}/`,
+        HttpMethod.PATCH,
+        { ...payload },
+      ),
+  },
+  productMappings: {
+    list: (
+      instituteId: string,
+      recordOrderId: string,
+      params: {
+        limit?: number;
+        offset?: number;
+        ordering?: string;
+      } = {},
+    ) =>
+      request<PaginatedResponse<RecordOrderProductMapping>>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/product_mappings/`,
+        HttpMethod.GET,
+        params,
       ),
   },
   institutes: {
@@ -229,6 +259,32 @@ export const apis = {
         `/api/care_dvdms/institute/${instituteId}/suppliers/${mappingId}/`,
         HttpMethod.PATCH,
         payload,
+      ),
+  },
+  dvdmsInstituteStores: {
+    list: (
+      facilityId: string,
+      instituteId: string,
+      params: {
+        limit?: number;
+        offset?: number;
+        ordering?: string;
+      } = {},
+    ) =>
+      request<PaginatedResponse<DvdmsInstituteStore>>(
+        `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
+        HttpMethod.GET,
+        params,
+      ),
+    create: (
+      facilityId: string,
+      instituteId: string,
+      payload: DvdmsInstituteStorePayload,
+    ) =>
+      request<DvdmsInstituteStore>(
+        `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
+        HttpMethod.POST,
+        { ...payload },
       ),
   },
   productKnowledge: {

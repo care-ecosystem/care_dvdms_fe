@@ -6,6 +6,8 @@ export interface RecordOrderPayload {
   status: string;
 }
 
+export type RecordOrderUpdatePayload = Partial<RecordOrderPayload>;
+
 export interface RecordOrderUser {
   id: string;
   username: string;

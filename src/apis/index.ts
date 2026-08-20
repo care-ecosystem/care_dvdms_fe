@@ -6,7 +6,10 @@ import { LocationRead } from "@/types/location";
 import {
   DvdmsInstitute,
   DvdmsInstitutePayload,
+  DvdmsLookupDrug,
+  DvdmsLookupGroup,
   DvdmsLookupStore,
+  DvdmsLookupSubgroup,
   DvdmsStoreMapping,
   DvdmsStoreMappingPayload,
   DvdmsStoreMappingUpdatePayload,
@@ -16,7 +19,11 @@ import {
   DvdmsInstituteStore,
   DvdmsInstituteStorePayload,
 } from "@/types/dvdms_config";
-import { RecordOrder, RecordOrderPayload } from "@/types/recordOrder";
+import {
+  RecordOrder,
+  RecordOrderPayload,
+  RecordOrderUpdatePayload,
+} from "@/types/recordOrder";
 import {
   RecordItemOrder,
   RecordItemOrderPayload,
@@ -110,6 +117,16 @@ export const apis = {
         HttpMethod.POST,
         { ...payload },
       ),
+    update: (
+      instituteId: string,
+      recordOrderId: string,
+      payload: RecordOrderUpdatePayload,
+    ) =>
+      request<RecordOrder>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/`,
+        HttpMethod.PATCH,
+        { ...payload },
+      ),
   },
   item: {
     list: (
@@ -191,6 +208,31 @@ export const apis = {
       request<DvdmsLookupStore[]>(
         `/api/care_dvdms/institute/${instituteId}/lookup/stores/`,
         HttpMethod.GET,
+      ),
+    lookupGroups: (instituteId: string) =>
+      request<DvdmsLookupGroup[]>(
+        `/api/care_dvdms/institute/${instituteId}/lookup/groups/`,
+        HttpMethod.GET,
+      ),
+    lookupSubgroups: (instituteId: string, groupId: number) =>
+      request<DvdmsLookupSubgroup[]>(
+        `/api/care_dvdms/institute/${instituteId}/lookup/subgroups/`,
+        HttpMethod.GET,
+        { groupid: groupId },
+      ),
+    lookupDrugs: (
+      instituteId: string,
+      params: {
+        hstnum_group_id: number;
+        hstnum_subgroup_id: number;
+        sstnum_item_cat_no?: string;
+        hststr_item_name?: string;
+      },
+    ) =>
+      request<DvdmsLookupDrug[]>(
+        `/api/care_dvdms/institute/${instituteId}/lookup/drugs/`,
+        HttpMethod.GET,
+        { ...params },
       ),
   },
   locations: {

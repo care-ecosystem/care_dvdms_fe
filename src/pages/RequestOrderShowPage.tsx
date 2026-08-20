@@ -12,7 +12,7 @@ import {
   EllipsisVertical,
   Pause,
   Printer,
-  Trash2,
+  // Trash2,
   Truck,
 } from "lucide-react";
 
@@ -57,6 +57,11 @@ import {
 } from "@/types/requestOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
 import { RecordItemOrderDrug } from "@/types/recordOrderItem";
+import {
+  DvdmsLookupDrug,
+  DvdmsLookupGroup,
+  DvdmsLookupSubgroup,
+} from "@/types/dvdms_config";
 
 type RequestOrderShowPageProps = {
   facilityId: string;
@@ -85,6 +90,18 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const [tableItems, setTableItems] = useState<SupplyRequest[]>([]);
   const [selectedDrugs, setSelectedDrugs] = useState<
     Record<string, RecordItemOrderDrug | undefined>
+  >({});
+  const [selectedGroupBySupplyRequestId, setSelectedGroupBySupplyRequestId] =
+    useState<Record<string, number | undefined>>({});
+  const [
+    selectedSubgroupBySupplyRequestId,
+    setSelectedSubgroupBySupplyRequestId,
+  ] = useState<Record<string, number | undefined>>({});
+  const [subgroupsByGroupId, setSubgroupsByGroupId] = useState<
+    Record<number, DvdmsLookupSubgroup[]>
+  >({});
+  const [drugsByGroupAndSubgroup, setDrugsByGroupAndSubgroup] = useState<
+    Record<string, DvdmsLookupDrug[]>
   >({});
 
   const { data: order, isLoading } = useQuery({
@@ -210,18 +227,51 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       ]),
   );
 
-  const drugOptionsBySupplyRequestId = new Map<string, RecordItemOrderDrug[]>(
-    tableItems.map((item) => {
-      const existingDrug = existingItemBySupplyRequestId.get(item.id)?.drug;
-      const suggestedDrug = suggestedDrugBySupplyRequestId.get(item.id);
-      const options: RecordItemOrderDrug[] = [];
-      if (existingDrug) options.push(existingDrug);
-      if (suggestedDrug && suggestedDrug.id !== existingDrug?.id) {
-        options.push(suggestedDrug);
-      }
-      return [item.id, options];
-    }),
-  );
+  const [lookupGroupsData, setLookupGroupsData] = useState<
+    DvdmsLookupGroup[] | undefined
+  >(undefined);
+  const [isLookupGroupsLoading, setIsLookupGroupsLoading] = useState(false);
+
+  const ensureGroupsLoaded = async () => {
+    if (!institute?.id || lookupGroupsData || isLookupGroupsLoading) return;
+    const instituteId = institute.id;
+    setIsLookupGroupsLoading(true);
+    try {
+      const data = await queryClient.fetchQuery({
+        queryKey: ["dvdms_lookup_groups", instituteId],
+        queryFn: () => apis.institutes.lookupGroups(instituteId),
+      });
+      setLookupGroupsData(data);
+    } finally {
+      setIsLookupGroupsLoading(false);
+    }
+  };
+
+  const ensureSubgroupsLoaded = async (groupId: number) => {
+    if (!institute?.id || subgroupsByGroupId[groupId]) return;
+    const instituteId = institute.id;
+    const data = await queryClient.fetchQuery({
+      queryKey: ["dvdms_lookup_subgroups", instituteId, groupId],
+      queryFn: () => apis.institutes.lookupSubgroups(instituteId, groupId),
+    });
+    setSubgroupsByGroupId((prev) => ({ ...prev, [groupId]: data }));
+  };
+
+  const ensureDrugsLoaded = async (groupId: number, subgroupId: number) => {
+    if (!institute?.id) return;
+    const key = `${groupId}:${subgroupId}`;
+    if (drugsByGroupAndSubgroup[key]) return;
+    const instituteId = institute.id;
+    const data = await queryClient.fetchQuery({
+      queryKey: ["dvdms_lookup_drugs", instituteId, groupId, subgroupId],
+      queryFn: () =>
+        apis.institutes.lookupDrugs(instituteId, {
+          hstnum_group_id: groupId,
+          hstnum_subgroup_id: subgroupId,
+        }),
+    });
+    setDrugsByGroupAndSubgroup((prev) => ({ ...prev, [key]: data }));
+  };
 
   useEffect(() => {
     setSelectedDrugs((prev) => {
@@ -276,6 +326,26 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     },
   });
 
+  const approveRecordOrderMutation = useMutation({
+    mutationFn: () => {
+      if (!institute?.id || !recordOrder?.id) {
+        throw new Error("Missing institute or record order");
+      }
+      return apis.recordOrders.update(institute.id, recordOrder.id, {
+        status: "approved",
+      });
+    },
+    onSuccess: () => {
+      toast.success(t("record_order_approved"));
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+      });
+    },
+    onError: () => {
+      toast.error(t("record_order_approve_failed"));
+    },
+  });
+
   const goToList = () =>
     navigate(
       `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms`,
@@ -290,15 +360,17 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     }
   };
 
-  const handleRemoveTableItem = (id: string) => {
-    setTableItems((prev) => prev.filter((item) => item.id !== id));
-  };
+  const hasUnselectedDrug = tableItems.some((item) => !selectedDrugs[item.id]);
 
-  const handleCancel = () => {
-    setTableItems(supplyRequestsData?.results ?? []);
-    setLoadedSupplyRequestsCount(supplyRequestsData?.results.length ?? 0);
-    setSelectedDrugs({});
-  };
+  // const handleRemoveTableItem = (id: string) => {
+  //   setTableItems((prev) => prev.filter((item) => item.id !== id));
+  // };
+
+  // const handleCancel = () => {
+  //   setTableItems(supplyRequestsData?.results ?? []);
+  //   setLoadedSupplyRequestsCount(supplyRequestsData?.results.length ?? 0);
+  //   setSelectedDrugs({});
+  // };
 
   if (isLoading) {
     return <div className="p-6 text-sm text-gray-500">{t("loading")}</div>;
@@ -460,23 +532,24 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className="text-sm font-medium text-gray-700">
-                {t("status")}
-              </label>
+            {recordOrder && (
               <div>
-                <Badge
-                  className="rounded-sm"
-                  variant={
-                    REQUEST_ORDER_STATUS_VARIANTS[
-                      recordOrder?.status ?? order.status
-                    ] ?? "secondary"
-                  }
-                >
-                  {t(recordOrder?.status ?? order.status)}
-                </Badge>
+                <label className="text-sm font-medium text-gray-700">
+                  {t("status")}
+                </label>
+                <div>
+                  <Badge
+                    className="rounded-sm"
+                    variant={
+                      REQUEST_ORDER_STATUS_VARIANTS[recordOrder.status] ??
+                      "secondary"
+                    }
+                  >
+                    {t(recordOrder.status)}
+                  </Badge>
+                </div>
               </div>
-            </div>
+            )}
 
             {order.created_by && (
               <div>
@@ -575,30 +648,112 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                         <TableHead rowSpan={2}>{t("category")}</TableHead>
                         <TableHead rowSpan={2}>{t("qty")}</TableHead>
                         <TableHead
-                          colSpan={2}
+                          colSpan={4}
                           className="text-center border-b"
                         >
                           {t("eaushadhi_drug_details")}
                         </TableHead>
-                        <TableHead rowSpan={2}>{t("actions")}</TableHead>
+                        {/* <TableHead rowSpan={2}>{t("actions")}</TableHead> */}
                       </TableRow>
                       <TableRow>
+                        <TableHead>{t("group_id")}</TableHead>
+                        <TableHead>{t("sub_group_id")}</TableHead>
                         <TableHead>{t("drug_id")}</TableHead>
                         <TableHead>{t("drug_name")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {tableItems.map((item) => {
-                        const drugOptions =
-                          drugOptionsBySupplyRequestId.get(item.id) ?? [];
+                        const existingDrug =
+                          existingItemBySupplyRequestId.get(item.id)?.drug;
+                        const suggestedDrug = suggestedDrugBySupplyRequestId.get(
+                          item.id,
+                        );
+                        const mappedDrugOptions: RecordItemOrderDrug[] = [];
+                        if (existingDrug) mappedDrugOptions.push(existingDrug);
+                        if (
+                          suggestedDrug &&
+                          suggestedDrug.id !== existingDrug?.id
+                        ) {
+                          mappedDrugOptions.push(suggestedDrug);
+                        }
+                        const hasProductMapping = mappedDrugOptions.length > 0;
+
                         const selectedDrugId = selectedDrugs[item.id]?.id ?? "";
-                        const handleDrugChange = (value: string) => {
-                          const drug = drugOptions.find(
+
+                        const handleMappedDrugChange = (value: string) => {
+                          const drug = mappedDrugOptions.find(
                             (option) => option.id === value,
                           );
                           setSelectedDrugs((prev) => ({
                             ...prev,
                             [item.id]: drug,
+                          }));
+                        };
+
+                        const selectedGroupId =
+                          selectedGroupBySupplyRequestId[item.id];
+                        const selectedSubgroupId =
+                          selectedSubgroupBySupplyRequestId[item.id];
+                        const subgroupOptions =
+                          selectedGroupId !== undefined
+                            ? (subgroupsByGroupId[selectedGroupId] ?? [])
+                            : [];
+                        const catalogDrugOptions =
+                          selectedGroupId !== undefined &&
+                          selectedSubgroupId !== undefined
+                            ? (drugsByGroupAndSubgroup[
+                                `${selectedGroupId}:${selectedSubgroupId}`
+                              ] ?? [])
+                            : [];
+
+                        const handleGroupChange = (value: string) => {
+                          const groupId = Number(value);
+                          setSelectedGroupBySupplyRequestId((prev) => ({
+                            ...prev,
+                            [item.id]: groupId,
+                          }));
+                          setSelectedSubgroupBySupplyRequestId((prev) => ({
+                            ...prev,
+                            [item.id]: undefined,
+                          }));
+                          setSelectedDrugs((prev) => ({
+                            ...prev,
+                            [item.id]: undefined,
+                          }));
+                          ensureSubgroupsLoaded(groupId);
+                        };
+
+                        const handleSubgroupChange = (value: string) => {
+                          if (selectedGroupId === undefined) return;
+                          const subgroupId = Number(value);
+                          setSelectedSubgroupBySupplyRequestId((prev) => ({
+                            ...prev,
+                            [item.id]: subgroupId,
+                          }));
+                          setSelectedDrugs((prev) => ({
+                            ...prev,
+                            [item.id]: undefined,
+                          }));
+                          ensureDrugsLoaded(selectedGroupId, subgroupId);
+                        };
+
+                        const handleCatalogDrugChange = (value: string) => {
+                          const drug = catalogDrugOptions.find(
+                            (option) => String(option.hstnum_item_id) === value,
+                          );
+                          if (!drug) return;
+                          setSelectedDrugs((prev) => ({
+                            ...prev,
+                            [item.id]: {
+                              id: String(drug.hstnum_item_id),
+                              name: drug.hststr_item_name,
+                              brand_id: String(drug.hstnum_itembrand_id),
+                              group_id: String(drug.hstnum_group_id),
+                              sub_group_id: String(drug.hstnum_subgroup_id),
+                              unit_id: String(drug.gnum_inventory_unitid),
+                              drug_category: drug.sstnum_item_cat_no,
+                            },
                           }));
                         };
 
@@ -612,43 +767,198 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                               {formatQuantity(item.quantity)}{" "}
                               {item.item.base_unit?.display}
                             </TableCell>
-                            <TableCell>
-                              <Select
-                                value={selectedDrugId}
-                                onValueChange={handleDrugChange}
-                                disabled={drugOptions.length === 0}
-                              >
-                                <SelectTrigger className="h-8 w-full min-w-24">
-                                  <SelectValue placeholder="—" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {drugOptions.map((drug) => (
-                                    <SelectItem key={drug.id} value={drug.id}>
-                                      {drug.id}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </TableCell>
-                            <TableCell>
-                              <Select
-                                value={selectedDrugId}
-                                onValueChange={handleDrugChange}
-                                disabled={drugOptions.length === 0}
-                              >
-                                <SelectTrigger className="h-8 w-full min-w-32">
-                                  <SelectValue placeholder="—" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {drugOptions.map((drug) => (
-                                    <SelectItem key={drug.id} value={drug.id}>
-                                      {drug.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </TableCell>
-                            <TableCell>
+                            {hasProductMapping ? (
+                              <>
+                                <TableCell>
+                                  <Select
+                                    value={selectedDrugId}
+                                    onValueChange={handleMappedDrugChange}
+                                  >
+                                    <SelectTrigger className="h-8 w-full min-w-24">
+                                      <SelectValue placeholder="—" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {mappedDrugOptions.map((drug) => (
+                                        <SelectItem
+                                          key={drug.id}
+                                          value={drug.id}
+                                        >
+                                          {drug.group_id}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                                <TableCell>
+                                  <Select
+                                    value={selectedDrugId}
+                                    onValueChange={handleMappedDrugChange}
+                                  >
+                                    <SelectTrigger className="h-8 w-full min-w-24">
+                                      <SelectValue placeholder="—" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {mappedDrugOptions.map((drug) => (
+                                        <SelectItem
+                                          key={drug.id}
+                                          value={drug.id}
+                                        >
+                                          {drug.sub_group_id}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                                <TableCell>
+                                  <Select
+                                    value={selectedDrugId}
+                                    onValueChange={handleMappedDrugChange}
+                                  >
+                                    <SelectTrigger className="h-8 w-full min-w-24">
+                                      <SelectValue placeholder="—" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {mappedDrugOptions.map((drug) => (
+                                        <SelectItem
+                                          key={drug.id}
+                                          value={drug.id}
+                                        >
+                                          {drug.id}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                                <TableCell>
+                                  <Select
+                                    value={selectedDrugId}
+                                    onValueChange={handleMappedDrugChange}
+                                  >
+                                    <SelectTrigger className="h-8 w-full min-w-32">
+                                      <SelectValue placeholder="—" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {mappedDrugOptions.map((drug) => (
+                                        <SelectItem
+                                          key={drug.id}
+                                          value={drug.id}
+                                        >
+                                          {drug.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                              </>
+                            ) : (
+                              <>
+                                <TableCell>
+                                  <Select
+                                    value={
+                                      selectedGroupId !== undefined
+                                        ? String(selectedGroupId)
+                                        : ""
+                                    }
+                                    onValueChange={handleGroupChange}
+                                    onOpenChange={(open) => {
+                                      if (open) ensureGroupsLoaded();
+                                    }}
+                                    disabled={!institute?.id}
+                                  >
+                                    <SelectTrigger className="h-8 w-full min-w-24">
+                                      <SelectValue placeholder="—" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {(lookupGroupsData ?? []).map(
+                                        (group) => (
+                                          <SelectItem
+                                            key={group.hstnumGroupId}
+                                            value={String(
+                                              group.hstnumGroupId,
+                                            )}
+                                          >
+                                            {group.hststrGroupName}
+                                          </SelectItem>
+                                        ),
+                                      )}
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                                <TableCell>
+                                  <Select
+                                    value={
+                                      selectedSubgroupId !== undefined
+                                        ? String(selectedSubgroupId)
+                                        : ""
+                                    }
+                                    onValueChange={handleSubgroupChange}
+                                    disabled={
+                                      selectedGroupId === undefined ||
+                                      subgroupOptions.length === 0
+                                    }
+                                  >
+                                    <SelectTrigger className="h-8 w-full min-w-24">
+                                      <SelectValue placeholder="—" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {subgroupOptions.map((subgroup) => (
+                                        <SelectItem
+                                          key={subgroup.hstnumSubgroupId}
+                                          value={String(
+                                            subgroup.hstnumSubgroupId,
+                                          )}
+                                        >
+                                          {subgroup.hststrSubgroupName}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                                <TableCell>
+                                  <Select
+                                    value={selectedDrugId}
+                                    onValueChange={handleCatalogDrugChange}
+                                    disabled={catalogDrugOptions.length === 0}
+                                  >
+                                    <SelectTrigger className="h-8 w-full min-w-24">
+                                      <SelectValue placeholder="—" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {catalogDrugOptions.map((drug) => (
+                                        <SelectItem
+                                          key={drug.hstnum_item_id}
+                                          value={String(drug.hstnum_item_id)}
+                                        >
+                                          {drug.hstnum_item_id}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                                <TableCell>
+                                  <Select
+                                    value={selectedDrugId}
+                                    onValueChange={handleCatalogDrugChange}
+                                    disabled={catalogDrugOptions.length === 0}
+                                  >
+                                    <SelectTrigger className="h-8 w-full min-w-32">
+                                      <SelectValue placeholder="—" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {catalogDrugOptions.map((drug) => (
+                                        <SelectItem
+                                          key={drug.hstnum_item_id}
+                                          value={String(drug.hstnum_item_id)}
+                                        >
+                                          {drug.hststr_item_name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                              </>
+                            )}
+                            {/* <TableCell>
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -658,25 +968,25 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                               >
                                 <Trash2 className="size-4" />
                               </Button>
-                            </TableCell>
+                            </TableCell> */}
                           </TableRow>
                         );
                       })}
                     </TableBody>
                   </Table>
 
-                  <div className="flex justify-between">
-                    <Button
+                  <div className="flex justify-end">
+                    {/* <Button
                       type="button"
                       variant="outline"
                       onClick={handleCancel}
                     >
                       {t("cancel")}
-                    </Button>
+                    </Button> */}
                     <Button
                       type="button"
                       onClick={() => handleSupplyDeliveryAction("save")}
-                      disabled={saveItemsMutation.isPending}
+                      disabled={saveItemsMutation.isPending || hasUnselectedDrug}
                     >
                       {t("save")}
                       <ShortcutBadge actionId="submit-action" />
@@ -715,7 +1025,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                   </div>
                   <Button
                     type="button"
-                    onClick={() => handleMarkAsStatus("pending")}
+                    onClick={() => approveRecordOrderMutation.mutate()}
+                    disabled={
+                      !hasSavedOnce ||
+                      !recordItemOrdersData?.results?.length ||
+                      approveRecordOrderMutation.isPending
+                    }
                   >
                     {t("mark_as_approved")}
                     <ShortcutBadge actionId="mark-as" />

@@ -27,58 +27,66 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import {
   ShortcutProvider,
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
-import {
-  DvdmsInstitute,
-  DvdmsInstituteStore,
-  DvdmsSupplierOrgMapping,
-} from "@/types/dvdms_config";
+import { REQUEST_ORDER_STATUS_VARIANTS } from "@/types/requestOrder";
 
 const PAGE_SIZE = 14;
 
-type RecordOrderFormValues = {
+type RecordOrderEditFormValues = {
   name: string;
   order: string;
   supplierName: string;
 };
 
-type LinkOrderFormPageProps = {
+type RequestOrderEditPageProps = {
   facilityId: string;
   locationId: string;
+  requestOrderId: string;
 };
 
-const LinkOrderFormPage: FC<LinkOrderFormPageProps> = (props) => (
+const RequestOrderEditPage: FC<RequestOrderEditPageProps> = (props) => (
   <ShortcutProvider>
-    <LinkOrderFormPageContent {...props} />
+    <RequestOrderEditPageContent {...props} />
   </ShortcutProvider>
 );
 
-const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
+const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
   facilityId,
   locationId,
+  requestOrderId,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
 
-  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms`;
+  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}`;
 
-  const form = useForm<RecordOrderFormValues>({
-    defaultValues: { name: "", order: "", supplierName: "" },
+  const { data: linkedOrder, isLoading: isLoadingLinkedOrder } = useQuery({
+    queryKey: ["dvdms_request_order", facilityId, requestOrderId],
+    queryFn: () => apis.requestOrders.retrieve(facilityId, requestOrderId),
   });
 
-  const selectedOrderId = form.watch("order");
+  const { data: institute, isLoading: isLoadingInstitute } = useQuery({
+    queryKey: ["dvdms_institute", facilityId],
+    queryFn: () => apis.institutes.get(facilityId),
+  });
 
-  const [confirmedInstitute, setConfirmedInstitute] =
-    useState<DvdmsInstitute | null>(null);
-  const [confirmedSupplier, setConfirmedSupplier] =
-    useState<DvdmsSupplierOrgMapping | null>(null);
-  const [confirmedStore, setConfirmedStore] =
-    useState<DvdmsInstituteStore | null>(null);
+  const { data: recordOrdersResponse, isLoading: isLoadingRecordOrder } =
+    useQuery({
+      queryKey: ["dvdms_record_order_for_request", institute?.id, requestOrderId],
+      queryFn: () =>
+        apis.recordOrders.list(institute!.id, {
+          order: requestOrderId,
+          limit: 1,
+        }),
+      enabled: !!institute?.id,
+    });
+  const recordOrder = recordOrdersResponse?.results[0];
 
   const { data: pendingOrdersResponse, isLoading: isPendingOrdersLoading } =
     useQuery({
@@ -93,24 +101,64 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
         }),
     });
 
-  const pendingOrders = pendingOrdersResponse?.results ?? [];
-  const selectedOrder = pendingOrders.find(
+  const orderOptionsMap = new Map(
+    (pendingOrdersResponse?.results ?? []).map((order) => [order.id, order]),
+  );
+  if (linkedOrder) orderOptionsMap.set(linkedOrder.id, linkedOrder);
+  const orderOptions = Array.from(orderOptionsMap.values());
+
+  const form = useForm<RecordOrderEditFormValues>({
+    defaultValues: { name: "", order: "", supplierName: "" },
+  });
+
+  useEffect(() => {
+    if (recordOrder && linkedOrder) {
+      form.reset({
+        name: recordOrder.name,
+        order: linkedOrder.id,
+        supplierName: linkedOrder.supplier?.name ?? "",
+      });
+    }
+  }, [recordOrder, linkedOrder, form]);
+
+  const selectedOrderId = form.watch("order");
+  const selectedOrder = orderOptions.find(
     (order) => order.id === selectedOrderId,
   );
 
+  const [confirmedStoreId, setConfirmedStoreId] = useState<string | null>(
+    null,
+  );
+  const [confirmedStoreName, setConfirmedStoreName] = useState("");
+  const [confirmedSupplierId, setConfirmedSupplierId] = useState<
+    string | null
+  >(null);
+  const [confirmedWarehouseName, setConfirmedWarehouseName] = useState("");
+
   useEffect(() => {
     form.setValue("supplierName", selectedOrder?.supplier?.name ?? "");
-    setConfirmedInstitute(null);
-    setConfirmedSupplier(null);
-    setConfirmedStore(null);
-  }, [selectedOrder, form]);
+
+    if (recordOrder && selectedOrder?.id === recordOrder.order.id) {
+      setConfirmedStoreId(recordOrder.institute_store.id);
+      setConfirmedStoreName(recordOrder.institute_store.eaushadhi_store_name);
+      setConfirmedSupplierId(recordOrder.institute_supplier.id);
+      setConfirmedWarehouseName(
+        recordOrder.institute_supplier.eaushadhi_warehouse_name,
+      );
+    } else {
+      setConfirmedStoreId(null);
+      setConfirmedStoreName("");
+      setConfirmedSupplierId(null);
+      setConfirmedWarehouseName("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedOrder, recordOrder, form]);
 
   const { mutate: confirmSupplier, isPending: isConfirming } = useMutation({
     mutationFn: async () => {
       if (!selectedOrder?.supplier || !selectedOrder.destination) {
         throw new Error("Select an order first.");
       }
-      const institute = await apis.institutes.get(facilityId);
       if (!institute) {
         throw new Error("No eAushadhi institute configured for this facility.");
       }
@@ -130,56 +178,82 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
       if (!store) {
         throw new Error("No matching eAushadhi store found.");
       }
-      return { institute, supplier, store };
+      return { supplier, store };
     },
-    onSuccess: ({ institute, supplier, store }) => {
-      setConfirmedInstitute(institute);
-      setConfirmedSupplier(supplier);
-      setConfirmedStore(store);
+    onSuccess: ({ supplier, store }) => {
+      setConfirmedSupplierId(supplier.id);
+      setConfirmedWarehouseName(supplier.eaushadhi_warehouse_name);
+      setConfirmedStoreId(store.id);
+      setConfirmedStoreName(store.eaushadhi_store_name);
     },
     onError: () => {
-      setConfirmedInstitute(null);
-      setConfirmedSupplier(null);
-      setConfirmedStore(null);
+      setConfirmedSupplierId(null);
+      setConfirmedWarehouseName("");
+      setConfirmedStoreId(null);
+      setConfirmedStoreName("");
       toast.error(t("failed_to_confirm_supplier"));
     },
   });
 
-  const { mutate: createRecordOrder, isPending: isCreating } = useMutation({
+  const { mutate: updateRecordOrder, isPending: isUpdating } = useMutation({
     mutationFn: async () => {
       if (
+        !recordOrder ||
+        !institute ||
         !selectedOrder ||
-        !confirmedInstitute ||
-        !confirmedSupplier ||
-        !confirmedStore
+        !confirmedSupplierId ||
+        !confirmedStoreId
       ) {
         return Promise.reject(new Error("Confirm the supplier first."));
       }
-      return apis.recordOrders.create(confirmedInstitute.id, {
+      return apis.recordOrders.update(institute.id, recordOrder.id, {
         name: form.getValues("name"),
         order: selectedOrder.id,
-        institute_store: confirmedStore.id,
-        institute_supplier: confirmedSupplier.id,
-        status: "draft",
+        institute_store: confirmedStoreId,
+        institute_supplier: confirmedSupplierId,
       });
     },
     onSuccess: () => {
-      toast.success(t("record_order_created_successfully"));
+      toast.success(t("record_order_updated_successfully"));
       queryClient.invalidateQueries({ queryKey: ["dvdms_record_orders"] });
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+      });
       navigate(returnPath, { replace: true });
     },
-    onError: () => toast.error(t("failed_to_create_record_order")),
+    onError: () => toast.error(t("failed_to_update_record_order")),
   });
 
-  const onSubmit = form.handleSubmit(() => createRecordOrder());
+  const onSubmit = form.handleSubmit(() => updateRecordOrder());
+
+  const isLoading =
+    isLoadingLinkedOrder || isLoadingInstitute || isLoadingRecordOrder;
+
+  if (isLoading) {
+    return (
+      <div className="md:px-6 py-0 min-w-0">
+        <div className="container mx-auto max-w-5xl space-y-4">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="md:px-6 py-0 min-w-0">
       <div className="container mx-auto max-w-5xl">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-            {t("link_order_eaushadhi")}
-            <Badge variant="secondary">{t("draft")}</Badge>
+            {t("edit_order")}
+            <Badge
+              variant={
+                REQUEST_ORDER_STATUS_VARIANTS[recordOrder?.status ?? "draft"] ??
+                "secondary"
+              }
+            >
+              {t(recordOrder?.status ?? "draft")}
+            </Badge>
           </h1>
           <Button
             variant="outline"
@@ -208,6 +282,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                             className="h-9"
                             placeholder={t("name")}
                             {...field}
+                            autoFocus
                           />
                         </FormControl>
                         <FormMessage />
@@ -236,7 +311,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {pendingOrders.map((order) => (
+                              {orderOptions.map((order) => (
                                 <SelectItem key={order.id} value={order.id}>
                                   {order.name}
                                 </SelectItem>
@@ -272,7 +347,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                       <FormControl>
                         <Input
                           className="h-9"
-                          value={confirmedStore?.eaushadhi_store_name ?? ""}
+                          value={confirmedStoreName}
                           readOnly
                           disabled
                         />
@@ -284,9 +359,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                       <FormControl>
                         <Input
                           className="h-9"
-                          value={
-                            confirmedSupplier?.eaushadhi_warehouse_name ?? ""
-                          }
+                          value={confirmedWarehouseName}
                           readOnly
                           disabled
                         />
@@ -304,9 +377,9 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                     {t("cancel")}
                     <ShortcutBadge actionId="cancel-action" />
                   </Button>
-                  {confirmedSupplier && confirmedStore ? (
-                    <Button type="submit" disabled={isCreating}>
-                      {isCreating ? t("creating") : t("create")}
+                  {confirmedSupplierId && confirmedStoreId ? (
+                    <Button type="submit" disabled={isUpdating}>
+                      {isUpdating ? t("saving") : t("save")}
                       <ShortcutBadge actionId="enter-action" />
                     </Button>
                   ) : (
@@ -328,4 +401,4 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
   );
 };
 
-export default LinkOrderFormPage;
+export default RequestOrderEditPage;

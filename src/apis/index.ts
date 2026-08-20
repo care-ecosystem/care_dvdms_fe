@@ -29,7 +29,7 @@ import {
   RecordItemOrderPayload,
 } from "@/types/recordOrderItem";
 import { RecordOrderProductMapping } from "@/types/productMapping";
-import { RequestOrder } from "@/types/requestOrder";
+import { RequestOrder, RequestOrderUpdatePayload } from "@/types/requestOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
 import { TagConfig } from "@/types/tagConfig";
 import { ProductKnowledge } from "@/types/productKnowledge";
@@ -68,6 +68,16 @@ export const apis = {
       request<RequestOrder>(
         `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/`,
         HttpMethod.GET,
+      ),
+    update: (
+      facilityId: string,
+      requestOrderId: string,
+      payload: RequestOrderUpdatePayload,
+    ) =>
+      request<RequestOrder>(
+        `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/`,
+        HttpMethod.PATCH,
+        { ...payload },
       ),
     setTags: (facilityId: string, requestOrderId: string, tags: string[]) =>
       request<RequestOrder>(
@@ -218,7 +228,7 @@ export const apis = {
       request<DvdmsLookupSubgroup[]>(
         `/api/care_dvdms/institute/${instituteId}/lookup/subgroups/`,
         HttpMethod.GET,
-        { groupid: groupId },
+        { group_id: groupId },
       ),
     lookupDrugs: (
       instituteId: string,

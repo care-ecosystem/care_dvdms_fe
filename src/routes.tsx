@@ -7,6 +7,10 @@ const DvdmsConfigurePage = lazy(() => import("./pages/DvdmsConfigurePage"));
 const ExternalSupplyPage = lazy(() => import("./pages/ExternalSupplyPage"));
 const LinkOrderFormPage = lazy(() => import("./pages/LinkOrderFormPage"));
 const RequestOrderShowPage = lazy(() => import("./pages/RequestOrderShowPage"));
+const RequestOrderEditPage = lazy(() => import("./pages/RequestOrderEditPage"));
+const PrintRequestOrderPage = lazy(
+  () => import("./pages/PrintRequestOrderPage"),
+);
 
 const routes = {
   "/facility/:facilityId/settings/general/dvdms": ({
@@ -39,6 +43,39 @@ const routes = {
       requestOrderId: string;
     }) => (
       <RequestOrderShowPage
+        facilityId={facilityId}
+        locationId={locationId}
+        requestOrderId={requestOrderId}
+      />
+    ),
+  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/edit":
+    ({
+      facilityId,
+      locationId,
+      requestOrderId,
+    }: {
+      facilityId: string;
+      locationId: string;
+      // tab: string;
+      requestOrderId: string;
+    }) => (
+      <RequestOrderEditPage
+        facilityId={facilityId}
+        locationId={locationId}
+        requestOrderId={requestOrderId}
+      />
+    ),
+  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/print":
+    ({
+      facilityId,
+      locationId,
+      requestOrderId,
+    }: {
+      facilityId: string;
+      locationId: string;
+      requestOrderId: string;
+    }) => (
+      <PrintRequestOrderPage
         facilityId={facilityId}
         locationId={locationId}
         requestOrderId={requestOrderId}

@@ -19,16 +19,16 @@ import { Organization } from "@/types/organization";
 
 const PAGE_SIZE = 14;
 
-type TabValue = "draft" | "pending";
+type TabValue = "draft" | "tracking";
 
-const TABS_CONFIG: { value: TabValue; label: string; status: string }[] = [
+const TABS_CONFIG: { value: TabValue; label: string; status?: string }[] = [
   { value: "draft", label: "draft", status: "draft" },
-  { value: "pending", label: "pending", status: "pending" },
+  { value: "tracking", label: "order_tracking" },
 ];
 
 const EMPTY_MESSAGE_KEYS: Record<TabValue, string> = {
   draft: "no_draft_orders",
-  pending: "no_pending_orders",
+  tracking: "no_tracking_orders",
 };
 
 type ExternalSupplyPageProps = {
@@ -66,12 +66,12 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   )!.status;
 
   const { data, isLoading } = useQuery({
-    queryKey: ["dvdms_record_orders", institute?.id, locationId, currentStatus],
+    queryKey: ["dvdms_record_orders", institute?.id, locationId, currentTab],
     queryFn: () =>
       apis.recordOrders.list(institute!.id, {
         limit: PAGE_SIZE,
         offset: 0,
-        status: currentStatus,
+        ...(currentStatus ? { status: currentStatus } : {}),
         ordering: "-created_date",
       }),
     enabled: !!institute?.id,
@@ -79,8 +79,9 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
 
   const orders = (data?.results ?? []).filter(
     (order) =>
-      !supplierFilter ||
-      order.institute_supplier?.supplier?.id === supplierFilter.id,
+      (currentTab !== "tracking" || order.status !== "draft") &&
+      (!supplierFilter ||
+        order.institute_supplier?.supplier?.id === supplierFilter.id),
   );
 
   const renderFilters = () => (

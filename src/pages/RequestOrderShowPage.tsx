@@ -303,23 +303,23 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         tableItems.map((item) => {
           const drug = selectedDrugs[item.id];
           if (!drug) return Promise.resolve(null);
-          const existing = existingItemBySupplyRequestId.get(item.id);
-          if (existing) {
-            return apis.item.update(instituteId, recordOrderId, existing.id, {
-              drug,
-            });
-          }
           return apis.item.create(instituteId, recordOrderId, {
             supply_request: item.id,
             drug,
           });
         }),
       );
+      await apis.recordOrders.update(instituteId, recordOrderId, {
+        status: "pending",
+      });
     },
     onSuccess: () => {
       toast.success(t("items_saved"));
       setHasSavedOnce(true);
       queryClient.invalidateQueries({ queryKey: recordItemOrdersQueryKey });
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+      });
     },
     onError: () => {
       toast.error(t("save_failed"));
@@ -346,13 +346,30 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     },
   });
 
+  const cancelRecordOrderMutation = useMutation({
+    mutationFn: () => {
+      if (!institute?.id || !recordOrder?.id) {
+        throw new Error("Missing institute or record order");
+      }
+      return apis.recordOrders.update(institute.id, recordOrder.id, {
+        status: "cancelled",
+      });
+    },
+    onSuccess: () => {
+      toast.success(t("record_order_cancelled"));
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+      });
+    },
+    onError: () => {
+      toast.error(t("record_order_cancel_failed"));
+    },
+  });
+
   const goToList = () =>
     navigate(
       `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms`,
     );
-
-  // TODO: wire up status-change API call once available
-  const handleMarkAsStatus = (_status: string) => {};
 
   const handleSupplyDeliveryAction = (action: string) => {
     if (action === "save") {
@@ -361,16 +378,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   };
 
   const hasUnselectedDrug = tableItems.some((item) => !selectedDrugs[item.id]);
-
-  // const handleRemoveTableItem = (id: string) => {
-  //   setTableItems((prev) => prev.filter((item) => item.id !== id));
-  // };
-
-  // const handleCancel = () => {
-  //   setTableItems(supplyRequestsData?.results ?? []);
-  //   setLoadedSupplyRequestsCount(supplyRequestsData?.results.length ?? 0);
-  //   setSelectedDrugs({});
-  // };
 
   if (isLoading) {
     return <div className="p-6 text-sm text-gray-500">{t("loading")}</div>;
@@ -385,7 +392,11 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   }
 
   const isRequester = order.destination?.id === locationId;
-  const isDraftStatus = (recordOrder?.status ?? order.status) === "draft";
+  const recordOrderStatus = recordOrder?.status ?? order.status;
+  const isDraftStatus = recordOrderStatus === "draft";
+  const isApprovedStatus = recordOrderStatus === "approved";
+  const isApprovable =
+    recordOrderStatus === "draft" || recordOrderStatus === "pending";
 
   const requestedItemsLabel = isRequester
     ? order.status === "completed"
@@ -407,7 +418,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
           </Button>
           <div>
             <h4 className="text-lg font-semibold text-gray-950">
-              {order.name}
+              {recordOrder?.name}
             </h4>
             <p className="text-sm text-gray-700">
               {t("delivery_request_to")}{" "}
@@ -423,44 +434,46 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         </div>
 
         <div className="flex items-center justify-end gap-2">
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() =>
+              navigate(
+                `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/print`,
+              )
+            }
+          >
             <Printer className="size-4" /> {t("print")}
             <ShortcutBadge actionId="print-button" />
           </Button>
-          <Button variant="outline">
-            <Edit className="size-4" /> {t("edit")}
-            <ShortcutBadge actionId="edit-order" />
-          </Button>
-
-          {order.status === "pending" && (
-            <Button onClick={() => handleMarkAsStatus("pending")}>
-              {t("mark_as_approved")}
-              <ShortcutBadge actionId="mark-as" />
+          {recordOrder?.status == "draft" &&
+            <Button
+              variant="outline"
+              onClick={() =>
+                navigate(
+                  `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/edit`,
+                )
+              }
+            >
+              <Edit className="size-4" /> {t("edit")}
+              <ShortcutBadge actionId="edit-order" />
             </Button>
-          )}
+          }
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="border-gray-400 px-2">
-                <EllipsisVertical />
-              </Button>
+              {(recordOrder?.status === "draft" ||
+                recordOrder?.status === "pending") && (
+                  <Button variant="outline" className="border-gray-400 px-2">
+                    <EllipsisVertical />
+                  </Button>
+                )}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {order.status !== "draft" && (
-                <DropdownMenuItem onClick={() => handleMarkAsStatus("draft")}>
-                  <Pause className="mr-1" /> {t("mark_as_draft")}
-                </DropdownMenuItem>
-              )}
               <DropdownMenuItem
-                onClick={() => handleMarkAsStatus("entered_in_error")}
+                onClick={() => cancelRecordOrderMutation.mutate()}
+                disabled={cancelRecordOrderMutation.isPending}
               >
-                <CircleAlert className="mr-1" />{" "}
-                {t("mark_as_entered_in_error")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => handleMarkAsStatus("abandoned")}
-              >
-                <Ban className="mr-1" /> {t("mark_as_abandoned")}
+                {t("mark_as_cancelled")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -635,7 +648,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         </TabsList>
 
         <TabsContent value="requested-items" className="mt-2 space-y-4">
-          
+
 
           <Card className="bg-gray-50 py-4 rounded-md">
             <CardContent className="space-y-4">
@@ -648,7 +661,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                         <TableHead rowSpan={2}>{t("category")}</TableHead>
                         <TableHead rowSpan={2}>{t("qty")}</TableHead>
                         <TableHead
-                          colSpan={4}
+                          colSpan={3}
                           className="text-center border-b"
                         >
                           {t("eaushadhi_drug_details")}
@@ -658,7 +671,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                       <TableRow>
                         <TableHead>{t("group_id")}</TableHead>
                         <TableHead>{t("sub_group_id")}</TableHead>
-                        <TableHead>{t("drug_id")}</TableHead>
                         <TableHead>{t("drug_name")}</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -680,6 +692,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                         const hasProductMapping = mappedDrugOptions.length > 0;
 
                         const selectedDrugId = selectedDrugs[item.id]?.id ?? "";
+                        const readOnlyDrug =
+                          existingItemBySupplyRequestId.get(item.id)?.drug ??
+                          selectedDrugs[item.id];
 
                         const handleMappedDrugChange = (value: string) => {
                           const drug = mappedDrugOptions.find(
@@ -701,10 +716,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                             : [];
                         const catalogDrugOptions =
                           selectedGroupId !== undefined &&
-                          selectedSubgroupId !== undefined
+                            selectedSubgroupId !== undefined
                             ? (drugsByGroupAndSubgroup[
-                                `${selectedGroupId}:${selectedSubgroupId}`
-                              ] ?? [])
+                              `${selectedGroupId}:${selectedSubgroupId}`
+                            ] ?? [])
                             : [];
 
                         const handleGroupChange = (value: string) => {
@@ -759,17 +774,72 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
 
                         return (
                           <TableRow key={item.id}>
-                            <TableCell>{item.item.name}</TableCell>
-                            <TableCell>
-                              {categoryByProductId.get(item.item.id) ?? "—"}
+                            <TableCell className="align-top">
+                              <div className="text-xs text-gray-500 mb-3">
+                                {" "}
+                              </div>
+                              {item.item.name}
+                              <div className="text-xs text-gray-500 mt-1">
+                                {" "}
+                              </div>
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="align-top">
+                              <div className="text-xs text-gray-500 mb-3">
+                                {" "}
+                              </div>
+                              {categoryByProductId.get(item.item.id) ?? "—"}
+                              <div className="text-xs text-gray-500 mt-1">
+                                {" "}
+                              </div>
+                            </TableCell>
+                            <TableCell className="align-top">
+                              <div className="text-xs text-gray-500 mb-3">
+                                {" "}
+                              </div>
                               {formatQuantity(item.quantity)}{" "}
                               {item.item.base_unit?.display}
+                              <div className="text-xs text-gray-500 mt-1">
+                                {" "}
+                              </div>
                             </TableCell>
-                            {hasProductMapping ? (
+                            {isApprovedStatus ? (
                               <>
-                                <TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
+                                  {readOnlyDrug?.group_id ?? "—"}
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {" "}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
+                                  {readOnlyDrug?.sub_group_id ?? "—"}
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {" "}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
+                                  {readOnlyDrug?.name ?? "—"}
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {readOnlyDrug
+                                      ? `${t("drug_id")}: ${readOnlyDrug.id}`
+                                      : " "}
+                                  </div>
+                                </TableCell>
+                              </>
+                            ) : hasProductMapping ? (
+                              <>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
                                   <Select
                                     value={selectedDrugId}
                                     onValueChange={handleMappedDrugChange}
@@ -788,8 +858,14 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                       ))}
                                     </SelectContent>
                                   </Select>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {" "}
+                                  </div>
                                 </TableCell>
-                                <TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
                                   <Select
                                     value={selectedDrugId}
                                     onValueChange={handleMappedDrugChange}
@@ -808,28 +884,14 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                       ))}
                                     </SelectContent>
                                   </Select>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {" "}
+                                  </div>
                                 </TableCell>
-                                <TableCell>
-                                  <Select
-                                    value={selectedDrugId}
-                                    onValueChange={handleMappedDrugChange}
-                                  >
-                                    <SelectTrigger className="h-8 w-full min-w-24">
-                                      <SelectValue placeholder="—" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {mappedDrugOptions.map((drug) => (
-                                        <SelectItem
-                                          key={drug.id}
-                                          value={drug.id}
-                                        >
-                                          {drug.id}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </TableCell>
-                                <TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
                                   <Select
                                     value={selectedDrugId}
                                     onValueChange={handleMappedDrugChange}
@@ -848,11 +910,19 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                       ))}
                                     </SelectContent>
                                   </Select>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {selectedDrugId
+                                      ? `${t("drug_id")}: ${selectedDrugId}`
+                                      : " "}
+                                  </div>
                                 </TableCell>
                               </>
                             ) : (
                               <>
-                                <TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
                                   <Select
                                     value={
                                       selectedGroupId !== undefined
@@ -883,8 +953,14 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                       )}
                                     </SelectContent>
                                   </Select>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {" "}
+                                  </div>
                                 </TableCell>
-                                <TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
                                   <Select
                                     value={
                                       selectedSubgroupId !== undefined
@@ -913,29 +989,14 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                       ))}
                                     </SelectContent>
                                   </Select>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {" "}
+                                  </div>
                                 </TableCell>
-                                <TableCell>
-                                  <Select
-                                    value={selectedDrugId}
-                                    onValueChange={handleCatalogDrugChange}
-                                    disabled={catalogDrugOptions.length === 0}
-                                  >
-                                    <SelectTrigger className="h-8 w-full min-w-24">
-                                      <SelectValue placeholder="—" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {catalogDrugOptions.map((drug) => (
-                                        <SelectItem
-                                          key={drug.hstnum_item_id}
-                                          value={String(drug.hstnum_item_id)}
-                                        >
-                                          {drug.hstnum_item_id}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </TableCell>
-                                <TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
                                   <Select
                                     value={selectedDrugId}
                                     onValueChange={handleCatalogDrugChange}
@@ -955,6 +1016,11 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                       ))}
                                     </SelectContent>
                                   </Select>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {selectedDrugId
+                                      ? `${t("drug_id")}: ${selectedDrugId}`
+                                      : " "}
+                                  </div>
                                 </TableCell>
                               </>
                             )}
@@ -975,23 +1041,20 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                     </TableBody>
                   </Table>
 
-                  <div className="flex justify-end">
-                    {/* <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleCancel}
-                    >
-                      {t("cancel")}
-                    </Button> */}
-                    <Button
-                      type="button"
-                      onClick={() => handleSupplyDeliveryAction("save")}
-                      disabled={saveItemsMutation.isPending || hasUnselectedDrug}
-                    >
-                      {t("save")}
-                      <ShortcutBadge actionId="submit-action" />
-                    </Button>
-                  </div>
+                  {isDraftStatus && !hasSavedOnce && (
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        onClick={() => handleSupplyDeliveryAction("save")}
+                        disabled={
+                          saveItemsMutation.isPending || hasUnselectedDrug
+                        }
+                      >
+                        {t("save")}
+                        <ShortcutBadge actionId="submit-action" />
+                      </Button>
+                    </div>
+                  )}
                 </>
               ) : (
                 <EmptyState
@@ -1000,7 +1063,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                 />
               )}
 
-              {isDraftStatus && hasSavedOnce && hasMoreSupplyRequests && (
+              {isApprovable && hasSavedOnce && hasMoreSupplyRequests && (
                 <div className="flex justify-center">
                   <Button
                     type="button"
@@ -1013,7 +1076,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                 </div>
               )}
 
-              {isDraftStatus && (
+              {isApprovable && (
                 <div className="flex flex-row gap-2 justify-between bg-white p-4 items-center border border-gray-200 rounded-md">
                   <div className="flex flex-col gap-2">
                     <p className="font-bold">
@@ -1027,7 +1090,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                     type="button"
                     onClick={() => approveRecordOrderMutation.mutate()}
                     disabled={
-                      !hasSavedOnce ||
+                      !recordItemOrdersData ||
                       !recordItemOrdersData?.results?.length ||
                       approveRecordOrderMutation.isPending
                     }

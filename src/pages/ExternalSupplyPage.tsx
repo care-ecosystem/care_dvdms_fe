@@ -11,13 +11,14 @@ import { Button } from "@/components/ui/button";
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import RequestOrderTable from "@/components/RequestOrderTable";
 import SupplierSelect from "@/components/SupplierSelect";
+import { Pagination } from "@/components/ui/pagination";
 import {
   ShortcutProvider,
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
 import { Organization } from "@/types/organization";
 
-const PAGE_SIZE = 14;
+const PAGE_SIZE = 10;
 
 type TabValue = "draft" | "tracking";
 
@@ -50,6 +51,17 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   useShortcutSubContext("facility:inventory");
   const [currentTab, setCurrentTab] = useState<TabValue>("draft");
   const [supplierFilter, setSupplierFilter] = useState<Organization>();
+  const [page, setPage] = useState(1);
+
+  const handleTabChange = (value: TabValue) => {
+    setCurrentTab(value);
+    setPage(1);
+  };
+
+  const handleSupplierFilterChange = (supplier?: Organization) => {
+    setSupplierFilter(supplier);
+    setPage(1);
+  };
 
   const { data: facility } = useQuery({
     queryKey: ["facility", facilityId],
@@ -66,11 +78,17 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   )!.status;
 
   const { data, isLoading } = useQuery({
-    queryKey: ["dvdms_record_orders", institute?.id, locationId, currentTab],
+    queryKey: [
+      "dvdms_record_orders",
+      institute?.id,
+      locationId,
+      currentTab,
+      page,
+    ],
     queryFn: () =>
       apis.recordOrders.list(institute!.id, {
         limit: PAGE_SIZE,
-        offset: 0,
+        offset: (page - 1) * PAGE_SIZE,
         ...(currentStatus ? { status: currentStatus } : {}),
         ordering: "-created_date",
       }),
@@ -86,7 +104,10 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
 
   const renderFilters = () => (
     <div className="flex flex-col md:flex-row gap-4">
-      <SupplierSelect value={supplierFilter} onChange={setSupplierFilter} />
+      <SupplierSelect
+        value={supplierFilter}
+        onChange={handleSupplierFilterChange}
+      />
     </div>
   );
 
@@ -112,7 +133,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
             }
           >
             <Link2Icon />
-            {t("link_order_eaushadhi")}
+            {t("send_order_to_eaushadhi")}
             <ShortcutBadge actionId="link-order-eaushadhi" />
           </Button>
         </div>
@@ -120,7 +141,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
 
       <Tabs
         value={currentTab}
-        onValueChange={(value) => setCurrentTab(value as TabValue)}
+        onValueChange={(value) => handleTabChange(value as TabValue)}
       >
         <TabsList className="w-full justify-evenly sm:justify-start border-b rounded-none bg-transparent p-0 h-auto overflow-x-auto">
           {TABS_CONFIG.map((tab) => (
@@ -147,6 +168,12 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
               orders={orders}
               isLoading={isLoading}
               emptyMessage={t(EMPTY_MESSAGE_KEYS[tab.value])}
+            />
+            <Pagination
+              page={page}
+              pageSize={PAGE_SIZE}
+              totalCount={data?.count ?? 0}
+              onPageChange={setPage}
             />
           </TabsContent>
         ))}

@@ -42,9 +42,11 @@ export const REQUEST_ORDER_STATUS_VARIANTS: Record<
 > = {
   draft: "secondary",
   pending: "yellow",
+  approved: "indigo",
   completed: "green",
-  abandoned: "destructive",
-  entered_in_error: "destructive",
+  rejected: "destructive",
+  cancelled: "destructive",
+  failed: "destructive",
 };
 
 export const REQUEST_ORDER_PRIORITY_VARIANTS: Record<

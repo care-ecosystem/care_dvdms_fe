@@ -29,10 +29,15 @@ import {
   RecordItemOrderPayload,
 } from "@/types/recordOrderItem";
 import { RecordOrderProductMapping } from "@/types/productMapping";
-import { RequestOrder, RequestOrderUpdatePayload } from "@/types/requestOrder";
+import { RequestOrder } from "@/types/requestOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
 import { TagConfig } from "@/types/tagConfig";
 import { ProductKnowledge } from "@/types/productKnowledge";
+import {
+  SuperBatchRequestPayload,
+  SuperBatchResponse,
+} from "@/types/superBatch";
+import { BatchRequestPayload, BatchResponse } from "@/types/batchRequest";
 
 export const apis = {
   organizations: {
@@ -55,6 +60,7 @@ export const apis = {
         limit?: number;
         offset?: number;
         status?: string;
+        priority?: string;
         origin_isnull?: boolean;
         supplier?: string;
       },
@@ -68,16 +74,6 @@ export const apis = {
       request<RequestOrder>(
         `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/`,
         HttpMethod.GET,
-      ),
-    update: (
-      facilityId: string,
-      requestOrderId: string,
-      payload: RequestOrderUpdatePayload,
-    ) =>
-      request<RequestOrder>(
-        `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/`,
-        HttpMethod.PATCH,
-        { ...payload },
       ),
     setTags: (facilityId: string, requestOrderId: string, tags: string[]) =>
       request<RequestOrder>(
@@ -93,6 +89,7 @@ export const apis = {
       ),
   },
   supplyRequests: {
+    path: "/api/v1/supply_request/",
     list: (params: {
       order: string;
       limit?: number;
@@ -100,7 +97,7 @@ export const apis = {
       ordering?: string;
     }) =>
       request<PaginatedResponse<SupplyRequest>>(
-        "/api/v1/supply_request/",
+        apis.supplyRequests.path,
         HttpMethod.GET,
         params,
       ),
@@ -353,6 +350,20 @@ export const apis = {
         HttpMethod.GET,
         params,
       ),
+  },
+  superBatch: {
+    create: (payload: SuperBatchRequestPayload) =>
+      request<SuperBatchResponse>(
+        "/api/super_batch_request/",
+        HttpMethod.POST,
+        { ...payload },
+      ),
+  },
+  batchRequests: {
+    create: (payload: BatchRequestPayload) =>
+      request<BatchResponse>("/api/v1/batch_requests/", HttpMethod.POST, {
+        ...payload,
+      }),
   },
   tagConfigs: {
     list: (params: {

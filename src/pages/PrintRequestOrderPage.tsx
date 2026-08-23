@@ -1,13 +1,13 @@
 import { FC } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { navigate } from "raviger";
 import { ChevronLeft, FileWarning, Printer } from "lucide-react";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { formatDate, formatQuantity } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import BackButton from "@/components/BackButton";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   Table,
@@ -39,12 +39,9 @@ const DetailRow: FC<DetailRowProps> = ({ label, value }) => (
 
 const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
   facilityId,
-  locationId,
   requestOrderId,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
-
-  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}`;
 
   const { data: order, isLoading: isOrderLoading } = useQuery({
     queryKey: ["dvdms_request_order", facilityId, requestOrderId],
@@ -151,9 +148,9 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
     <div className="md:px-6 py-4 min-w-0">
       <div className="container mx-auto max-w-4xl space-y-4">
         <div className="flex justify-between items-center print:hidden">
-          <Button variant="outline" onClick={() => navigate(returnPath)}>
+          <BackButton variant="outline">
             <ChevronLeft className="size-4" /> {t("back")}
-          </Button>
+          </BackButton>
           <Button onClick={handlePrint} disabled={!isPrintable}>
             <Printer className="size-4" /> {t("print")}
           </Button>

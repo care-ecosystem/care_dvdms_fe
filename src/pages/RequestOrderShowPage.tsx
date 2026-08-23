@@ -4,21 +4,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
 import { toast } from "sonner";
 import {
-  Ban,
   Box,
   ChevronLeft,
-  CircleAlert,
   Edit,
   EllipsisVertical,
-  Pause,
   Printer,
-  // Trash2,
-  Truck,
 } from "lucide-react";
 
 import { apis } from "@/apis";
+import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
-import { formatDate, formatQuantity } from "@/lib/utils";
+import { chunk, formatQuantity } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,14 +24,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import Autocomplete from "@/components/ui/autocomplete";
 import { EmptyState } from "@/components/ui/empty-state";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -44,19 +34,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
-import RequestOrderTagsCell from "@/components/Tags/RequestOrderTagsCell";
+import BackButton from "@/components/BackButton";
 import {
   ShortcutProvider,
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
-import {
-  REQUEST_ORDER_PRIORITY_VARIANTS,
-  REQUEST_ORDER_STATUS_VARIANTS,
-} from "@/types/requestOrder";
+import { REQUEST_ORDER_STATUS_VARIANTS } from "@/types/requestOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
 import { RecordItemOrderDrug } from "@/types/recordOrderItem";
+import {
+  SuperBatchRequestItem,
+  SuperBatchResponseItem,
+} from "@/types/superBatch";
 import {
   DvdmsLookupDrug,
   DvdmsLookupGroup,
@@ -69,7 +59,7 @@ type RequestOrderShowPageProps = {
   requestOrderId: string;
 };
 
-type TabValue = "requested-items" | "deliveries" | "items-summary";
+const MAX_ITEMS_PER_BATCH = 50;
 
 const RequestOrderShowPage: FC<RequestOrderShowPageProps> = (props) => (
   <ShortcutProvider>
@@ -86,7 +76,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
 
-  const [currentTab, setCurrentTab] = useState<TabValue>("requested-items");
   const [tableItems, setTableItems] = useState<SupplyRequest[]>([]);
   const [selectedDrugs, setSelectedDrugs] = useState<
     Record<string, RecordItemOrderDrug | undefined>
@@ -247,30 +236,60 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     }
   };
 
+  const [loadingSubgroupGroupIds, setLoadingSubgroupGroupIds] = useState<
+    Set<number>
+  >(new Set());
+  const [loadingDrugKeys, setLoadingDrugKeys] = useState<Set<string>>(
+    new Set(),
+  );
+
   const ensureSubgroupsLoaded = async (groupId: number) => {
-    if (!institute?.id || subgroupsByGroupId[groupId]) return;
+    if (
+      !institute?.id ||
+      subgroupsByGroupId[groupId] ||
+      loadingSubgroupGroupIds.has(groupId)
+    )
+      return;
     const instituteId = institute.id;
-    const data = await queryClient.fetchQuery({
-      queryKey: ["dvdms_lookup_subgroups", instituteId, groupId],
-      queryFn: () => apis.institutes.lookupSubgroups(instituteId, groupId),
-    });
-    setSubgroupsByGroupId((prev) => ({ ...prev, [groupId]: data }));
+    setLoadingSubgroupGroupIds((prev) => new Set(prev).add(groupId));
+    try {
+      const data = await queryClient.fetchQuery({
+        queryKey: ["dvdms_lookup_subgroups", instituteId, groupId],
+        queryFn: () => apis.institutes.lookupSubgroups(instituteId, groupId),
+      });
+      setSubgroupsByGroupId((prev) => ({ ...prev, [groupId]: data }));
+    } finally {
+      setLoadingSubgroupGroupIds((prev) => {
+        const next = new Set(prev);
+        next.delete(groupId);
+        return next;
+      });
+    }
   };
 
   const ensureDrugsLoaded = async (groupId: number, subgroupId: number) => {
     if (!institute?.id) return;
     const key = `${groupId}:${subgroupId}`;
-    if (drugsByGroupAndSubgroup[key]) return;
+    if (drugsByGroupAndSubgroup[key] || loadingDrugKeys.has(key)) return;
     const instituteId = institute.id;
-    const data = await queryClient.fetchQuery({
-      queryKey: ["dvdms_lookup_drugs", instituteId, groupId, subgroupId],
-      queryFn: () =>
-        apis.institutes.lookupDrugs(instituteId, {
-          hstnum_group_id: groupId,
-          hstnum_subgroup_id: subgroupId,
-        }),
-    });
-    setDrugsByGroupAndSubgroup((prev) => ({ ...prev, [key]: data }));
+    setLoadingDrugKeys((prev) => new Set(prev).add(key));
+    try {
+      const data = await queryClient.fetchQuery({
+        queryKey: ["dvdms_lookup_drugs", instituteId, groupId, subgroupId],
+        queryFn: () =>
+          apis.institutes.lookupDrugs(instituteId, {
+            hstnum_group_id: groupId,
+            hstnum_subgroup_id: subgroupId,
+          }),
+      });
+      setDrugsByGroupAndSubgroup((prev) => ({ ...prev, [key]: data }));
+    } finally {
+      setLoadingDrugKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
   };
 
   useEffect(() => {
@@ -289,6 +308,36 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       });
       return changed ? next : prev;
     });
+    setSelectedGroupBySupplyRequestId((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      tableItems.forEach((item) => {
+        if (next[item.id] !== undefined) return;
+        const drug =
+          existingItemBySupplyRequestId.get(item.id)?.drug ??
+          suggestedDrugBySupplyRequestId.get(item.id);
+        if (drug?.group_id) {
+          next[item.id] = Number(drug.group_id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+    setSelectedSubgroupBySupplyRequestId((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      tableItems.forEach((item) => {
+        if (next[item.id] !== undefined) return;
+        const drug =
+          existingItemBySupplyRequestId.get(item.id)?.drug ??
+          suggestedDrugBySupplyRequestId.get(item.id);
+        if (drug?.sub_group_id) {
+          next[item.id] = Number(drug.sub_group_id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableItems, recordItemOrdersData, productMappingsData]);
 
@@ -299,17 +348,22 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       }
       const instituteId = institute.id;
       const recordOrderId = recordOrder.id;
+
+      const itemRequests: SuperBatchRequestItem[] = tableItems
+        .filter((item) => selectedDrugs[item.id])
+        .map((item) => ({
+          url: `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
+          method: HttpMethod.POST,
+          body: { supply_request: item.id, drug: selectedDrugs[item.id] },
+          reference_id: `item-${item.id}`,
+        }));
+
+      const itemBatches = chunk(itemRequests, MAX_ITEMS_PER_BATCH);
       await Promise.all(
-        tableItems.map((item) => {
-          const drug = selectedDrugs[item.id];
-          if (!drug) return Promise.resolve(null);
-          return apis.item.create(instituteId, recordOrderId, {
-            supply_request: item.id,
-            drug,
-          });
-        }),
+        itemBatches.map((requests) => apis.superBatch.create({ requests })),
       );
-      await apis.recordOrders.update(instituteId, recordOrderId, {
+
+      return apis.recordOrders.update(instituteId, recordOrderId, {
         status: "pending",
       });
     },
@@ -321,8 +375,17 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
       });
     },
-    onError: () => {
-      toast.error(t("save_failed"));
+    onError: (error: {
+      data?: { results?: SuperBatchResponseItem[] };
+      message?: string;
+    }) => {
+      const failedItem = error?.data?.results?.find(
+        (result) => result.status_code > 299,
+      );
+      const failedItemMessage = (
+        failedItem?.data as { error?: string } | undefined
+      )?.error;
+      toast.error(failedItemMessage || error?.message || t("save_failed"));
     },
   });
 
@@ -366,11 +429,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     },
   });
 
-  const goToList = () =>
-    navigate(
-      `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms`,
-    );
-
   const handleSupplyDeliveryAction = (action: string) => {
     if (action === "save") {
       saveItemsMutation.mutate();
@@ -391,31 +449,20 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     );
   }
 
-  const isRequester = order.destination?.id === locationId;
-  const recordOrderStatus = recordOrder?.status ?? order.status;
+  const recordOrderStatus = recordOrder?.status;
   const isDraftStatus = recordOrderStatus === "draft";
-  const isApprovedStatus = recordOrderStatus === "approved";
+  const isViewOnlyStatus = !isDraftStatus;
   const isApprovable =
     recordOrderStatus === "draft" || recordOrderStatus === "pending";
-
-  const requestedItemsLabel = isRequester
-    ? order.status === "completed"
-      ? t("items_updated_stock")
-      : t("items_to_send")
-    : t("items_to_dispatch");
 
   return (
     <div className="md:px-6 py-0 space-y-4 min-w-0">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="flex items-center gap-4">
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0"
-            onClick={goToList}
-          >
+          <BackButton size="icon" className="shrink-0">
             <ChevronLeft />
-          </Button>
+            <span className="sr-only">{t("back")}</span>
+          </BackButton>
           <div>
             <h4 className="text-lg font-semibold text-gray-950">
               {recordOrder?.name}
@@ -482,7 +529,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
 
       <Card className="border-none rounded-lg">
         <CardContent className="space-y-1 p-4">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-12 gap-y-4">
             <div>
               <label className="text-sm font-medium text-gray-700">
                 {t("deliver_to")}
@@ -492,56 +539,34 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               </div>
             </div>
 
-            {order.origin && (
+            {recordOrder?.institute_supplier && (
               <div>
                 <label className="text-sm font-medium text-gray-700">
-                  {t("origin")}
+                  {t("eaushadhi_supplier")}
                 </label>
                 <div className="text-lg font-semibold text-gray-950">
-                  {order.origin.name}
+                  {recordOrder.institute_supplier.eaushadhi_warehouse_name}
                 </div>
               </div>
             )}
 
-            {order.supplier && (
+            {recordOrder?.institute_store && (
               <div>
                 <label className="text-sm font-medium text-gray-700">
-                  {t("supplier")}
+                  {t("eaushadhi_store")}
                 </label>
                 <div className="text-lg font-semibold text-gray-950">
-                  {order.supplier.name}
+                  {recordOrder.institute_store.eaushadhi_store_name}
                 </div>
               </div>
             )}
 
             <div>
               <label className="text-sm font-medium text-gray-700">
-                {t("priority")}
+                {t("items")}
               </label>
-              <div>
-                <Badge
-                  className="rounded-sm"
-                  variant={
-                    REQUEST_ORDER_PRIORITY_VARIANTS[order.priority] ??
-                    "secondary"
-                  }
-                >
-                  {t(order.priority)}
-                </Badge>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">
-                {t("tags")}
-              </label>
-              <div className="flex flex-wrap gap-2">
-                <RequestOrderTagsCell
-                  facilityId={facilityId}
-                  requestOrderId={order.id}
-                  tags={order.tags}
-                  compact
-                />
+              <div className="text-lg font-semibold text-gray-950">
+                {totalSupplyRequestsCount} {t("items")}
               </div>
             </div>
 
@@ -563,23 +588,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                 </div>
               </div>
             )}
-
-            {order.created_by && (
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  {t("created_by")}
-                </label>
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-md font-semibold text-gray-950">
-                    {`${order.created_by.first_name} ${order.created_by.last_name}`.trim() ||
-                      order.created_by.username}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    {formatDate(order.created_date)}
-                  </span>
-                </div>
-              </div>
-            )}
           </div>
 
           {order.note && (
@@ -593,65 +601,19 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         </CardContent>
       </Card>
 
-      <Card className="-mt-4 mx-5 rounded-t-none shadow-none bg-gray-100">
-        <CardContent className="space-y-1 px-5 py-2 grid lg:grid-cols-2">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="text-sm font-medium text-gray-700">
-                {t("category")}
-              </label>
-              <div className="text-base font-semibold">
-                {t(order.category)}
+      <div className="mt-2 space-y-4">
+        <Card className="bg-gray-50 py-4 rounded-md">
+            <CardContent>
+              <div className="bg-white rounded-md p-4 pb-0">
+                <h3 className="text-base font-semibold text-gray-950">
+                  {t("drug_list_mapping")}
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {t("drug_list_mapping_description")}
+                </p>
               </div>
-            </div>
 
-            <div>
-              <label className="text-sm font-medium text-gray-700">
-                {t("intent")}
-              </label>
-              <div className="text-base font-semibold">{t(order.intent)}</div>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">
-                {t("reason")}
-              </label>
-              <div className="text-base font-semibold">{t(order.reason)}</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Tabs
-        value={currentTab}
-        onValueChange={(value) => setCurrentTab(value as TabValue)}
-      >
-        <TabsList className="w-full justify-evenly sm:justify-start border-b rounded-none bg-transparent p-0 h-auto overflow-x-auto">
-          <TabsTrigger
-            value="requested-items"
-            className="border-b-3 px-2.5 py-1 font-semibold text-gray-600 hover:text-gray-900 data-[state=active]:border-b-primary-700 data-[state=active]:text-primary-800 data-[state=active]:bg-transparent data-[state=active]:shadow-none rounded-none"
-          >
-            {requestedItemsLabel}
-          </TabsTrigger>
-          <TabsTrigger
-            value="deliveries"
-            className="border-b-3 px-2.5 py-1 font-semibold text-gray-600 hover:text-gray-900 data-[state=active]:border-b-primary-700 data-[state=active]:text-primary-800 data-[state=active]:bg-transparent data-[state=active]:shadow-none rounded-none"
-          >
-            {t("supply_deliveries")}
-          </TabsTrigger>
-          <TabsTrigger
-            value="items-summary"
-            className="border-b-3 px-2.5 py-1 font-semibold text-gray-600 hover:text-gray-900 data-[state=active]:border-b-primary-700 data-[state=active]:text-primary-800 data-[state=active]:bg-transparent data-[state=active]:shadow-none rounded-none"
-          >
-            {t("items_summary")}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="requested-items" className="mt-2 space-y-4">
-
-
-          <Card className="bg-gray-50 py-4 rounded-md">
-            <CardContent className="space-y-4">
+              <div className="space-y-4">
               {tableItems.length > 0 ? (
                 <>
                   <Table>
@@ -676,35 +638,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                     </TableHeader>
                     <TableBody>
                       {tableItems.map((item) => {
-                        const existingDrug =
-                          existingItemBySupplyRequestId.get(item.id)?.drug;
-                        const suggestedDrug = suggestedDrugBySupplyRequestId.get(
-                          item.id,
-                        );
-                        const mappedDrugOptions: RecordItemOrderDrug[] = [];
-                        if (existingDrug) mappedDrugOptions.push(existingDrug);
-                        if (
-                          suggestedDrug &&
-                          suggestedDrug.id !== existingDrug?.id
-                        ) {
-                          mappedDrugOptions.push(suggestedDrug);
-                        }
-                        const hasProductMapping = mappedDrugOptions.length > 0;
-
                         const selectedDrugId = selectedDrugs[item.id]?.id ?? "";
                         const readOnlyDrug =
                           existingItemBySupplyRequestId.get(item.id)?.drug ??
                           selectedDrugs[item.id];
-
-                        const handleMappedDrugChange = (value: string) => {
-                          const drug = mappedDrugOptions.find(
-                            (option) => option.id === value,
-                          );
-                          setSelectedDrugs((prev) => ({
-                            ...prev,
-                            [item.id]: drug,
-                          }));
-                        };
 
                         const selectedGroupId =
                           selectedGroupBySupplyRequestId[item.id];
@@ -714,6 +651,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                           selectedGroupId !== undefined
                             ? (subgroupsByGroupId[selectedGroupId] ?? [])
                             : [];
+                        const isSubgroupsLoading =
+                          selectedGroupId !== undefined &&
+                          loadingSubgroupGroupIds.has(selectedGroupId);
                         const catalogDrugOptions =
                           selectedGroupId !== undefined &&
                             selectedSubgroupId !== undefined
@@ -721,9 +661,70 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                               `${selectedGroupId}:${selectedSubgroupId}`
                             ] ?? [])
                             : [];
+                        const isDrugsLoading =
+                          selectedGroupId !== undefined &&
+                          selectedSubgroupId !== undefined &&
+                          loadingDrugKeys.has(
+                            `${selectedGroupId}:${selectedSubgroupId}`,
+                          );
+
+                        const groupAutocompleteOptions = (
+                          lookupGroupsData ?? []
+                        ).map((group) => ({
+                          label: `${group.hststrGroupName} (${group.hstnumGroupId})`,
+                          value: String(group.hstnumGroupId),
+                        }));
+                        if (
+                          selectedGroupId !== undefined &&
+                          !groupAutocompleteOptions.some(
+                            (option) => option.value === String(selectedGroupId),
+                          )
+                        ) {
+                          groupAutocompleteOptions.push({
+                            label: String(selectedGroupId),
+                            value: String(selectedGroupId),
+                          });
+                        }
+
+                        const subgroupAutocompleteOptions = subgroupOptions.map(
+                          (subgroup) => ({
+                            label: `${subgroup.hststrSubgroupName} (${subgroup.hstnumSubgroupId})`,
+                            value: String(subgroup.hstnumSubgroupId),
+                          }),
+                        );
+                        if (
+                          selectedSubgroupId !== undefined &&
+                          !subgroupAutocompleteOptions.some(
+                            (option) =>
+                              option.value === String(selectedSubgroupId),
+                          )
+                        ) {
+                          subgroupAutocompleteOptions.push({
+                            label: String(selectedSubgroupId),
+                            value: String(selectedSubgroupId),
+                          });
+                        }
+
+                        const drugAutocompleteOptions = catalogDrugOptions.map(
+                          (drug) => ({
+                            label: drug.hststr_item_name,
+                            value: String(drug.hstnum_item_id),
+                          }),
+                        );
+                        if (
+                          selectedDrugId &&
+                          !drugAutocompleteOptions.some(
+                            (option) => option.value === selectedDrugId,
+                          )
+                        ) {
+                          drugAutocompleteOptions.push({
+                            label: selectedDrugs[item.id]?.name ?? selectedDrugId,
+                            value: selectedDrugId,
+                          });
+                        }
 
                         const handleGroupChange = (value: string) => {
-                          const groupId = Number(value);
+                          const groupId = value ? Number(value) : undefined;
                           setSelectedGroupBySupplyRequestId((prev) => ({
                             ...prev,
                             [item.id]: groupId,
@@ -736,12 +737,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                             ...prev,
                             [item.id]: undefined,
                           }));
-                          ensureSubgroupsLoaded(groupId);
+                          if (groupId !== undefined) ensureSubgroupsLoaded(groupId);
                         };
 
                         const handleSubgroupChange = (value: string) => {
                           if (selectedGroupId === undefined) return;
-                          const subgroupId = Number(value);
+                          const subgroupId = value ? Number(value) : undefined;
                           setSelectedSubgroupBySupplyRequestId((prev) => ({
                             ...prev,
                             [item.id]: subgroupId,
@@ -750,10 +751,18 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                             ...prev,
                             [item.id]: undefined,
                           }));
-                          ensureDrugsLoaded(selectedGroupId, subgroupId);
+                          if (subgroupId !== undefined)
+                            ensureDrugsLoaded(selectedGroupId, subgroupId);
                         };
 
                         const handleCatalogDrugChange = (value: string) => {
+                          if (!value) {
+                            setSelectedDrugs((prev) => ({
+                              ...prev,
+                              [item.id]: undefined,
+                            }));
+                            return;
+                          }
                           const drug = catalogDrugOptions.find(
                             (option) => String(option.hstnum_item_id) === value,
                           );
@@ -802,7 +811,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                 {" "}
                               </div>
                             </TableCell>
-                            {isApprovedStatus ? (
+                            {isViewOnlyStatus ? (
                               <>
                                 <TableCell className="align-top">
                                   <div className="text-xs text-gray-500 mb-3">
@@ -834,125 +843,30 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   </div>
                                 </TableCell>
                               </>
-                            ) : hasProductMapping ? (
-                              <>
-                                <TableCell className="align-top">
-                                  <div className="text-xs text-gray-500 mb-3">
-                                    {" "}
-                                  </div>
-                                  <Select
-                                    value={selectedDrugId}
-                                    onValueChange={handleMappedDrugChange}
-                                  >
-                                    <SelectTrigger className="h-8 w-full min-w-24">
-                                      <SelectValue placeholder="—" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {mappedDrugOptions.map((drug) => (
-                                        <SelectItem
-                                          key={drug.id}
-                                          value={drug.id}
-                                        >
-                                          {drug.group_id}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    {" "}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="align-top">
-                                  <div className="text-xs text-gray-500 mb-3">
-                                    {" "}
-                                  </div>
-                                  <Select
-                                    value={selectedDrugId}
-                                    onValueChange={handleMappedDrugChange}
-                                  >
-                                    <SelectTrigger className="h-8 w-full min-w-24">
-                                      <SelectValue placeholder="—" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {mappedDrugOptions.map((drug) => (
-                                        <SelectItem
-                                          key={drug.id}
-                                          value={drug.id}
-                                        >
-                                          {drug.sub_group_id}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    {" "}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="align-top">
-                                  <div className="text-xs text-gray-500 mb-3">
-                                    {" "}
-                                  </div>
-                                  <Select
-                                    value={selectedDrugId}
-                                    onValueChange={handleMappedDrugChange}
-                                  >
-                                    <SelectTrigger className="h-8 w-full min-w-32">
-                                      <SelectValue placeholder="—" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {mappedDrugOptions.map((drug) => (
-                                        <SelectItem
-                                          key={drug.id}
-                                          value={drug.id}
-                                        >
-                                          {drug.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    {selectedDrugId
-                                      ? `${t("drug_id")}: ${selectedDrugId}`
-                                      : " "}
-                                  </div>
-                                </TableCell>
-                              </>
                             ) : (
                               <>
                                 <TableCell className="align-top">
                                   <div className="text-xs text-gray-500 mb-3">
                                     {" "}
                                   </div>
-                                  <Select
+                                  <Autocomplete
+                                    className="h-8 min-w-24"
                                     value={
                                       selectedGroupId !== undefined
                                         ? String(selectedGroupId)
                                         : ""
                                     }
-                                    onValueChange={handleGroupChange}
+                                    onChange={handleGroupChange}
                                     onOpenChange={(open) => {
                                       if (open) ensureGroupsLoaded();
                                     }}
+                                    isLoading={isLookupGroupsLoading}
                                     disabled={!institute?.id}
-                                  >
-                                    <SelectTrigger className="h-8 w-full min-w-24">
-                                      <SelectValue placeholder="—" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {(lookupGroupsData ?? []).map(
-                                        (group) => (
-                                          <SelectItem
-                                            key={group.hstnumGroupId}
-                                            value={String(
-                                              group.hstnumGroupId,
-                                            )}
-                                          >
-                                            {group.hststrGroupName}
-                                          </SelectItem>
-                                        ),
-                                      )}
-                                    </SelectContent>
-                                  </Select>
+                                    placeholder="—"
+                                    inputPlaceholder={t("search_group")}
+                                    noOptionsMessage={t("no_groups_found")}
+                                    options={groupAutocompleteOptions}
+                                  />
                                   <div className="text-xs text-gray-500 mt-1">
                                     {" "}
                                   </div>
@@ -961,34 +875,25 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   <div className="text-xs text-gray-500 mb-3">
                                     {" "}
                                   </div>
-                                  <Select
+                                  <Autocomplete
+                                    className="h-8 min-w-24"
                                     value={
                                       selectedSubgroupId !== undefined
                                         ? String(selectedSubgroupId)
                                         : ""
                                     }
-                                    onValueChange={handleSubgroupChange}
-                                    disabled={
-                                      selectedGroupId === undefined ||
-                                      subgroupOptions.length === 0
-                                    }
-                                  >
-                                    <SelectTrigger className="h-8 w-full min-w-24">
-                                      <SelectValue placeholder="—" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {subgroupOptions.map((subgroup) => (
-                                        <SelectItem
-                                          key={subgroup.hstnumSubgroupId}
-                                          value={String(
-                                            subgroup.hstnumSubgroupId,
-                                          )}
-                                        >
-                                          {subgroup.hststrSubgroupName}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                    onChange={handleSubgroupChange}
+                                    onOpenChange={(open) => {
+                                      if (open && selectedGroupId !== undefined)
+                                        ensureSubgroupsLoaded(selectedGroupId);
+                                    }}
+                                    isLoading={isSubgroupsLoading}
+                                    disabled={selectedGroupId === undefined}
+                                    placeholder="—"
+                                    inputPlaceholder={t("search_subgroup")}
+                                    noOptionsMessage={t("no_subgroups_found")}
+                                    options={subgroupAutocompleteOptions}
+                                  />
                                   <div className="text-xs text-gray-500 mt-1">
                                     {" "}
                                   </div>
@@ -997,25 +902,31 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   <div className="text-xs text-gray-500 mb-3">
                                     {" "}
                                   </div>
-                                  <Select
+                                  <Autocomplete
+                                    className="h-8 min-w-32"
                                     value={selectedDrugId}
-                                    onValueChange={handleCatalogDrugChange}
-                                    disabled={catalogDrugOptions.length === 0}
-                                  >
-                                    <SelectTrigger className="h-8 w-full min-w-32">
-                                      <SelectValue placeholder="—" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {catalogDrugOptions.map((drug) => (
-                                        <SelectItem
-                                          key={drug.hstnum_item_id}
-                                          value={String(drug.hstnum_item_id)}
-                                        >
-                                          {drug.hststr_item_name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                    onChange={handleCatalogDrugChange}
+                                    onOpenChange={(open) => {
+                                      if (
+                                        open &&
+                                        selectedGroupId !== undefined &&
+                                        selectedSubgroupId !== undefined
+                                      )
+                                        ensureDrugsLoaded(
+                                          selectedGroupId,
+                                          selectedSubgroupId,
+                                        );
+                                    }}
+                                    isLoading={isDrugsLoading}
+                                    disabled={
+                                      selectedGroupId === undefined ||
+                                      selectedSubgroupId === undefined
+                                    }
+                                    placeholder="—"
+                                    inputPlaceholder={t("search_drug")}
+                                    noOptionsMessage={t("no_drugs_found")}
+                                    options={drugAutocompleteOptions}
+                                  />
                                   <div className="text-xs text-gray-500 mt-1">
                                     {selectedDrugId
                                       ? `${t("drug_id")}: ${selectedDrugId}`
@@ -1024,17 +935,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                 </TableCell>
                               </>
                             )}
-                            {/* <TableCell>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleRemoveTableItem(item.id)}
-                                aria-label={t("remove")}
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </TableCell> */}
                           </TableRow>
                         );
                       })}
@@ -1100,24 +1000,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                   </Button>
                 </div>
               )}
+              </div>
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="deliveries" className="mt-2 space-y-4">
-          <EmptyState
-            title={t("no_deliveries_found")}
-            icon={<Truck className="text-primary size-6" />}
-          />
-        </TabsContent>
-
-        <TabsContent value="items-summary" className="mt-2 space-y-4">
-          <EmptyState
-            title={t("no_items_summary_found")}
-            icon={<Box className="text-primary size-6" />}
-          />
-        </TabsContent>
-      </Tabs>
+      </div>
     </div>
   );
 };

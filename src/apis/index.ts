@@ -3,6 +3,7 @@ import { request } from "@/apis/query";
 import { Organization } from "@/types/organization";
 import { Facility } from "@/types/facility";
 import { LocationRead } from "@/types/location";
+import { ProductKnowledge } from "@/types/productKnowledge";
 import {
   DvdmsInstitute,
   DvdmsInstitutePayload,
@@ -339,6 +340,7 @@ export const apis = {
   productKnowledge: {
     list: (params: {
       facility: string;
+      name?: string;
       limit?: number;
       offset?: number;
       category?: string;
@@ -348,7 +350,7 @@ export const apis = {
       request<PaginatedResponse<ProductKnowledge>>(
         "/api/v1/product_knowledge/",
         HttpMethod.GET,
-        params,
+        { include_instance: "true", ...params },
       ),
   },
   superBatch: {

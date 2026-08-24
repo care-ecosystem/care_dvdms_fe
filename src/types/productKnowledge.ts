@@ -6,6 +6,7 @@ export interface ProductKnowledgeCategory {
 
 export interface ProductKnowledge {
   id: string;
+  slug: string;
   alternate_identifier: string | null;
   status: string;
   product_type: string;

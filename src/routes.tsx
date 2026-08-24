@@ -3,7 +3,6 @@
 
 import { lazy } from "react";
 
-const DvdmsConfigurePage = lazy(() => import("./pages/DvdmsConfigurePage"));
 const ExternalSupplyPage = lazy(() => import("./pages/ExternalSupplyPage"));
 const LinkOrderFormPage = lazy(() => import("./pages/LinkOrderFormPage"));
 const RequestOrderShowPage = lazy(() => import("./pages/RequestOrderShowPage"));
@@ -11,6 +10,7 @@ const RequestOrderEditPage = lazy(() => import("./pages/RequestOrderEditPage"));
 const PrintRequestOrderPage = lazy(
   () => import("./pages/PrintRequestOrderPage"),
 );
+const ProductMappings = lazy(() => import("./pages/ProductMappings"));
 
 const routes = {
   "/facility/:facilityId/settings/general/dvdms": ({
@@ -81,6 +81,12 @@ const routes = {
         requestOrderId={requestOrderId}
       />
     ),
+
+  "/facility/:facilityId/settings/general/dvdms/product-mappings": ({
+    facilityId,
+  }: {
+    facilityId: string;
+  }) => <ProductMappings facilityId={facilityId} />,
 };
 
 export default routes;

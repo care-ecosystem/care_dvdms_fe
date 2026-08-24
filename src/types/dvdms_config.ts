@@ -196,3 +196,11 @@ export interface DvdmsInstituteStorePayload {
   eaushadhi_store_name: string;
   is_default: boolean;
 }
+
+export interface DvdmsProductMapping {
+  id: string;
+  product_knowledge_id: string;
+  product_knowledge_name: string;
+  dvdms_drug_id: string;
+  dvdms_drug_name: string;
+}

@@ -31,7 +31,6 @@ export default {
           900: "#453C52",
           DEFAULT: "#BFB8CC",
         },
-        danger: colors.red,
         warning: colors.amber,
         alert: colors.violet,
       },

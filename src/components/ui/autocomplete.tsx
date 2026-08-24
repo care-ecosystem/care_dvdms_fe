@@ -1,6 +1,5 @@
-import * as React from "react";
-import { useTranslation } from "react-i18next";
 import { Check, ChevronsUpDown, X } from "lucide-react";
+import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -18,7 +17,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
 
 interface AutoCompleteOption {
   label: string;
@@ -38,6 +36,11 @@ interface AutocompleteProps {
   disabled?: boolean;
   align?: "start" | "center" | "end";
   className?: string;
+  popoverContentClassName?: string;
+  freeInput?: boolean;
+  closeOnSelect?: boolean;
+  showClearButton?: boolean;
+  clearLabel?: string;
 }
 
 export default function Autocomplete({
@@ -53,11 +56,49 @@ export default function Autocomplete({
   disabled,
   align = "start",
   className,
+  popoverContentClassName,
+  freeInput = false,
+  closeOnSelect = true,
+  showClearButton = true,
+  clearLabel = "Clear",
 }: AutocompleteProps) {
-  const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
 
+  const [inputValue, setInputValue] = React.useState(value);
+
   const selectedOption = options.find((option) => option.value === value);
+
+  React.useEffect(() => {
+    const selected = options.find((option) => option.value === value);
+    setInputValue(value ? (selected ? selected.label : value) : "");
+  }, [value, options]);
+
+  const displayText = freeInput
+    ? inputValue || placeholder
+    : selectedOption
+      ? selectedOption.label
+      : placeholder;
+
+  const handleInputChange = (newValue: string) => {
+    if (freeInput) {
+      setInputValue(newValue);
+      const matchingOption = options.find(
+        (option) => option.label.toLowerCase() === newValue.toLowerCase(),
+      );
+      onChange(matchingOption ? matchingOption.value : newValue);
+    } else {
+      onSearch?.(newValue);
+    }
+  };
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onChange("");
+    if (freeInput) setInputValue("");
+    onSearch?.("");
+    setOpen(false);
+  };
 
   return (
     <div className="flex relative w-full">
@@ -71,43 +112,51 @@ export default function Autocomplete({
       >
         <PopoverTrigger asChild>
           <Button
-            title={selectedOption?.label}
+            type="button"
+            title={selectedOption ? selectedOption.label : undefined}
             variant="outline"
             role="combobox"
             aria-expanded={open}
             className={cn(
-              "w-full justify-between font-normal",
+              "w-full justify-between pr-8",
               className,
-              selectedOption && "rounded-r-none",
+              selectedOption && showClearButton && "rounded-r-none",
             )}
             disabled={disabled}
-            type="button"
           >
             <span
-              className={cn("truncate", !selectedOption && "text-gray-500")}
+              className={cn(
+                "min-w-0",
+                inputValue && "truncate",
+                !selectedOption && "text-gray-500",
+              )}
             >
-              {selectedOption ? selectedOption.label : placeholder}
+              {displayText}
             </span>
-            <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="p-0 pointer-events-auto w-[var(--radix-popover-trigger-width)]"
           align={align}
+          className={cn(
+            "p-0 pointer-events-auto w-[var(--radix-popover-trigger-width)]",
+            popoverContentClassName,
+          )}
+          style={{
+            width: "var(--radix-popover-trigger-width)",
+            maxWidth: "var(--radix-popover-trigger-width)",
+          }}
         >
-          <Command shouldFilter={!onSearch}>
+          <Command>
             <CommandInput
               placeholder={inputPlaceholder}
-              onValueChange={onSearch}
-              className="outline-hidden border-none ring-0 shadow-none text-base md:pr-0"
+              disabled={disabled}
+              onValueChange={handleInputChange}
               autoFocus
             />
             <CommandList className="overflow-y-auto">
               {isLoading ? (
-                <div className="space-y-2 p-2">
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <Skeleton key={i} className="h-8 w-full" />
-                  ))}
+                <div className="p-6 text-center text-sm text-gray-500">
+                  {inputPlaceholder}...
                 </div>
               ) : (
                 <CommandEmpty>{noOptionsMessage}</CommandEmpty>
@@ -117,18 +166,29 @@ export default function Autocomplete({
                   <CommandItem
                     key={option.value}
                     value={`${option.label} - ${option.value}`}
-                    onSelect={() => {
-                      onChange(option.value === value ? "" : option.value);
-                      setOpen(false);
+                    onSelect={(v) => {
+                      const currentValue =
+                        options.find((o) => `${o.label} - ${o.value}` === v)
+                          ?.value || "";
+                      onChange(currentValue);
+                      if (freeInput) {
+                        const selected = options.find(
+                          (o) => o.value === currentValue,
+                        );
+                        setInputValue(selected ? selected.label : currentValue);
+                      }
+                      if (closeOnSelect) setOpen(false);
                     }}
                   >
                     <Check
                       className={cn(
-                        "mr-2 size-4",
+                        "mr-2 size-4 shrink-0",
                         value === option.value ? "opacity-100" : "opacity-0",
                       )}
                     />
-                    {option.label}
+                    <span className="min-w-0 flex-1 truncate">
+                      {option.label}
+                    </span>
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -136,23 +196,21 @@ export default function Autocomplete({
           </Command>
         </PopoverContent>
       </Popover>
-      {selectedOption && (
+      {selectedOption && showClearButton ? (
         <Button
+          type="button"
           variant="outline"
           size="icon"
           className="rounded-l-none border-l-0 text-gray-400 h-auto"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onChange("");
-            onSearch?.("");
-          }}
-          title={t("clear")}
+          onClick={handleClear}
+          title={clearLabel}
           hidden={disabled}
         >
           <X className="size-4" />
-          <span className="sr-only">{t("clear")}</span>
+          <span className="sr-only">{clearLabel}</span>
         </Button>
+      ) : (
+        <ChevronsUpDown className="absolute right-3 top-1/2 -translate-y-1/2 ml-2 size-4 shrink-0 opacity-50" />
       )}
     </div>
   );

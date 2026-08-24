@@ -11,6 +11,9 @@ import {
   DvdmsLookupGroup,
   DvdmsLookupStore,
   DvdmsLookupSubgroup,
+  DvdmsProductMapping,
+  DvdmsProductMappingCreatePayload,
+  DvdmsProductMappingUpdatePayload,
   DvdmsStoreMapping,
   DvdmsStoreMappingPayload,
   DvdmsStoreMappingUpdatePayload,
@@ -175,7 +178,7 @@ export const apis = {
         { ...payload },
       ),
   },
-  productMappings: {
+  recordOrderProductMappings: {
     list: (
       instituteId: string,
       recordOrderId: string,
@@ -222,7 +225,7 @@ export const apis = {
         `/api/care_dvdms/institute/${instituteId}/lookup/groups/`,
         HttpMethod.GET,
       ),
-    lookupSubgroups: (instituteId: string, groupId: number) =>
+    lookupSubgroups: (instituteId: string, groupId: string) =>
       request<DvdmsLookupSubgroup[]>(
         `/api/care_dvdms/institute/${instituteId}/lookup/subgroups/`,
         HttpMethod.GET,
@@ -231,8 +234,8 @@ export const apis = {
     lookupDrugs: (
       instituteId: string,
       params: {
-        hstnum_group_id: number;
-        hstnum_subgroup_id: number;
+        hstnum_group_id: string;
+        hstnum_subgroup_id: string;
         sstnum_item_cat_no?: string;
         hststr_item_name?: string;
       },
@@ -240,7 +243,7 @@ export const apis = {
       request<DvdmsLookupDrug[]>(
         `/api/care_dvdms/institute/${instituteId}/lookup/drugs/`,
         HttpMethod.GET,
-        { ...params },
+        params,
       ),
   },
   locations: {
@@ -284,6 +287,29 @@ export const apis = {
     ) =>
       request<DvdmsStoreMapping>(
         `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/${mappingId}/`,
+        HttpMethod.PATCH,
+        payload,
+      ),
+  },
+  productMappings: {
+    list: (instituteId: string) =>
+      request<PaginatedResponse<DvdmsProductMapping>>(
+        `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
+        HttpMethod.GET,
+      ),
+    create: (instituteId: string, payload: DvdmsProductMappingCreatePayload) =>
+      request<DvdmsProductMapping>(
+        `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
+        HttpMethod.POST,
+        payload,
+      ),
+    update: (
+      instituteId: string,
+      mappingId: string,
+      payload: DvdmsProductMappingUpdatePayload,
+    ) =>
+      request<DvdmsProductMapping>(
+        `/api/care_dvdms/institute/${instituteId}/product-mappings/${mappingId}/`,
         HttpMethod.PATCH,
         payload,
       ),

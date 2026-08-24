@@ -197,10 +197,38 @@ export interface DvdmsInstituteStorePayload {
   is_default: boolean;
 }
 
+export interface DvdmsProductMappingDrugDetails {
+  id: string;
+  name: string;
+  brand_id: string;
+  group_id: string;
+  sub_group_id: string;
+  unit_id: string;
+  drug_category: string;
+}
+
 export interface DvdmsProductMapping {
   id: string;
+  institute_id: string;
+  eaushadhi_drug_details: DvdmsProductMappingDrugDetails;
   product_knowledge_id: string;
-  product_knowledge_name: string;
-  dvdms_drug_id: string;
-  dvdms_drug_name: string;
+  mapping_type: string | null;
+  usage_count: number | null;
+  last_used_date: string | null;
 }
+
+export type DvdmsProductMappingCreatePayload = {
+  eaushadhi_drug_details: {
+    id: string;
+    name: string;
+    brand_id?: string;
+    group_id?: string;
+    sub_group_id?: string;
+    unit_id?: string;
+    drug_category?: string;
+  };
+  product_knowledge_id: string;
+};
+
+export type DvdmsProductMappingUpdatePayload =
+  Partial<DvdmsProductMappingCreatePayload>;

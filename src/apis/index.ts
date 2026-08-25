@@ -1,8 +1,9 @@
-import { HttpMethod, PaginatedResponse } from "@/apis/types";
+import { BatchRequestBody, BatchResponse, HttpMethod, PaginatedResponse } from "@/apis/types";
 import { request } from "@/apis/query";
 import { Organization } from "@/types/organization";
 import { Facility } from "@/types/facility";
 import { LocationRead } from "@/types/location";
+import { ProductKnowledge, ResourceCategory } from "@/types/productKnowledge";
 import {
   DvdmsInstitute,
   DvdmsInstitutePayload,
@@ -10,6 +11,9 @@ import {
   DvdmsLookupGroup,
   DvdmsLookupStore,
   DvdmsLookupSubgroup,
+  DvdmsProductMapping,
+  DvdmsProductMappingCreatePayload,
+  DvdmsProductMappingUpdatePayload,
   DvdmsStoreMapping,
   DvdmsStoreMappingPayload,
   DvdmsStoreMappingUpdatePayload,
@@ -32,14 +36,17 @@ import { RecordOrderProductMapping } from "@/types/productMapping";
 import { RequestOrder } from "@/types/requestOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
 import { TagConfig } from "@/types/tagConfig";
-import { ProductKnowledge } from "@/types/productKnowledge";
 import {
   SuperBatchRequestPayload,
   SuperBatchResponse,
 } from "@/types/superBatch";
 import { BatchRequestPayload, BatchResponse } from "@/types/batchRequest";
 
+export const BATCH_REQUEST_PATH = "/api/v1/batch_requests/";
+
 export const apis = {
+  batchRequest: (payload: BatchRequestBody) =>
+    request<BatchResponse>(BATCH_REQUEST_PATH, HttpMethod.POST, payload),
   organizations: {
     list: (params: { org_type: string; limit?: number; name?: string }) =>
       request<PaginatedResponse<Organization>>(
@@ -174,7 +181,7 @@ export const apis = {
         { ...payload },
       ),
   },
-  productMappings: {
+  recordOrderProductMappings: {
     list: (
       instituteId: string,
       recordOrderId: string,
@@ -221,7 +228,7 @@ export const apis = {
         `/api/care_dvdms/institute/${instituteId}/lookup/groups/`,
         HttpMethod.GET,
       ),
-    lookupSubgroups: (instituteId: string, groupId: number) =>
+    lookupSubgroups: (instituteId: string, groupId: string) =>
       request<DvdmsLookupSubgroup[]>(
         `/api/care_dvdms/institute/${instituteId}/lookup/subgroups/`,
         HttpMethod.GET,
@@ -230,8 +237,8 @@ export const apis = {
     lookupDrugs: (
       instituteId: string,
       params: {
-        hstnum_group_id: number;
-        hstnum_subgroup_id: number;
+        hstnum_group_id: string;
+        hstnum_subgroup_id?: string;
         sstnum_item_cat_no?: string;
         hststr_item_name?: string;
       },
@@ -239,7 +246,7 @@ export const apis = {
       request<DvdmsLookupDrug[]>(
         `/api/care_dvdms/institute/${instituteId}/lookup/drugs/`,
         HttpMethod.GET,
-        { ...params },
+        params,
       ),
   },
   locations: {
@@ -283,6 +290,33 @@ export const apis = {
     ) =>
       request<DvdmsStoreMapping>(
         `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/${mappingId}/`,
+        HttpMethod.PATCH,
+        payload,
+      ),
+  },
+  productMappings: {
+    list: (
+      instituteId: string,
+      params?: { limit?: number; offset?: number; mapping_type?: string },
+    ) =>
+      request<PaginatedResponse<DvdmsProductMapping>>(
+        `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
+        HttpMethod.GET,
+        params,
+      ),
+    create: (instituteId: string, payload: DvdmsProductMappingCreatePayload) =>
+      request<DvdmsProductMapping>(
+        `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
+        HttpMethod.POST,
+        payload,
+      ),
+    update: (
+      instituteId: string,
+      mappingId: string,
+      payload: DvdmsProductMappingUpdatePayload,
+    ) =>
+      request<DvdmsProductMapping>(
+        `/api/care_dvdms/institute/${instituteId}/product-mappings/${mappingId}/`,
         HttpMethod.PATCH,
         payload,
       ),
@@ -339,6 +373,7 @@ export const apis = {
   productKnowledge: {
     list: (params: {
       facility: string;
+      name?: string;
       limit?: number;
       offset?: number;
       category?: string;
@@ -347,6 +382,19 @@ export const apis = {
     }) =>
       request<PaginatedResponse<ProductKnowledge>>(
         "/api/v1/product_knowledge/",
+        HttpMethod.GET,
+        { include_instance: "true", ...params },
+      ),
+    get: (slug: string) =>
+      request<ProductKnowledge>(
+        `/api/v1/product_knowledge/${slug}/`,
+        HttpMethod.GET,
+      ),
+  },
+  resourceCategories: {
+    list: (facilityId: string, params: { resource_type: string }) =>
+      request<PaginatedResponse<ResourceCategory>>(
+        `/api/v1/facility/${facilityId}/resource_category/`,
         HttpMethod.GET,
         params,
       ),

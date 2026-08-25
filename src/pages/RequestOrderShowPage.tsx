@@ -194,7 +194,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const { data: productMappingsData } = useQuery({
     queryKey: ["dvdms_product_mappings", institute?.id, recordOrder?.id],
     queryFn: () =>
-      apis.productMappings.list(institute!.id, recordOrder!.id, {
+      apis.recordOrderProductMappings.list(institute!.id, recordOrder!.id, {
         limit: 100,
       }),
     enabled: !!institute?.id && !!recordOrder?.id,

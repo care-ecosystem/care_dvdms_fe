@@ -11,6 +11,7 @@ const RequestOrderEditPage = lazy(() => import("./pages/RequestOrderEditPage"));
 const PrintRequestOrderPage = lazy(
   () => import("./pages/PrintRequestOrderPage"),
 );
+const ProductMappings = lazy(() => import("./pages/ProductMappings"));
 
 const routes = {
   "/facility/:facilityId/settings/general/dvdms": ({
@@ -81,6 +82,12 @@ const routes = {
         requestOrderId={requestOrderId}
       />
     ),
+
+  "/facility/:facilityId/settings/general/dvdms/product-mappings": ({
+    facilityId,
+  }: {
+    facilityId: string;
+  }) => <ProductMappings facilityId={facilityId} />,
 };
 
 export default routes;

@@ -292,10 +292,11 @@ export const apis = {
       ),
   },
   productMappings: {
-    list: (instituteId: string) =>
+    list: (instituteId: string, params?: { limit?: number; offset?: number }) =>
       request<PaginatedResponse<DvdmsProductMapping>>(
         `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
         HttpMethod.GET,
+        params,
       ),
     create: (instituteId: string, payload: DvdmsProductMappingCreatePayload) =>
       request<DvdmsProductMapping>(
@@ -377,6 +378,11 @@ export const apis = {
         "/api/v1/product_knowledge/",
         HttpMethod.GET,
         { include_instance: "true", ...params },
+      ),
+    get: (slug: string) =>
+      request<ProductKnowledge>(
+        `/api/v1/product_knowledge/${slug}/`,
+        HttpMethod.GET,
       ),
   },
   superBatch: {

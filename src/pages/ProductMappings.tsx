@@ -1,10 +1,11 @@
-import { FC, useEffect, useMemo, useState } from "react";
+import { FC, useEffect, useMemo, useRef, useState } from "react";
 import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowLeftIcon,
+  DownloadIcon,
   FolderOpenIcon,
   Loader2Icon,
   PencilIcon,
@@ -13,7 +14,9 @@ import {
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE } from "@/lib/constants";
+import { downloadProductMappingTemplate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import Pagination from "@/components/Pagination";
 import { Label } from "@/components/ui/label";
 import Page from "@/components/ui/page";
 import Autocomplete from "@/components/ui/autocomplete";
@@ -25,9 +28,19 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import FileDropzone from "@/components/FileDropzone";
 import { DvdmsProductMapping } from "@/types/dvdms_config";
 import { ProductKnowledge } from "@/types/productKnowledge";
+import { validateCSV } from "@/utils/csvValidation";
+import type { FormattedError, ProductMappingCsvRow } from "@/utils/csvValidation";
 
 type ProductMappingsProps = {
   facilityId: string;
@@ -53,6 +66,8 @@ const EMPTY_MAPPING: MappingForm = {
 const getErrorMessage = (error: unknown) =>
   (error as { message?: string })?.message;
 
+const MAPPINGS_PAGE_SIZE = 10;
+
 const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   const queryClient = useQueryClient();
@@ -63,28 +78,25 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   });
   const instituteId = institute?.id;
 
+  const [mappingsPage, setMappingsPage] = useState(1);
+
   const { data: mappingsData, isLoading: mappingsLoading } = useQuery({
-    queryKey: ["dvdms_product_mappings", instituteId],
-    queryFn: () => apis.productMappings.list(instituteId!),
+    queryKey: ["dvdms_product_mappings", instituteId, mappingsPage],
+    queryFn: () =>
+      apis.productMappings.list(instituteId!, {
+        limit: MAPPINGS_PAGE_SIZE,
+        offset: (mappingsPage - 1) * MAPPINGS_PAGE_SIZE,
+      }),
     enabled: !!instituteId,
   });
   const mappings = mappingsData?.results ?? [];
-
-  // Product mapping responses only carry product_knowledge_id — resolve
-  // names for display from the facility's product knowledge list.
-  const { data: productKnowledgeData } = useQuery({
-    queryKey: ["dvdms_product_knowledge_all", facilityId],
-    queryFn: () => apis.productKnowledge.list({ facility: facilityId, limit: 100 }),
-  });
-  const productKnowledgeById = useMemo(() => {
-    const map = new Map<string, ProductKnowledge>();
-    for (const pk of productKnowledgeData?.results ?? []) {
-      map.set(pk.id, pk);
-    }
-    return map;
-  }, [productKnowledgeData]);
+  const mappingsCount = mappingsData?.count ?? 0;
 
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvErrors, setCsvErrors] = useState<FormattedError[]>([]);
+  const [csvRows, setCsvRows] = useState<ProductMappingCsvRow[]>([]);
+  const [csvDuplicateCount, setCsvDuplicateCount] = useState(0);
+  const [isUploadingCsv, setIsUploadingCsv] = useState(false);
 
   const [mappingOpen, setMappingOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -118,12 +130,11 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           name: debouncedProductKnowledgeSearch || undefined,
           limit: 10,
         }),
+      enabled: mappingOpen,
     });
 
   const productKnowledgeOptions = useMemo(() => {
     const list = productKnowledgeSearchData?.results ?? [];
-    // Keep the currently selected item selectable even if it falls outside
-    // the latest search results.
     const selected = mappingForm.productKnowledge;
     return selected && !list.some((pk) => pk.id === selected.id)
       ? [selected, ...list]
@@ -196,7 +207,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     onSuccess: () => {
       toast.success(t("dvdms_product_mapping_save_success"));
       invalidateMappings();
-      setMappingOpen(false);
+      clearMappingForm();
     },
     onError: (error: unknown) =>
       toast.error(
@@ -218,7 +229,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     onSuccess: () => {
       toast.success(t("dvdms_product_mapping_save_success"));
       invalidateMappings();
-      setMappingOpen(false);
+      clearMappingForm();
     },
     onError: (error: unknown) =>
       toast.error(
@@ -232,23 +243,30 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     navigate(`/facility/${facilityId}/settings/general/dvdms`);
   };
 
-  const openAddMapping = () => {
+  const resetCsvState = () => {
+    setCsvFile(null);
+    setCsvErrors([]);
+    setCsvRows([]);
+    setCsvDuplicateCount(0);
+  };
+
+  const clearMappingForm = () => {
     setEditingId(null);
     setMappingForm(EMPTY_MAPPING);
     setGroupId(undefined);
     setSubgroupId(undefined);
-    setCsvFile(null);
+  };
+
+  const openAddMapping = () => {
+    clearMappingForm();
+    resetCsvState();
     setMappingOpen(true);
   };
 
   const openEditMapping = (mapping: DvdmsProductMapping) => {
     setEditingId(mapping.id);
     setMappingForm({
-      productKnowledge: productKnowledgeById.get(mapping.product_knowledge_id) ?? {
-        id: mapping.product_knowledge_id,
-        slug: mapping.product_knowledge_id,
-        name: mapping.product_knowledge_id,
-      },
+      productKnowledge: mapping.product_knowledge,
       dvdmsDrug: {
         id: mapping.eaushadhi_drug_details.id,
         name: mapping.eaushadhi_drug_details.name,
@@ -272,9 +290,105 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     }
   };
 
-  const uploadCsv = () => {
-    // TODO: send csvFile to the bulk mapping upload API once available
-    setCsvFile(null);
+  const fileReaderRef = useRef<FileReader | null>(null);
+  const selectionIdRef = useRef(0);
+
+  const handleFileSelected = (file: File | null) => {
+    fileReaderRef.current?.abort();
+    const selectionId = ++selectionIdRef.current;
+
+    setCsvFile(file);
+    setCsvErrors([]);
+    setCsvRows([]);
+    setCsvDuplicateCount(0);
+    if (!file) return;
+
+    const reader = new FileReader();
+    fileReaderRef.current = reader;
+    reader.onload = (e) => {
+      if (selectionId !== selectionIdRef.current) return;
+
+      const csvText = (e.target?.result as string) ?? "";
+      const validation = validateCSV(csvText);
+
+      if (!validation.valid) {
+        const errors: FormattedError[] = [];
+        if (validation.errors.parseError) {
+          errors.push({ type: "parse_error", data: validation.errors.parseError });
+        }
+        if (validation.errors.missingHeaders?.length) {
+          errors.push({
+            type: "missing_headers",
+            data: validation.errors.missingHeaders,
+          });
+        }
+        if (validation.errors.emptyRows?.length) {
+          errors.push({
+            type: "empty_rows",
+            data: validation.errors.emptyRows.join(", "),
+          });
+        }
+        setCsvErrors(errors);
+        setCsvFile(null);
+        return;
+      }
+
+      setCsvRows(validation.rows ?? []);
+      setCsvDuplicateCount(validation.duplicateRows?.length ?? 0);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleInvalidCsvFile = () => {
+    toast.error(t("csv_invalid_file"));
+  };
+
+  const uploadCsv = async () => {
+    if (!instituteId || csvRows.length === 0 || isUploadingCsv) return;
+
+    setIsUploadingCsv(true);
+    let successCount = 0;
+    const failedRows: string[] = [];
+    const productKnowledgeBySlug = new Map<string, ProductKnowledge | null>();
+
+    for (const row of csvRows) {
+      const slug = row.pkSlug.toLowerCase();
+      if (!productKnowledgeBySlug.has(slug)) {
+        productKnowledgeBySlug.set(
+          slug,
+          await apis.productKnowledge.get(slug).catch(() => null),
+        );
+      }
+      const productKnowledge = productKnowledgeBySlug.get(slug);
+      if (!productKnowledge) {
+        failedRows.push(row.pkSlug);
+        continue;
+      }
+      try {
+        await apis.productMappings.create(instituteId, {
+          eaushadhi_drug_details: { id: row.drugId, name: row.drugName },
+          product_knowledge_id: productKnowledge.id,
+        });
+        successCount += 1;
+      } catch {
+        failedRows.push(row.pkSlug);
+      }
+    }
+
+    setIsUploadingCsv(false);
+    invalidateMappings();
+    resetCsvState();
+
+    if (failedRows.length === 0) {
+      toast.success(t("csv_upload_success", { count: successCount }));
+    } else {
+      toast.error(
+        t("csv_upload_partial_failure", {
+          success: successCount,
+          failed: failedRows.length,
+        }),
+      );
+    }
   };
 
   return (
@@ -305,7 +419,13 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Sheet open={mappingOpen} onOpenChange={setMappingOpen}>
+            <Sheet
+              open={mappingOpen}
+              onOpenChange={(open) => {
+                setMappingOpen(open);
+                if (!open) resetCsvState();
+              }}
+            >
               <SheetTrigger asChild>
                 <Button
                   type="button"
@@ -338,19 +458,62 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                         <FileDropzone
                           accept=".csv"
                           selectedFile={csvFile}
-                          onFileChange={setCsvFile}
+                          onFileChange={handleFileSelected}
                           dropLabel={t("drag_drop_csv_to_upload")}
                           browseLabel={t("browse_file")}
+                          onInvalidFile={handleInvalidCsvFile}
                         />
-                        <Button
-                          type="button"
-                          variant="primary_gradient"
-                          className="w-full"
-                          disabled={!csvFile}
-                          onClick={uploadCsv}
-                        >
-                          {t("upload")}
-                        </Button>
+                        {csvErrors.length > 0 && (
+                          <div className="space-y-1 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                            {csvErrors.map((error, idx) => (
+                              <p key={idx}>
+                                {error.type === "missing_headers" &&
+                                  `${t("csv_missing_headers")}: ${
+                                    Array.isArray(error.data)
+                                      ? error.data.join(", ")
+                                      : error.data
+                                  }`}
+                                {error.type === "empty_rows" &&
+                                  `${t("csv_empty_values")}: ${error.data}`}
+                                {error.type === "parse_error" &&
+                                  `${t("csv_parse_error")}: ${error.data}`}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                        {csvFile && csvErrors.length === 0 && csvRows.length > 0 && (
+                          <p className="text-sm text-gray-500">
+                            {t("csv_ready_to_upload", { count: csvRows.length })}
+                            {csvDuplicateCount > 0 &&
+                              ` ${t("csv_duplicates_skipped", { count: csvDuplicateCount })}`}
+                          </p>
+                        )}
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={downloadProductMappingTemplate}
+                          >
+                            <DownloadIcon className="mr-2 size-4" />
+                            {t("download_template")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="primary_gradient"
+                            disabled={
+                              !csvFile ||
+                              csvErrors.length > 0 ||
+                              csvRows.length === 0 ||
+                              isUploadingCsv
+                            }
+                            onClick={uploadCsv}
+                          >
+                            {isUploadingCsv && (
+                              <Loader2Icon className="mr-2 size-4 animate-spin" />
+                            )}
+                            {t("upload")}
+                          </Button>
+                        </div>
                       </div>
 
                       <div className="relative">
@@ -493,40 +656,63 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
             </p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-gray-200">
-            <div className="grid grid-cols-[1fr_1fr_auto] gap-4 bg-gray-100 px-4 py-2 text-xs font-medium uppercase text-gray-500">
-              <span>{t("product_knowledge")}</span>
-              <span>{t("dvdms_drug")}</span>
-              <span>{t("actions")}</span>
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("product_knowledge")}</TableHead>
+                  <TableHead>{t("category")}</TableHead>
+                  <TableHead>{t("dvdms_drug")}</TableHead>
+                  <TableHead>{t("actions")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {mappings.map((mapping) => (
+                  <TableRow key={mapping.id}>
+                    <TableCell>
+                      <div className="flex flex-col whitespace-normal">
+                        <span>{mapping.product_knowledge?.name ?? "—"}</span>
+                        {mapping.product_knowledge?.slug && (
+                          <span className="text-xs text-gray-500">
+                            {mapping.product_knowledge.slug}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>{mapping.product_knowledge?.category ?? "—"}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col whitespace-normal">
+                        <span>{mapping.eaushadhi_drug_details.name}</span>
+                        <span className="text-xs text-gray-500">
+                          {t("dvdms_drug_id")}: {mapping.eaushadhi_drug_details.id}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="font-semibold"
+                        onClick={() => openEditMapping(mapping)}
+                      >
+                        <PencilIcon className="size-4" />
+                        {t("edit")}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <div className="mt-4 flex justify-center">
+              <Pagination
+                totalCount={mappingsCount}
+                page={mappingsPage}
+                perPage={MAPPINGS_PAGE_SIZE}
+                onPageChange={setMappingsPage}
+              />
             </div>
-            <div className="divide-y divide-gray-200 bg-white">
-              {mappings.map((mapping) => (
-                <div
-                  key={mapping.id}
-                  className="grid grid-cols-[1fr_1fr_auto] items-center gap-4 px-4 py-3"
-                >
-                  <span className="text-sm font-medium text-gray-900">
-                    {productKnowledgeById.get(mapping.product_knowledge_id)
-                      ?.name ?? mapping.product_knowledge_id}
-                  </span>
-                  <span className="text-sm text-gray-500">
-                    {mapping.eaushadhi_drug_details.name}
-                  </span>
-                  <div className="flex gap-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => openEditMapping(mapping)}
-                      aria-label={t("edit_mapping")}
-                    >
-                      <PencilIcon className="size-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          </>
         )}
       </div>
     </Page>

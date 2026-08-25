@@ -207,11 +207,18 @@ export interface DvdmsProductMappingDrugDetails {
   drug_category: string;
 }
 
+export interface DvdmsProductMappingProductKnowledge {
+  id: string;
+  name: string;
+  slug: string;
+  category: string | null;
+}
+
 export interface DvdmsProductMapping {
   id: string;
   institute_id: string;
   eaushadhi_drug_details: DvdmsProductMappingDrugDetails;
-  product_knowledge_id: string;
+  product_knowledge: DvdmsProductMappingProductKnowledge | null;
   mapping_type: string | null;
   usage_count: number | null;
   last_used_date: string | null;

@@ -1,5 +1,6 @@
 import { LocationRead } from "@/types/location";
 import { Organization } from "@/types/organization";
+import { ProductKnowledge } from "@/types/productKnowledge";
 
 export interface DvdmsSupplierMapping {
   eaushadhi_store_id: string;
@@ -207,21 +208,18 @@ export interface DvdmsProductMappingDrugDetails {
   drug_category: string;
 }
 
-export interface DvdmsProductMappingProductKnowledge {
-  id: string;
-  name: string;
-  slug: string;
-  category: string | null;
-}
-
 export interface DvdmsProductMapping {
   id: string;
   institute_id: string;
   eaushadhi_drug_details: DvdmsProductMappingDrugDetails;
-  product_knowledge: DvdmsProductMappingProductKnowledge | null;
+  product_knowledge: ProductKnowledge | null;
   mapping_type: string | null;
   usage_count: number | null;
   last_used_date: string | null;
+  created_by: DvdmsInstituteUser | null;
+  updated_by: DvdmsInstituteUser | null;
+  created_date: string;
+  modified_date: string;
 }
 
 export type DvdmsProductMappingCreatePayload = {

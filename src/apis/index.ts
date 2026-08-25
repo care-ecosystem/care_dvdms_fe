@@ -3,7 +3,7 @@ import { request } from "@/apis/query";
 import { Organization } from "@/types/organization";
 import { Facility } from "@/types/facility";
 import { LocationRead } from "@/types/location";
-import { ProductKnowledge } from "@/types/productKnowledge";
+import { ProductKnowledge, ResourceCategory } from "@/types/productKnowledge";
 import {
   DvdmsInstitute,
   DvdmsInstitutePayload,
@@ -36,7 +36,6 @@ import { RecordOrderProductMapping } from "@/types/productMapping";
 import { RequestOrder } from "@/types/requestOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
 import { TagConfig } from "@/types/tagConfig";
-import { ProductKnowledge } from "@/types/productKnowledge";
 import {
   SuperBatchRequestPayload,
   SuperBatchResponse,
@@ -239,7 +238,7 @@ export const apis = {
       instituteId: string,
       params: {
         hstnum_group_id: string;
-        hstnum_subgroup_id: string;
+        hstnum_subgroup_id?: string;
         sstnum_item_cat_no?: string;
         hststr_item_name?: string;
       },
@@ -390,6 +389,14 @@ export const apis = {
       request<ProductKnowledge>(
         `/api/v1/product_knowledge/${slug}/`,
         HttpMethod.GET,
+      ),
+  },
+  resourceCategories: {
+    list: (facilityId: string, params: { resource_type: string }) =>
+      request<PaginatedResponse<ResourceCategory>>(
+        `/api/v1/facility/${facilityId}/resource_category/`,
+        HttpMethod.GET,
+        params,
       ),
   },
   superBatch: {

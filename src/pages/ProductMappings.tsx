@@ -10,6 +10,7 @@ import {
   Loader2Icon,
   PencilIcon,
   PlusIcon,
+  UploadIcon,
 } from "lucide-react";
 
 import { apis } from "@/apis";
@@ -17,9 +18,16 @@ import { BatchError, extractErrorMessage, performBatchRequest } from "@/apis/que
 import { BatchRequestBody, BatchResult, HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
 import {
-  cn,
+  chunk as chunkArray,
+  downloadAllProductMappings,
   downloadProductMappingTemplate,
   downloadProductMappingUploadReport,
+  formatDate,
+  getProductKnowledgeSlugValue,
+  getProgressPercent,
+  hasExplicitSlugScope,
+  toFacilityScopedSlug,
+  toInstanceScopedSlug,
 } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import Pagination from "@/components/Pagination";
@@ -44,7 +52,7 @@ import {
 } from "@/components/ui/table";
 import FileDropzone from "@/components/FileDropzone";
 import { DvdmsProductMapping } from "@/types/dvdms_config";
-import { ProductKnowledge } from "@/types/productKnowledge";
+import { ProductKnowledge, ResourceCategory } from "@/types/productKnowledge";
 import { validateCSV } from "@/utils/csvValidation";
 import type {
   DuplicateProductMappingCsvRow,
@@ -65,19 +73,6 @@ const DUPLICATE_REASON_MESSAGE_KEYS: Record<DuplicateReasonCode, string> = {
 };
 
 const PRODUCT_MAPPING_BATCH_SIZE = 10;
-
-function chunkArray<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size));
-  }
-  return chunks;
-}
-
-function getProgressPercent(progress: { done: number; total: number }): number {
-  if (progress.total <= 0) return 0;
-  return Math.min(100, Math.round((progress.done / progress.total) * 100));
-}
 
 async function resolveProductKnowledgeSlugsBatch(
   slugs: string[],
@@ -164,11 +159,13 @@ type DvdmsDrugValue = {
 };
 
 type MappingForm = {
+  category: ResourceCategory | null;
   productKnowledge: ProductKnowledge | null;
   dvdmsDrug: DvdmsDrugValue | null;
 };
 
 const EMPTY_MAPPING: MappingForm = {
+  category: null,
   productKnowledge: null,
   dvdmsDrug: null,
 };
@@ -203,6 +200,8 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const mappings = mappingsData?.results ?? [];
   const mappingsCount = mappingsData?.count ?? 0;
 
+  const [isDownloadingMappings, setIsDownloadingMappings] = useState(false);
+
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvErrors, setCsvErrors] = useState<FormattedError[]>([]);
   const [csvRows, setCsvRows] = useState<ProductMappingCsvRow[]>([]);
@@ -215,12 +214,23 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const [validationProgress, setValidationProgress] = useState({ done: 0, total: 0 });
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
 
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [mappingOpen, setMappingOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [mappingForm, setMappingForm] = useState<MappingForm>(EMPTY_MAPPING);
 
   const [groupId, setGroupId] = useState<string | undefined>(undefined);
   const [subgroupId, setSubgroupId] = useState<string | undefined>(undefined);
+
+  const { data: categoriesData } = useQuery({
+    queryKey: ["dvdms_resource_categories", facilityId],
+    queryFn: () =>
+      apis.resourceCategories.list(facilityId, {
+        resource_type: "product_knowledge",
+      }),
+    enabled: mappingOpen,
+  });
+  const categories = categoriesData?.results ?? [];
 
   const [productKnowledgeSearch, setProductKnowledgeSearch] = useState("");
   const [debouncedProductKnowledgeSearch, setDebouncedProductKnowledgeSearch] =
@@ -239,15 +249,17 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
       queryKey: [
         "dvdms_product_knowledge_search",
         facilityId,
+        mappingForm.category?.slug,
         debouncedProductKnowledgeSearch,
       ],
       queryFn: () =>
         apis.productKnowledge.list({
           facility: facilityId,
           name: debouncedProductKnowledgeSearch || undefined,
+          category: mappingForm.category?.slug,
           limit: 10,
         }),
-      enabled: mappingOpen,
+      enabled: mappingOpen && !!mappingForm.category,
     });
 
   const productKnowledgeOptions = useMemo(() => {
@@ -275,10 +287,16 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     queryFn: () =>
       apis.institutes.lookupDrugs(instituteId!, {
         hstnum_group_id: groupId!,
-        hstnum_subgroup_id: subgroupId!,
+        hstnum_subgroup_id: subgroupId,
       }),
-    enabled: !!instituteId && !!groupId && !!subgroupId,
+    enabled: !!instituteId && !!groupId,
   });
+
+  const handleCategoryChange = (id: string) => {
+    const category = categories.find((c) => c.id === id) ?? null;
+    setMappingForm((prev) => ({ ...prev, category, productKnowledge: null }));
+    setProductKnowledgeSearch("");
+  };
 
   const handleGroupChange = (id: string) => {
     setGroupId(id);
@@ -287,7 +305,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   };
 
   const handleSubgroupChange = (id: string) => {
-    setSubgroupId(id);
+    setSubgroupId(id || undefined);
     setMappingForm((prev) => ({ ...prev, dvdmsDrug: null }));
   };
 
@@ -361,6 +379,45 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     navigate(`/facility/${facilityId}/settings/general/dvdms`);
   };
 
+  const handleDownloadAllMappings = async () => {
+    if (!instituteId || isDownloadingMappings) return;
+
+    setIsDownloadingMappings(true);
+    try {
+      const allMappings: DvdmsProductMapping[] = [];
+      let offset = 0;
+      const pageSize = 50;
+
+      for (;;) {
+        const page = await apis.productMappings.list(instituteId, {
+          limit: pageSize,
+          offset,
+          mapping_type: "default_mapping",
+        });
+        allMappings.push(...page.results);
+        if (page.results.length !== pageSize || allMappings.length >= page.count) {
+          break;
+        }
+        offset += pageSize;
+      }
+
+      downloadAllProductMappings(
+        allMappings.map((mapping) => ({
+          drugId: mapping.eaushadhi_drug_details.id,
+          drugName: mapping.eaushadhi_drug_details.name,
+          productKnowledgeName: mapping.product_knowledge?.name ?? "",
+          productKnowledgeSlug: mapping.product_knowledge
+            ? getProductKnowledgeSlugValue(mapping.product_knowledge)
+            : "",
+        })),
+      );
+    } catch (error) {
+      toast.error(getErrorMessage(error) || t("download_all_mappings_error"));
+    } finally {
+      setIsDownloadingMappings(false);
+    }
+  };
+
   const resetCsvState = () => {
     setCsvFile(null);
     setCsvErrors([]);
@@ -380,13 +437,18 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
 
   const openAddMapping = () => {
     clearMappingForm();
-    resetCsvState();
     setMappingOpen(true);
+  };
+
+  const openUpload = () => {
+    resetCsvState();
+    setUploadOpen(true);
   };
 
   const openEditMapping = (mapping: DvdmsProductMapping) => {
     setEditingId(mapping.id);
     setMappingForm({
+      category: mapping.product_knowledge?.category ?? null,
       productKnowledge: mapping.product_knowledge,
       dvdmsDrug: {
         id: mapping.eaushadhi_drug_details.id,
@@ -475,12 +537,8 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     const uniqueSlugs = Array.from(
       new Set(csvRows.map((row) => row.pkSlug.toLowerCase())),
     );
-    const unscopedSlugs = uniqueSlugs.filter(
-      (slug) => !slug.startsWith("f-") && !slug.startsWith("i-"),
-    );
-    const scopedSlugs = uniqueSlugs.filter(
-      (slug) => slug.startsWith("f-") || slug.startsWith("i-"),
-    );
+    const unscopedSlugs = uniqueSlugs.filter((slug) => !hasExplicitSlugScope(slug));
+    const scopedSlugs = uniqueSlugs.filter(hasExplicitSlugScope);
 
     setValidationProgress({ done: 0, total: uniqueSlugs.length });
     const onValidationProgress = (done: number) =>
@@ -494,7 +552,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
       )),
       ...(await resolveProductKnowledgeSlugsBatch(
         unscopedSlugs,
-        (slug) => `f-${facilityId}-${slug}`,
+        (slug) => toFacilityScopedSlug(facilityId, slug),
         onValidationProgress,
       )),
     ]);
@@ -509,7 +567,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
       }));
       const instanceScoped = await resolveProductKnowledgeSlugsBatch(
         stillMissingSlugs,
-        (slug) => `i-${slug}`,
+        toInstanceScopedSlug,
         onValidationProgress,
       );
       instanceScoped.forEach((pk, slug) => productKnowledgeBySlug.set(slug, pk));
@@ -721,14 +779,226 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!instituteId || isDownloadingMappings || mappingsCount === 0}
+              onClick={handleDownloadAllMappings}
+            >
+              {isDownloadingMappings ? (
+                <Loader2Icon className="mr-2 size-4 animate-spin" />
+              ) : (
+                <DownloadIcon className="mr-2 size-4" />
+              )}
+              {isDownloadingMappings
+                ? t("downloading_mappings")
+                : t("download_all_mappings")}
+            </Button>
+
             <Sheet
-              open={mappingOpen}
+              open={uploadOpen}
               onOpenChange={(open) => {
-                setMappingOpen(open);
+                setUploadOpen(open);
                 if (!open) resetCsvState();
               }}
             >
+              <SheetTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!instituteId}
+                  onClick={openUpload}
+                >
+                  <UploadIcon className="mr-2 size-4" />
+                  {t("upload_mapping_csv")}
+                </Button>
+              </SheetTrigger>
+              <SheetContent
+                closeLabel={t("close")}
+                showCloseButton={false}
+                className="flex w-full flex-col sm:max-w-2xl overflow-y-auto"
+              >
+                <SheetHeader>
+                  <SheetTitle>{t("upload_mapping_csv")}</SheetTitle>
+                </SheetHeader>
+                <div className="px-1 space-y-3">
+                  <p className="text-sm text-gray-500">
+                    {t("upload_mapping_csv_subtitle")}
+                  </p>
+                  <FileDropzone
+                    accept=".csv"
+                    selectedFile={csvFile}
+                    onFileChange={handleFileSelected}
+                    dropLabel={t("drag_drop_csv_to_upload")}
+                    browseLabel={t("browse_file")}
+                    onInvalidFile={handleInvalidCsvFile}
+                  />
+                  {isValidatingCsv && (
+                    <div className="flex flex-col gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                      <div className="flex items-center gap-2">
+                        <Loader2Icon className="size-4 shrink-0 animate-spin" />
+                        <span>
+                          {t("csv_validating_rows", {
+                            percent: getProgressPercent(validationProgress),
+                          })}
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+                        <div
+                          className="h-full rounded-full bg-primary-500 transition-[width]"
+                          style={{
+                            width: `${getProgressPercent(validationProgress)}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {isUploadingCsv && (
+                    <div className="flex flex-col gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                      <div className="flex items-center gap-2">
+                        <Loader2Icon className="size-4 shrink-0 animate-spin" />
+                        <span>
+                          {t("csv_uploading_progress", {
+                            percent: getProgressPercent(uploadProgress),
+                          })}
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+                        <div
+                          className="h-full rounded-full bg-primary-500 transition-[width]"
+                          style={{
+                            width: `${getProgressPercent(uploadProgress)}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {csvErrors.length > 0 && (
+                    <CsvStatusCard title={t("csv_validation_issues")}>
+                      {csvErrors.map((error, idx) => (
+                        <p key={idx} className="text-red-600">
+                          {error.type === "missing_headers" &&
+                            `${t("csv_missing_headers")}: ${
+                              Array.isArray(error.data)
+                                ? error.data.join(", ")
+                                : error.data
+                            }`}
+                          {error.type === "empty_rows" &&
+                            `${t("csv_empty_values")}: ${error.data}`}
+                          {error.type === "parse_error" &&
+                            `${t("csv_parse_error")}: ${error.data}`}
+                        </p>
+                      ))}
+                    </CsvStatusCard>
+                  )}
+                  {csvFile &&
+                    csvErrors.length === 0 &&
+                    csvRows.length > 0 &&
+                    csvReport.length === 0 &&
+                    !isValidatingCsv &&
+                    !isUploadingCsv && (
+                      <CsvStatusCard title={t("csv_ready_title")}>
+                        <p>
+                          {t("csv_ready_to_upload", { count: csvRows.length })}
+                        </p>
+                        {csvDuplicateRows.length > 0 && (
+                          <p>
+                            {t("csv_duplicates_skipped", {
+                              count: csvDuplicateRows.length,
+                            })}
+                          </p>
+                        )}
+                      </CsvStatusCard>
+                    )}
+                  {csvReport.length > 0 &&
+                    (() => {
+                      const successCount = csvReport.filter(
+                        (row) => row.status === "SUCCESS",
+                      ).length;
+                      const skippedCount = csvReport.filter(
+                        (row) => row.status === "SKIPPED",
+                      ).length;
+                      const failedCount = csvReport.filter(
+                        (row) => row.status === "FAILED",
+                      ).length;
+
+                      return (
+                        <CsvStatusCard
+                          title={t("csv_upload_status_title")}
+                          action={
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="bg-white"
+                              onClick={() =>
+                                downloadProductMappingUploadReport(csvReport)
+                              }
+                            >
+                              <DownloadIcon className="mr-2 size-4" />
+                              {t("download_report")}
+                            </Button>
+                          }
+                        >
+                          <ul className="list-disc space-y-0.5 pl-4">
+                            {successCount > 0 && (
+                              <li className="text-primary-700">
+                                {t("csv_report_summary_success", {
+                                  count: successCount,
+                                })}
+                              </li>
+                            )}
+                            {skippedCount > 0 && (
+                              <li className="text-gray-900">
+                                {t("csv_report_summary_skipped", {
+                                  count: skippedCount,
+                                })}
+                              </li>
+                            )}
+                            {failedCount > 0 && (
+                              <li className="text-red-600">
+                                {t("csv_report_summary_failed", {
+                                  count: failedCount,
+                                })}
+                              </li>
+                            )}
+                          </ul>
+                        </CsvStatusCard>
+                      );
+                    })()}
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={downloadProductMappingTemplate}
+                    >
+                      <DownloadIcon className="mr-2 size-4" />
+                      {t("download_template")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      disabled={
+                        !csvFile ||
+                        csvErrors.length > 0 ||
+                        csvRows.length === 0 ||
+                        isValidatingCsv ||
+                        isUploadingCsv
+                      }
+                      onClick={uploadCsv}
+                    >
+                      {(isValidatingCsv || isUploadingCsv) && (
+                        <Loader2Icon className="mr-2 size-4 animate-spin" />
+                      )}
+                      {t("upload")}
+                    </Button>
+                  </div>
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            <Sheet open={mappingOpen} onOpenChange={setMappingOpen}>
               <SheetTrigger asChild>
                 <Button
                   type="button"
@@ -737,7 +1007,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                   onClick={openAddMapping}
                 >
                   <PlusIcon className="size-4" />
-                  {t("add_mapping")}
+                  {t("add_mapping_manually")}
                 </Button>
               </SheetTrigger>
               <SheetContent
@@ -747,287 +1017,114 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
               >
                 <SheetHeader>
                   <SheetTitle>
-                    {editingId ? t("edit_mapping") : t("add_mapping")}
+                    {editingId ? t("edit_mapping") : t("add_mapping_manually")}
                   </SheetTitle>
                 </SheetHeader>
-                <div className="px-1 space-y-8">
-                  {!editingId && (
-                    <>
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <h4 className="text-base font-semibold text-gray-900">
-                            {t("upload_csv_section_title")}
-                          </h4>
-                          <p className="text-sm text-gray-500">
-                            {t("upload_mapping_csv_subtitle")}
-                          </p>
-                        </div>
-                        <FileDropzone
-                          accept=".csv"
-                          selectedFile={csvFile}
-                          onFileChange={handleFileSelected}
-                          dropLabel={t("drag_drop_csv_to_upload")}
-                          browseLabel={t("browse_file")}
-                          onInvalidFile={handleInvalidCsvFile}
-                        />
-                        {isValidatingCsv && (
-                          <div className="flex flex-col gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
-                            <div className="flex items-center gap-2">
-                              <Loader2Icon className="size-4 shrink-0 animate-spin" />
-                              <span>
-                                {t("csv_validating_rows", {
-                                  percent: getProgressPercent(validationProgress),
-                                })}
-                              </span>
-                            </div>
-                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
-                              <div
-                                className="h-full rounded-full bg-primary-500 transition-[width]"
-                                style={{
-                                  width: `${getProgressPercent(validationProgress)}%`,
-                                }}
-                              />
-                            </div>
-                          </div>
-                        )}
-                        {isUploadingCsv && (
-                          <div className="flex flex-col gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
-                            <div className="flex items-center gap-2">
-                              <Loader2Icon className="size-4 shrink-0 animate-spin" />
-                              <span>
-                                {t("csv_uploading_progress", {
-                                  percent: getProgressPercent(uploadProgress),
-                                })}
-                              </span>
-                            </div>
-                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
-                              <div
-                                className="h-full rounded-full bg-primary-500 transition-[width]"
-                                style={{
-                                  width: `${getProgressPercent(uploadProgress)}%`,
-                                }}
-                              />
-                            </div>
-                          </div>
-                        )}
-                        {csvErrors.length > 0 && (
-                          <CsvStatusCard title={t("csv_validation_issues")}>
-                            {csvErrors.map((error, idx) => (
-                              <p key={idx} className="text-red-600">
-                                {error.type === "missing_headers" &&
-                                  `${t("csv_missing_headers")}: ${
-                                    Array.isArray(error.data)
-                                      ? error.data.join(", ")
-                                      : error.data
-                                  }`}
-                                {error.type === "empty_rows" &&
-                                  `${t("csv_empty_values")}: ${error.data}`}
-                                {error.type === "parse_error" &&
-                                  `${t("csv_parse_error")}: ${error.data}`}
-                              </p>
-                            ))}
-                          </CsvStatusCard>
-                        )}
-                        {csvFile &&
-                          csvErrors.length === 0 &&
-                          csvRows.length > 0 &&
-                          csvReport.length === 0 &&
-                          !isValidatingCsv &&
-                          !isUploadingCsv && (
-                            <CsvStatusCard title={t("csv_ready_title")}>
-                              <p>
-                                {t("csv_ready_to_upload", { count: csvRows.length })}
-                              </p>
-                              {csvDuplicateRows.length > 0 && (
-                                <p>
-                                  {t("csv_duplicates_skipped", {
-                                    count: csvDuplicateRows.length,
-                                  })}
-                                </p>
-                              )}
-                            </CsvStatusCard>
-                          )}
-                        {csvReport.length > 0 &&
-                          (() => {
-                            const successCount = csvReport.filter(
-                              (row) => row.status === "SUCCESS",
-                            ).length;
-                            const skippedCount = csvReport.filter(
-                              (row) => row.status === "SKIPPED",
-                            ).length;
-                            const failedCount = csvReport.filter(
-                              (row) => row.status === "FAILED",
-                            ).length;
+                <div className="px-1 space-y-4">
+                  <div className="space-y-2">
+                    <Label>
+                      {t("category")}
+                      <span className="text-red-500">*</span>
+                    </Label>
+                    <Autocomplete
+                      options={categories.map((category) => ({
+                        value: category.id,
+                        label: category.title,
+                      }))}
+                      value={mappingForm.category?.id ?? ""}
+                      onChange={handleCategoryChange}
+                      placeholder={t("category_placeholder")}
+                      inputPlaceholder={t("search_category")}
+                      noOptionsMessage={t("no_categories_found")}
+                      showClearButton={false}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>
+                      {t("product_knowledge")}
+                      <span className="text-red-500">*</span>
+                    </Label>
+                    <Autocomplete
+                      options={productKnowledgeOptions.map((pk) => ({
+                        value: pk.id,
+                        label: pk.name,
+                      }))}
+                      isLoading={isSearchingProductKnowledge}
+                      value={mappingForm.productKnowledge?.id ?? ""}
+                      onChange={(id) => {
+                        const productKnowledge = productKnowledgeOptions.find(
+                          (pk) => pk.id === id,
+                        );
+                        if (productKnowledge) {
+                          setMappingForm((prev) => ({
+                            ...prev,
+                            productKnowledge,
+                          }));
+                        }
+                      }}
+                      onSearch={setProductKnowledgeSearch}
+                      placeholder={t("product_knowledge_placeholder")}
+                      inputPlaceholder={t("search_product_knowledge")}
+                      noOptionsMessage={t("no_product_knowledge_found")}
+                      disabled={!mappingForm.category && !editingId}
+                      showClearButton={false}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>
+                      {t("dvdms_group")}
+                      <span className="text-red-500">*</span>
+                    </Label>
+                    <Autocomplete
+                      options={groups.map((group) => ({
+                        value: String(group.hstnumGroupId),
+                        label: group.hststrGroupName,
+                      }))}
+                      value={groupId ?? ""}
+                      onChange={handleGroupChange}
+                      placeholder={t("dvdms_group_placeholder")}
+                      inputPlaceholder={t("search_dvdms_group")}
+                      noOptionsMessage={t("no_dvdms_group_found")}
+                      disabled={!instituteId}
+                      showClearButton={false}
+                    />
+                  </div>
 
-                            return (
-                              <CsvStatusCard
-                                title={t("csv_upload_status_title")}
-                                action={
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="bg-white"
-                                    onClick={() =>
-                                      downloadProductMappingUploadReport(csvReport)
-                                    }
-                                  >
-                                    <DownloadIcon className="mr-2 size-4" />
-                                    {t("download_report")}
-                                  </Button>
-                                }
-                              >
-                                <ul className="list-disc space-y-0.5 pl-4">
-                                  {successCount > 0 && (
-                                    <li className="text-primary-700">
-                                      {t("csv_report_summary_success", {
-                                        count: successCount,
-                                      })}
-                                    </li>
-                                  )}
-                                  {skippedCount > 0 && (
-                                    <li className="text-gray-900">
-                                      {t("csv_report_summary_skipped", {
-                                        count: skippedCount,
-                                      })}
-                                    </li>
-                                  )}
-                                  {failedCount > 0 && (
-                                    <li className="text-red-600">
-                                      {t("csv_report_summary_failed", {
-                                        count: failedCount,
-                                      })}
-                                    </li>
-                                  )}
-                                </ul>
-                              </CsvStatusCard>
-                            );
-                          })()}
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={downloadProductMappingTemplate}
-                          >
-                            <DownloadIcon className="mr-2 size-4" />
-                            {t("download_template")}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="primary"
-                            disabled={
-                              !csvFile ||
-                              csvErrors.length > 0 ||
-                              csvRows.length === 0 ||
-                              isValidatingCsv ||
-                              isUploadingCsv
-                            }
-                            onClick={uploadCsv}
-                          >
-                            {(isValidatingCsv || isUploadingCsv) && (
-                              <Loader2Icon className="mr-2 size-4 animate-spin" />
-                            )}
-                            {t("upload")}
-                          </Button>
-                        </div>
-                      </div>
+                  <div className="space-y-2">
+                    <Label>{t("dvdms_subgroup")}</Label>
+                    <Autocomplete
+                      options={subgroups.map((subgroup) => ({
+                        value: String(subgroup.hstnumSubgroupId),
+                        label: subgroup.hststrSubgroupName,
+                      }))}
+                      value={subgroupId ?? ""}
+                      onChange={handleSubgroupChange}
+                      placeholder={t("dvdms_subgroup_placeholder")}
+                      inputPlaceholder={t("search_dvdms_group")}
+                      noOptionsMessage={t("no_dvdms_subgroup_found")}
+                      disabled={!groupId}
+                      showClearButton
+                    />
+                  </div>
 
-                      <hr className="border-gray-200" />
-                    </>
-                  )}
-                  <div className="space-y-3">
-                    <h4 className="text-base font-semibold text-gray-900">
-                      {t("add_manually_section_title")}
-                    </h4>
-                    <div className="space-y-2">
-                      <Label>
-                        {t("product_knowledge")}
-                        <span className="text-red-500">*</span>
-                      </Label>
-                      <Autocomplete
-                        options={productKnowledgeOptions.map((pk) => ({
-                          value: pk.id,
-                          label: pk.name,
-                        }))}
-                        isLoading={isSearchingProductKnowledge}
-                        value={mappingForm.productKnowledge?.id ?? ""}
-                        onChange={(id) => {
-                          const productKnowledge = productKnowledgeOptions.find(
-                            (pk) => pk.id === id,
-                          );
-                          if (productKnowledge) {
-                            setMappingForm((prev) => ({
-                              ...prev,
-                              productKnowledge,
-                            }));
-                          }
-                        }}
-                        onSearch={setProductKnowledgeSearch}
-                        placeholder={t("product_knowledge_placeholder")}
-                        inputPlaceholder={t("search_product_knowledge")}
-                        noOptionsMessage={t("no_product_knowledge_found")}
-                        showClearButton={false}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>
-                        {t("dvdms_group")}
-                        <span className="text-red-500">*</span>
-                      </Label>
-                      <Autocomplete
-                        options={groups.map((group) => ({
-                          value: String(group.hstnumGroupId),
-                          label: group.hststrGroupName,
-                        }))}
-                        value={groupId ?? ""}
-                        onChange={handleGroupChange}
-                        placeholder={t("dvdms_group_placeholder")}
-                        inputPlaceholder={t("search_dvdms_group")}
-                        noOptionsMessage={t("no_dvdms_group_found")}
-                        disabled={!instituteId}
-                        showClearButton={false}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>
-                        {t("dvdms_subgroup")}
-                        <span className="text-red-500">*</span>
-                      </Label>
-                      <Autocomplete
-                        options={subgroups.map((subgroup) => ({
-                          value: String(subgroup.hstnumSubgroupId),
-                          label: subgroup.hststrSubgroupName,
-                        }))}
-                        value={subgroupId ?? ""}
-                        onChange={handleSubgroupChange}
-                        placeholder={t("dvdms_subgroup_placeholder")}
-                        inputPlaceholder={t("search_dvdms_group")}
-                        noOptionsMessage={t("no_dvdms_subgroup_found")}
-                        disabled={!groupId}
-                        showClearButton={false}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>
-                        {t("dvdms_drug")}
-                        <span className="text-red-500">*</span>
-                      </Label>
-                      <Autocomplete
-                        options={drugs.map((drug) => ({
-                          value: String(drug.hstnum_item_id),
-                          label: drug.hststr_item_name,
-                        }))}
-                        value={mappingForm.dvdmsDrug?.id ?? ""}
-                        onChange={handleDrugChange}
-                        placeholder={t("dvdms_drug_placeholder")}
-                        inputPlaceholder={t("search_dvdms_drug")}
-                        noOptionsMessage={t("no_dvdms_drug_found")}
-                        disabled={!subgroupId}
-                        showClearButton={false}
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <Label>
+                      {t("dvdms_drug")}
+                      <span className="text-red-500">*</span>
+                    </Label>
+                    <Autocomplete
+                      options={drugs.map((drug) => ({
+                        value: String(drug.hstnum_item_id),
+                        label: drug.hststr_item_name,
+                      }))}
+                      value={mappingForm.dvdmsDrug?.id ?? ""}
+                      onChange={handleDrugChange}
+                      placeholder={t("dvdms_drug_placeholder")}
+                      inputPlaceholder={t("search_dvdms_drug")}
+                      noOptionsMessage={t("no_dvdms_drug_found")}
+                      disabled={!groupId}
+                      showClearButton={false}
+                    />
                   </div>
                 </div>
                 <div className="flex justify-end gap-3">
@@ -1077,6 +1174,8 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                   <TableHead>{t("product_knowledge")}</TableHead>
                   <TableHead>{t("category")}</TableHead>
                   <TableHead>{t("dvdms_drug")}</TableHead>
+                  <TableHead>{t("created_by")}</TableHead>
+                  <TableHead>{t("created_date")}</TableHead>
                   <TableHead>{t("actions")}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1084,23 +1183,37 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                 {mappings.map((mapping) => (
                   <TableRow key={mapping.id}>
                     <TableCell>
-                      <div className="flex flex-col whitespace-normal">
+                      <div className="flex min-w-60 flex-col whitespace-normal">
                         <span>{mapping.product_knowledge?.name ?? "—"}</span>
-                        {mapping.product_knowledge?.slug && (
+                        {mapping.product_knowledge && (
                           <span className="text-xs text-gray-500">
-                            {mapping.product_knowledge.slug}
+                            {t("slug")}:{" "}
+                            {getProductKnowledgeSlugValue(mapping.product_knowledge)}
                           </span>
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>{mapping.product_knowledge?.category ?? "—"}</TableCell>
                     <TableCell>
-                      <div className="flex flex-col whitespace-normal">
+                      {mapping.product_knowledge?.category?.title ?? "—"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex min-w-80 flex-col whitespace-normal">
                         <span>{mapping.eaushadhi_drug_details.name}</span>
                         <span className="text-xs text-gray-500">
                           {t("dvdms_drug_id")}: {mapping.eaushadhi_drug_details.id}
+                          {"\u00A0\u00A0"}({t("group_id")}:{" "}
+                          {mapping.eaushadhi_drug_details.group_id})
                         </span>
                       </div>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {mapping.created_by
+                        ? `${mapping.created_by.first_name} ${mapping.created_by.last_name}`.trim() ||
+                          mapping.created_by.username
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {formatDate(mapping.created_date)}
                     </TableCell>
                     <TableCell>
                       <Button

@@ -1,8 +1,36 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
+import { ProductKnowledge } from "@/types/productKnowledge";
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+export function getProgressPercent(progress: {
+  done: number;
+  total: number;
+}): number {
+  if (progress.total <= 0) return 0;
+  return Math.min(100, Math.round((progress.done / progress.total) * 100));
+}
+
+export function getProductKnowledgeSlugValue(
+  productKnowledge: Pick<ProductKnowledge, "slug" | "slug_config">,
+): string {
+  return productKnowledge.slug_config?.slug_value ?? productKnowledge.slug;
+}
+
+export function hasExplicitSlugScope(slug: string): boolean {
+  return slug.startsWith("f-") || slug.startsWith("i-");
+}
+
+export function toFacilityScopedSlug(facilityId: string, slug: string): string {
+  return `f-${facilityId}-${slug}`;
+}
+
+export function toInstanceScopedSlug(slug: string): string {
+  return `i-${slug}`;
 }
 
 export function formatDate(dateStr: string | null | undefined): string {
@@ -94,4 +122,36 @@ export function downloadProductMappingUploadReport(
     ),
   ];
   downloadCsv("product_mapping_upload_report.csv", "\uFEFF" + csvRows.join("\n"));
+}
+
+export type ProductMappingExportRow = {
+  drugId: string;
+  drugName: string;
+  productKnowledgeName: string;
+  productKnowledgeSlug: string;
+};
+
+export function downloadAllProductMappings(
+  mappings: ProductMappingExportRow[],
+): void {
+  const headers = [
+    "DVDMS Drug ID",
+    "DVDMS Drug Name",
+    "Product Knowledge Name",
+    "Product Knowledge Slug",
+  ];
+  const rows = [
+    headers.map((h) => `"${h}"`).join(","),
+    ...mappings.map((row) =>
+      [
+        row.drugId,
+        row.drugName,
+        row.productKnowledgeName,
+        row.productKnowledgeSlug,
+      ]
+        .map((cell) => `"${cell.replace(/"/g, '""')}"`)
+        .join(","),
+    ),
+  ];
+  downloadCsv("product_mappings.csv", "\uFEFF" + rows.join("\n"));
 }

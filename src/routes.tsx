@@ -3,6 +3,7 @@
 
 import { lazy } from "react";
 
+const DvdmsConfigurePage = lazy(() => import("./pages/DvdmsConfigurePage"));
 const ExternalSupplyPage = lazy(() => import("./pages/ExternalSupplyPage"));
 const LinkOrderFormPage = lazy(() => import("./pages/LinkOrderFormPage"));
 const RequestOrderShowPage = lazy(() => import("./pages/RequestOrderShowPage"));

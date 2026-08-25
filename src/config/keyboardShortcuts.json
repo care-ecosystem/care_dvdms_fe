@@ -1,0 +1,54 @@
+{
+  "global": [
+    {
+      "key": "p",
+      "action": "print-button",
+      "description": "Print",
+      "when": "always"
+    },
+    {
+      "key": "shift+enter",
+      "action": "submit-action",
+      "description": "Submit Current Action",
+      "when": "always"
+    },
+    {
+      "key": "enter",
+      "action": "enter-action",
+      "description": "Enter Current Action",
+      "when": "always"
+    }
+  ],
+  "facility:inventory": [
+    {
+      "key": "l",
+      "action": "link-order-eaushadhi",
+      "description": "Link Order to eAushadhi",
+      "when": "always"
+    },
+    {
+      "key": "e",
+      "action": "edit-order",
+      "description": "Edit Order",
+      "when": "always"
+    },
+    {
+      "key": "d",
+      "action": "all-deliveries",
+      "description": "View All Deliveries",
+      "when": "always"
+    },
+    {
+      "key": "m",
+      "action": "mark-as",
+      "description": "Mark as Approved/Completed",
+      "when": "always"
+    },
+    {
+      "key": "o",
+      "action": "load-from-order",
+      "description": "Load from Order",
+      "when": "always"
+    }
+  ]
+}

@@ -6,18 +6,42 @@ import { LocationRead } from "@/types/location";
 import {
   DvdmsInstitute,
   DvdmsInstitutePayload,
+  DvdmsLookupDrug,
+  DvdmsLookupGroup,
   DvdmsLookupStore,
+  DvdmsLookupSubgroup,
   DvdmsStoreMapping,
   DvdmsStoreMappingPayload,
   DvdmsStoreMappingUpdatePayload,
   DvdmsSupplierOrgMapping,
   DvdmsSupplierOrgMappingPayload,
   DvdmsSupplierOrgMappingUpdatePayload,
+  DvdmsInstituteStore,
+  DvdmsInstituteStorePayload,
 } from "@/types/dvdms_config";
+import {
+  RecordOrder,
+  RecordOrderPayload,
+  RecordOrderUpdatePayload,
+} from "@/types/recordOrder";
+import {
+  RecordItemOrder,
+  RecordItemOrderPayload,
+} from "@/types/recordOrderItem";
+import { RecordOrderProductMapping } from "@/types/productMapping";
+import { RequestOrder } from "@/types/requestOrder";
+import { SupplyRequest } from "@/types/supplyRequest";
+import { TagConfig } from "@/types/tagConfig";
+import { ProductKnowledge } from "@/types/productKnowledge";
+import {
+  SuperBatchRequestPayload,
+  SuperBatchResponse,
+} from "@/types/superBatch";
+import { BatchRequestPayload, BatchResponse } from "@/types/batchRequest";
 
 export const apis = {
   organizations: {
-    list: (params: { org_type: string; limit?: number }) =>
+    list: (params: { org_type: string; limit?: number; name?: string }) =>
       request<PaginatedResponse<Organization>>(
         "/api/v1/organization/",
         HttpMethod.GET,
@@ -27,6 +51,144 @@ export const apis = {
   facilities: {
     get: (facilityId: string) =>
       request<Facility>(`/api/v1/facility/${facilityId}/`, HttpMethod.GET),
+  },
+  requestOrders: {
+    list: (
+      facilityId: string,
+      params: {
+        destination: string;
+        limit?: number;
+        offset?: number;
+        status?: string;
+        priority?: string;
+        origin_isnull?: boolean;
+        supplier?: string;
+      },
+    ) =>
+      request<PaginatedResponse<RequestOrder>>(
+        `/api/v1/facility/${facilityId}/order/request/`,
+        HttpMethod.GET,
+        params,
+      ),
+    retrieve: (facilityId: string, requestOrderId: string) =>
+      request<RequestOrder>(
+        `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/`,
+        HttpMethod.GET,
+      ),
+    setTags: (facilityId: string, requestOrderId: string, tags: string[]) =>
+      request<RequestOrder>(
+        `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/set_tags/`,
+        HttpMethod.POST,
+        { tags },
+      ),
+    removeTags: (facilityId: string, requestOrderId: string, tags: string[]) =>
+      request<RequestOrder>(
+        `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/remove_tags/`,
+        HttpMethod.POST,
+        { tags },
+      ),
+  },
+  supplyRequests: {
+    path: "/api/v1/supply_request/",
+    list: (params: {
+      order: string;
+      limit?: number;
+      offset?: number;
+      ordering?: string;
+    }) =>
+      request<PaginatedResponse<SupplyRequest>>(
+        apis.supplyRequests.path,
+        HttpMethod.GET,
+        params,
+      ),
+  },
+  recordOrders: {
+    list: (
+      instituteId: string,
+      params: {
+        limit?: number;
+        offset?: number;
+        order?: string;
+        status?: string;
+        ordering?: string;
+      } = {},
+    ) =>
+      request<PaginatedResponse<RecordOrder>>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/`,
+        HttpMethod.GET,
+        params,
+      ),
+    create: (instituteId: string, payload: RecordOrderPayload) =>
+      request<RecordOrder>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/`,
+        HttpMethod.POST,
+        { ...payload },
+      ),
+    update: (
+      instituteId: string,
+      recordOrderId: string,
+      payload: RecordOrderUpdatePayload,
+    ) =>
+      request<RecordOrder>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/`,
+        HttpMethod.PATCH,
+        { ...payload },
+      ),
+  },
+  item: {
+    list: (
+      instituteId: string,
+      recordOrderId: string,
+      params: {
+        limit?: number;
+        offset?: number;
+        record_order?: string;
+        order?: string;
+        ordering?: string;
+      } = {},
+    ) =>
+      request<PaginatedResponse<RecordItemOrder>>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
+        HttpMethod.GET,
+        params,
+      ),
+    create: (
+      instituteId: string,
+      recordOrderId: string,
+      payload: RecordItemOrderPayload,
+    ) =>
+      request<RecordItemOrder>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
+        HttpMethod.POST,
+        { ...payload },
+      ),
+    update: (
+      instituteId: string,
+      recordOrderId: string,
+      recordOrderItemId: string,
+      payload: Partial<RecordItemOrderPayload>,
+    ) =>
+      request<RecordItemOrder>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/${recordOrderItemId}/`,
+        HttpMethod.PATCH,
+        { ...payload },
+      ),
+  },
+  productMappings: {
+    list: (
+      instituteId: string,
+      recordOrderId: string,
+      params: {
+        limit?: number;
+        offset?: number;
+        ordering?: string;
+      } = {},
+    ) =>
+      request<PaginatedResponse<RecordOrderProductMapping>>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/product_mappings/`,
+        HttpMethod.GET,
+        params,
+      ),
   },
   institutes: {
     get: (facilityId: string) =>
@@ -53,6 +215,31 @@ export const apis = {
       request<DvdmsLookupStore[]>(
         `/api/care_dvdms/institute/${instituteId}/lookup/stores/`,
         HttpMethod.GET,
+      ),
+    lookupGroups: (instituteId: string) =>
+      request<DvdmsLookupGroup[]>(
+        `/api/care_dvdms/institute/${instituteId}/lookup/groups/`,
+        HttpMethod.GET,
+      ),
+    lookupSubgroups: (instituteId: string, groupId: number) =>
+      request<DvdmsLookupSubgroup[]>(
+        `/api/care_dvdms/institute/${instituteId}/lookup/subgroups/`,
+        HttpMethod.GET,
+        { group_id: groupId },
+      ),
+    lookupDrugs: (
+      instituteId: string,
+      params: {
+        hstnum_group_id: number;
+        hstnum_subgroup_id: number;
+        sstnum_item_cat_no?: string;
+        hststr_item_name?: string;
+      },
+    ) =>
+      request<DvdmsLookupDrug[]>(
+        `/api/care_dvdms/institute/${instituteId}/lookup/drugs/`,
+        HttpMethod.GET,
+        { ...params },
       ),
   },
   locations: {
@@ -121,6 +308,76 @@ export const apis = {
         `/api/care_dvdms/institute/${instituteId}/suppliers/${mappingId}/`,
         HttpMethod.PATCH,
         payload,
+      ),
+  },
+  dvdmsInstituteStores: {
+    list: (
+      facilityId: string,
+      instituteId: string,
+      params: {
+        limit?: number;
+        offset?: number;
+        ordering?: string;
+      } = {},
+    ) =>
+      request<PaginatedResponse<DvdmsInstituteStore>>(
+        `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
+        HttpMethod.GET,
+        params,
+      ),
+    create: (
+      facilityId: string,
+      instituteId: string,
+      payload: DvdmsInstituteStorePayload,
+    ) =>
+      request<DvdmsInstituteStore>(
+        `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
+        HttpMethod.POST,
+        { ...payload },
+      ),
+  },
+  productKnowledge: {
+    list: (params: {
+      facility: string;
+      limit?: number;
+      offset?: number;
+      category?: string;
+      status?: string;
+      include_instance?: boolean;
+    }) =>
+      request<PaginatedResponse<ProductKnowledge>>(
+        "/api/v1/product_knowledge/",
+        HttpMethod.GET,
+        params,
+      ),
+  },
+  superBatch: {
+    create: (payload: SuperBatchRequestPayload) =>
+      request<SuperBatchResponse>(
+        "/api/super_batch_request/",
+        HttpMethod.POST,
+        { ...payload },
+      ),
+  },
+  batchRequests: {
+    create: (payload: BatchRequestPayload) =>
+      request<BatchResponse>("/api/v1/batch_requests/", HttpMethod.POST, {
+        ...payload,
+      }),
+  },
+  tagConfigs: {
+    list: (params: {
+      resource: string;
+      status?: string;
+      display?: string;
+      parent_is_null?: boolean;
+      parent?: string;
+      facility?: string;
+    }) =>
+      request<PaginatedResponse<TagConfig>>(
+        "/api/v1/tag_config/",
+        HttpMethod.GET,
+        params,
       ),
   },
 };

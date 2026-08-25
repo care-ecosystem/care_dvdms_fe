@@ -70,6 +70,49 @@ export interface DvdmsLookupStore {
   parentTypeName: string;
 }
 
+export interface DvdmsLookupGroup {
+  gnumHospitalCode: number;
+  hstnumGroupId: number;
+  hststrGroupName: string;
+  gstrRemarks: string;
+  gdtEffectiveFrm: string;
+  gdtEntryDate: string;
+  gnumSeatid: number;
+  gnumIsvalid: number;
+  sstnumItemCatNo: number;
+}
+
+export interface DvdmsLookupSubgroup {
+  gnumHospitalCode: number;
+  hstnumSubgroupId: number;
+  hstnumGroupId: number;
+  hststrSubgroupName: string;
+  gdtEffectiveFrm: string;
+  gstrRemarks: string;
+  gdtEntryDate: string;
+  gnumSeatid: number;
+  gnumIsvalid: number;
+}
+
+export interface DvdmsLookupDrug {
+  hstnum_item_id: number;
+  gnum_hospital_code: number;
+  hstnum_group_id: number;
+  hstnum_subgroup_id: number;
+  sstnum_item_cat_no: string;
+  hststr_item_name: string;
+  hstnum_batchno_req: number;
+  hstnum_expirydate_req: number;
+  gnum_inventory_unitid: number;
+  gdt_effective_frm: string;
+  gnum_lstmod_seatid: number;
+  gdt_entry_date: string;
+  gnum_seatid: number;
+  gnum_isvalid: number;
+  hststr_cpa_code: string;
+  hstnum_itembrand_id: number;
+}
+
 export interface DvdmsFacilityConfigMeta {
   allow_updating_quantity_after_received: boolean;
 }
@@ -101,3 +144,55 @@ export type DvdmsInstitutePayload = Pick<
   | "schema_version"
   | "meta"
 >;
+export interface DvdmsInstituteUser {
+  id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+}
+
+export interface DvdmsInstituteSupplierOrg {
+  id: string;
+  name: string;
+  org_type: string;
+}
+
+export interface DvdmsInstituteSupplier {
+  id: string;
+  institute_id: string;
+  supplier_id: string;
+  eaushadhi_warehouse_id: string;
+  eaushadhi_warehouse_name: string;
+  is_default: boolean;
+  supplier: DvdmsInstituteSupplierOrg;
+  created_by: DvdmsInstituteUser | null;
+  updated_by: DvdmsInstituteUser | null;
+  created_date: string;
+  modified_date: string;
+}
+
+export interface DvdmsInstituteStoreRef {
+  id: string;
+  name: string;
+  form: string;
+}
+
+export interface DvdmsInstituteStore {
+  id: string;
+  store: DvdmsInstituteStoreRef;
+  eaushadhi_store_id: string;
+  eaushadhi_store_name: string;
+  is_default: boolean;
+  institute_id?: string;
+  created_by?: DvdmsInstituteUser | null;
+  updated_by?: DvdmsInstituteUser | null;
+  created_date: string;
+  modified_date?: string;
+}
+
+export interface DvdmsInstituteStorePayload {
+  store: string;
+  eaushadhi_store_id: string;
+  eaushadhi_store_name: string;
+  is_default: boolean;
+}

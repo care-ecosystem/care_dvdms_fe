@@ -13,3 +13,16 @@ export function formatDate(dateStr: string | null | undefined): string {
     year: "numeric",
   });
 }
+
+export function formatQuantity(quantity: string | number): string {
+  const value = Number(quantity);
+  return Number.isFinite(value) ? value.toFixed(2) : String(quantity);
+}
+
+export function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}

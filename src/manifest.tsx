@@ -11,6 +11,9 @@ const manifest = {
     FacilityHomeActions: lazy(
       () => import("./components/pluggables/FacilityHomeActions"),
     ),
+    ExternalSupplyNavItems: lazy(
+      () => import("./components/pluggables/ExternalSupplyNavItems"),
+    ),
   },
   encounterTabs: {
     // TODO: add encounter tabs if needed

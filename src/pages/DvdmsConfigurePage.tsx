@@ -260,7 +260,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
           <SheetTitle>{t("dvdms_configuration")}</SheetTitle>
           <SheetDescription>
             {t("manage_dvdms_config_for")}{" "}
-            <strong>{facility?.name ?? facilityId}</strong>.
+            <strong>{facility?.name}</strong>.
           </SheetDescription>
         </SheetHeader>
 

@@ -1,0 +1,1011 @@
+import { FC, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { navigate } from "raviger";
+import { toast } from "sonner";
+import {
+  Box,
+  ChevronLeft,
+  Edit,
+  EllipsisVertical,
+  Printer,
+} from "lucide-react";
+
+import { apis } from "@/apis";
+import { HttpMethod } from "@/apis/types";
+import { I18N_NAMESPACE } from "@/lib/constants";
+import { chunk, formatQuantity } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import Autocomplete from "@/components/ui/autocomplete";
+import { EmptyState } from "@/components/ui/empty-state";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
+import BackButton from "@/components/BackButton";
+import {
+  ShortcutProvider,
+  useShortcutSubContext,
+} from "@/context/ShortcutContext";
+import { REQUEST_ORDER_STATUS_VARIANTS } from "@/types/requestOrder";
+import { SupplyRequest } from "@/types/supplyRequest";
+import { RecordItemOrderDrug } from "@/types/recordOrderItem";
+import {
+  SuperBatchRequestItem,
+  SuperBatchResponseItem,
+} from "@/types/superBatch";
+import {
+  DvdmsLookupDrug,
+  DvdmsLookupGroup,
+  DvdmsLookupSubgroup,
+} from "@/types/dvdms_config";
+
+type RequestOrderShowPageProps = {
+  facilityId: string;
+  locationId: string;
+  requestOrderId: string;
+};
+
+const MAX_ITEMS_PER_BATCH = 50;
+
+const RequestOrderShowPage: FC<RequestOrderShowPageProps> = (props) => (
+  <ShortcutProvider>
+    <RequestOrderShowPageContent {...props} />
+  </ShortcutProvider>
+);
+
+const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
+  facilityId,
+  locationId,
+  requestOrderId,
+}) => {
+  const { t } = useTranslation(I18N_NAMESPACE);
+  useShortcutSubContext("facility:inventory");
+  const queryClient = useQueryClient();
+
+  const [tableItems, setTableItems] = useState<SupplyRequest[]>([]);
+  const [selectedDrugs, setSelectedDrugs] = useState<
+    Record<string, RecordItemOrderDrug | undefined>
+  >({});
+  const [selectedGroupBySupplyRequestId, setSelectedGroupBySupplyRequestId] =
+    useState<Record<string, number | undefined>>({});
+  const [
+    selectedSubgroupBySupplyRequestId,
+    setSelectedSubgroupBySupplyRequestId,
+  ] = useState<Record<string, number | undefined>>({});
+  const [subgroupsByGroupId, setSubgroupsByGroupId] = useState<
+    Record<number, DvdmsLookupSubgroup[]>
+  >({});
+  const [drugsByGroupAndSubgroup, setDrugsByGroupAndSubgroup] = useState<
+    Record<string, DvdmsLookupDrug[]>
+  >({});
+
+  const { data: order, isLoading } = useQuery({
+    queryKey: ["dvdms_request_order", facilityId, requestOrderId],
+    queryFn: () => apis.requestOrders.retrieve(facilityId, requestOrderId),
+  });
+
+  const SUPPLY_REQUESTS_PAGE_SIZE = 14;
+
+  const { data: supplyRequestsData } = useQuery({
+    queryKey: ["dvdms_supply_requests", requestOrderId],
+    queryFn: () =>
+      apis.supplyRequests.list({
+        order: requestOrderId,
+        ordering: "-created_date",
+        limit: SUPPLY_REQUESTS_PAGE_SIZE,
+        offset: 0,
+      }),
+  });
+
+  const [loadedSupplyRequestsCount, setLoadedSupplyRequestsCount] =
+    useState(0);
+  const [hasSavedOnce, setHasSavedOnce] = useState(false);
+
+  useEffect(() => {
+    setTableItems(supplyRequestsData?.results ?? []);
+    setLoadedSupplyRequestsCount(supplyRequestsData?.results.length ?? 0);
+  }, [supplyRequestsData]);
+
+  const totalSupplyRequestsCount = supplyRequestsData?.count ?? 0;
+  const hasMoreSupplyRequests =
+    loadedSupplyRequestsCount < totalSupplyRequestsCount;
+
+  const loadBalanceSupplyRequestsMutation = useMutation({
+    mutationFn: () =>
+      apis.supplyRequests.list({
+        order: requestOrderId,
+        ordering: "-created_date",
+        limit: SUPPLY_REQUESTS_PAGE_SIZE,
+        offset: loadedSupplyRequestsCount,
+      }),
+    onSuccess: (data) => {
+      setTableItems((prev) => {
+        const existingIds = new Set(prev.map((item) => item.id));
+        const balanceItems = data.results.filter(
+          (item) => !existingIds.has(item.id),
+        );
+        return [...prev, ...balanceItems];
+      });
+      setLoadedSupplyRequestsCount((prev) => prev + data.results.length);
+    },
+  });
+
+  const { data: productKnowledgeData } = useQuery({
+    queryKey: ["dvdms_product_knowledge", facilityId],
+    queryFn: () =>
+      apis.productKnowledge.list({
+        facility: facilityId,
+        status: "active",
+        include_instance: true,
+        limit: 100,
+      }),
+  });
+
+  const categoryByProductId = new Map(
+    (productKnowledgeData?.results ?? []).map((product) => [
+      product.id,
+      product.category?.title,
+    ]),
+  );
+
+  const { data: institute } = useQuery({
+    queryKey: ["dvdms_institute", facilityId],
+    queryFn: () => apis.institutes.get(facilityId),
+  });
+
+  const { data: recordOrdersData } = useQuery({
+    queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+    queryFn: () =>
+      apis.recordOrders.list(institute!.id, {
+        order: requestOrderId,
+        limit: 1,
+      }),
+    enabled: !!institute?.id,
+  });
+  const recordOrder = recordOrdersData?.results?.[0];
+
+  const recordItemOrdersQueryKey = [
+    "dvdms_record_item_orders",
+    institute?.id,
+    recordOrder?.id,
+  ];
+
+  const { data: recordItemOrdersData } = useQuery({
+    queryKey: recordItemOrdersQueryKey,
+    queryFn: () =>
+      apis.item.list(institute!.id, recordOrder!.id, { limit: 100 }),
+    enabled: !!institute?.id && !!recordOrder?.id,
+  });
+
+  const { data: productMappingsData } = useQuery({
+    queryKey: ["dvdms_product_mappings", institute?.id, recordOrder?.id],
+    queryFn: () =>
+      apis.productMappings.list(institute!.id, recordOrder!.id, {
+        limit: 100,
+      }),
+    enabled: !!institute?.id && !!recordOrder?.id,
+  });
+
+  const existingItemBySupplyRequestId = new Map(
+    (recordItemOrdersData?.results ?? []).map((item) => [
+      item.supply_request.id,
+      item,
+    ]),
+  );
+
+  const suggestedDrugBySupplyRequestId = new Map(
+    (productMappingsData?.results ?? [])
+      .filter((mapping) => mapping.product_mapping)
+      .map((mapping) => [
+        mapping.supply_request.id,
+        mapping.product_mapping!.eaushadhi_drug_details,
+      ]),
+  );
+
+  const [lookupGroupsData, setLookupGroupsData] = useState<
+    DvdmsLookupGroup[] | undefined
+  >(undefined);
+  const [isLookupGroupsLoading, setIsLookupGroupsLoading] = useState(false);
+
+  const ensureGroupsLoaded = async () => {
+    if (!institute?.id || lookupGroupsData || isLookupGroupsLoading) return;
+    const instituteId = institute.id;
+    setIsLookupGroupsLoading(true);
+    try {
+      const data = await queryClient.fetchQuery({
+        queryKey: ["dvdms_lookup_groups", instituteId],
+        queryFn: () => apis.institutes.lookupGroups(instituteId),
+      });
+      setLookupGroupsData(data);
+    } finally {
+      setIsLookupGroupsLoading(false);
+    }
+  };
+
+  const [loadingSubgroupGroupIds, setLoadingSubgroupGroupIds] = useState<
+    Set<number>
+  >(new Set());
+  const [loadingDrugKeys, setLoadingDrugKeys] = useState<Set<string>>(
+    new Set(),
+  );
+
+  const ensureSubgroupsLoaded = async (groupId: number) => {
+    if (
+      !institute?.id ||
+      subgroupsByGroupId[groupId] ||
+      loadingSubgroupGroupIds.has(groupId)
+    )
+      return;
+    const instituteId = institute.id;
+    setLoadingSubgroupGroupIds((prev) => new Set(prev).add(groupId));
+    try {
+      const data = await queryClient.fetchQuery({
+        queryKey: ["dvdms_lookup_subgroups", instituteId, groupId],
+        queryFn: () => apis.institutes.lookupSubgroups(instituteId, groupId),
+      });
+      setSubgroupsByGroupId((prev) => ({ ...prev, [groupId]: data }));
+    } finally {
+      setLoadingSubgroupGroupIds((prev) => {
+        const next = new Set(prev);
+        next.delete(groupId);
+        return next;
+      });
+    }
+  };
+
+  const ensureDrugsLoaded = async (groupId: number, subgroupId: number) => {
+    if (!institute?.id) return;
+    const key = `${groupId}:${subgroupId}`;
+    if (drugsByGroupAndSubgroup[key] || loadingDrugKeys.has(key)) return;
+    const instituteId = institute.id;
+    setLoadingDrugKeys((prev) => new Set(prev).add(key));
+    try {
+      const data = await queryClient.fetchQuery({
+        queryKey: ["dvdms_lookup_drugs", instituteId, groupId, subgroupId],
+        queryFn: () =>
+          apis.institutes.lookupDrugs(instituteId, {
+            hstnum_group_id: groupId,
+            hstnum_subgroup_id: subgroupId,
+          }),
+      });
+      setDrugsByGroupAndSubgroup((prev) => ({ ...prev, [key]: data }));
+    } finally {
+      setLoadingDrugKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+
+  useEffect(() => {
+    setSelectedDrugs((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      tableItems.forEach((item) => {
+        if (next[item.id]) return;
+        const drug =
+          existingItemBySupplyRequestId.get(item.id)?.drug ??
+          suggestedDrugBySupplyRequestId.get(item.id);
+        if (drug) {
+          next[item.id] = drug;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+    setSelectedGroupBySupplyRequestId((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      tableItems.forEach((item) => {
+        if (next[item.id] !== undefined) return;
+        const drug =
+          existingItemBySupplyRequestId.get(item.id)?.drug ??
+          suggestedDrugBySupplyRequestId.get(item.id);
+        if (drug?.group_id) {
+          next[item.id] = Number(drug.group_id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+    setSelectedSubgroupBySupplyRequestId((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      tableItems.forEach((item) => {
+        if (next[item.id] !== undefined) return;
+        const drug =
+          existingItemBySupplyRequestId.get(item.id)?.drug ??
+          suggestedDrugBySupplyRequestId.get(item.id);
+        if (drug?.sub_group_id) {
+          next[item.id] = Number(drug.sub_group_id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableItems, recordItemOrdersData, productMappingsData]);
+
+  const saveItemsMutation = useMutation({
+    mutationFn: async () => {
+      if (!institute?.id || !recordOrder?.id) {
+        throw new Error("Missing institute or record order");
+      }
+      const instituteId = institute.id;
+      const recordOrderId = recordOrder.id;
+
+      const itemRequests: SuperBatchRequestItem[] = tableItems
+        .filter((item) => selectedDrugs[item.id])
+        .map((item) => ({
+          url: `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
+          method: HttpMethod.POST,
+          body: { supply_request: item.id, drug: selectedDrugs[item.id] },
+          reference_id: `item-${item.id}`,
+        }));
+
+      const itemBatches = chunk(itemRequests, MAX_ITEMS_PER_BATCH);
+      await Promise.all(
+        itemBatches.map((requests) => apis.superBatch.create({ requests })),
+      );
+
+      return apis.recordOrders.update(instituteId, recordOrderId, {
+        status: "pending",
+      });
+    },
+    onSuccess: () => {
+      toast.success(t("items_saved"));
+      setHasSavedOnce(true);
+      queryClient.invalidateQueries({ queryKey: recordItemOrdersQueryKey });
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+      });
+    },
+    onError: (error: {
+      data?: { results?: SuperBatchResponseItem[] };
+      message?: string;
+    }) => {
+      const failedItem = error?.data?.results?.find(
+        (result) => result.status_code > 299,
+      );
+      const failedItemMessage = (
+        failedItem?.data as { error?: string } | undefined
+      )?.error;
+      toast.error(failedItemMessage || error?.message || t("save_failed"));
+    },
+  });
+
+  const approveRecordOrderMutation = useMutation({
+    mutationFn: () => {
+      if (!institute?.id || !recordOrder?.id) {
+        throw new Error("Missing institute or record order");
+      }
+      return apis.recordOrders.update(institute.id, recordOrder.id, {
+        status: "approved",
+      });
+    },
+    onSuccess: () => {
+      toast.success(t("record_order_approved"));
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+      });
+    },
+    onError: () => {
+      toast.error(t("record_order_approve_failed"));
+    },
+  });
+
+  const cancelRecordOrderMutation = useMutation({
+    mutationFn: () => {
+      if (!institute?.id || !recordOrder?.id) {
+        throw new Error("Missing institute or record order");
+      }
+      return apis.recordOrders.update(institute.id, recordOrder.id, {
+        status: "cancelled",
+      });
+    },
+    onSuccess: () => {
+      toast.success(t("record_order_cancelled"));
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+      });
+    },
+    onError: () => {
+      toast.error(t("record_order_cancel_failed"));
+    },
+  });
+
+  const handleSupplyDeliveryAction = (action: string) => {
+    if (action === "save") {
+      saveItemsMutation.mutate();
+    }
+  };
+
+  const hasUnselectedDrug = tableItems.some((item) => !selectedDrugs[item.id]);
+
+  if (isLoading) {
+    return <div className="p-6 text-sm text-gray-500">{t("loading")}</div>;
+  }
+
+  if (!order) {
+    return (
+      <div className="p-6 text-sm text-gray-500">
+        {t("request_order_not_found")}
+      </div>
+    );
+  }
+
+  const recordOrderStatus = recordOrder?.status;
+  const isDraftStatus = recordOrderStatus === "draft";
+  const isViewOnlyStatus = !isDraftStatus;
+  const isApprovable =
+    recordOrderStatus === "draft" || recordOrderStatus === "pending";
+
+  return (
+    <div className="md:px-6 py-0 space-y-4 min-w-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="flex items-center gap-4">
+          <BackButton size="icon" className="shrink-0">
+            <ChevronLeft />
+            <span className="sr-only">{t("back")}</span>
+          </BackButton>
+          <div>
+            <h4 className="text-lg font-semibold text-gray-950">
+              {recordOrder?.name}
+            </h4>
+            <p className="text-sm text-gray-700">
+              {t("delivery_request_to")}{" "}
+              <span className="font-semibold text-gray-700">
+                {order.origin?.name || order.supplier?.name || t("origin")}
+              </span>{" "}
+              {t("to")}{" "}
+              <span className="font-semibold text-gray-700">
+                {order.destination?.name || t("destination")}
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() =>
+              navigate(
+                `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/print`,
+              )
+            }
+          >
+            <Printer className="size-4" /> {t("print")}
+            <ShortcutBadge actionId="print-button" />
+          </Button>
+          {recordOrder?.status == "draft" &&
+            <Button
+              variant="outline"
+              onClick={() =>
+                navigate(
+                  `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/edit`,
+                )
+              }
+            >
+              <Edit className="size-4" /> {t("edit")}
+              <ShortcutBadge actionId="edit-order" />
+            </Button>
+          }
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              {(recordOrder?.status === "draft" ||
+                recordOrder?.status === "pending") && (
+                  <Button variant="outline" className="border-gray-400 px-2">
+                    <EllipsisVertical />
+                  </Button>
+                )}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => cancelRecordOrderMutation.mutate()}
+                disabled={cancelRecordOrderMutation.isPending}
+              >
+                {t("mark_as_cancelled")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      <Card className="border-none rounded-lg">
+        <CardContent className="space-y-1 p-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-12 gap-y-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700">
+                {t("deliver_to")}
+              </label>
+              <div className="text-lg font-semibold text-gray-950">
+                {order.destination?.name ?? "—"}
+              </div>
+            </div>
+
+            {recordOrder?.institute_supplier && (
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  {t("eaushadhi_supplier")}
+                </label>
+                <div className="text-lg font-semibold text-gray-950">
+                  {recordOrder.institute_supplier.eaushadhi_warehouse_name}
+                </div>
+              </div>
+            )}
+
+            {recordOrder?.institute_store && (
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  {t("eaushadhi_store")}
+                </label>
+                <div className="text-lg font-semibold text-gray-950">
+                  {recordOrder.institute_store.eaushadhi_store_name}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="text-sm font-medium text-gray-700">
+                {t("items")}
+              </label>
+              <div className="text-lg font-semibold text-gray-950">
+                {totalSupplyRequestsCount} {t("items")}
+              </div>
+            </div>
+
+            {recordOrder && (
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  {t("status")}
+                </label>
+                <div>
+                  <Badge
+                    className="rounded-sm"
+                    variant={
+                      REQUEST_ORDER_STATUS_VARIANTS[recordOrder.status] ??
+                      "secondary"
+                    }
+                  >
+                    {t(recordOrder.status)}
+                  </Badge>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {order.note && (
+            <div className="pt-3">
+              <label className="text-sm font-medium text-gray-700">
+                {t("note")}
+              </label>
+              <p className="text-sm whitespace-pre-wrap">{order.note}</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="mt-2 space-y-4">
+        <Card className="bg-gray-50 py-4 rounded-md">
+            <CardContent>
+              <div className="bg-white rounded-md p-4 pb-0">
+                <h3 className="text-base font-semibold text-gray-950">
+                  {t("drug_list_mapping")}
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {t("drug_list_mapping_description")}
+                </p>
+              </div>
+
+              <div className="space-y-4">
+              {tableItems.length > 0 ? (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead rowSpan={2}>{t("product")}</TableHead>
+                        <TableHead rowSpan={2}>{t("category")}</TableHead>
+                        <TableHead rowSpan={2}>{t("qty")}</TableHead>
+                        <TableHead
+                          colSpan={3}
+                          className="text-center border-b"
+                        >
+                          {t("eaushadhi_drug_details")}
+                        </TableHead>
+                        {/* <TableHead rowSpan={2}>{t("actions")}</TableHead> */}
+                      </TableRow>
+                      <TableRow>
+                        <TableHead>{t("group_id")}</TableHead>
+                        <TableHead>{t("sub_group_id")}</TableHead>
+                        <TableHead>{t("drug_name")}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {tableItems.map((item) => {
+                        const selectedDrugId = selectedDrugs[item.id]?.id ?? "";
+                        const readOnlyDrug =
+                          existingItemBySupplyRequestId.get(item.id)?.drug ??
+                          selectedDrugs[item.id];
+
+                        const selectedGroupId =
+                          selectedGroupBySupplyRequestId[item.id];
+                        const selectedSubgroupId =
+                          selectedSubgroupBySupplyRequestId[item.id];
+                        const subgroupOptions =
+                          selectedGroupId !== undefined
+                            ? (subgroupsByGroupId[selectedGroupId] ?? [])
+                            : [];
+                        const isSubgroupsLoading =
+                          selectedGroupId !== undefined &&
+                          loadingSubgroupGroupIds.has(selectedGroupId);
+                        const catalogDrugOptions =
+                          selectedGroupId !== undefined &&
+                            selectedSubgroupId !== undefined
+                            ? (drugsByGroupAndSubgroup[
+                              `${selectedGroupId}:${selectedSubgroupId}`
+                            ] ?? [])
+                            : [];
+                        const isDrugsLoading =
+                          selectedGroupId !== undefined &&
+                          selectedSubgroupId !== undefined &&
+                          loadingDrugKeys.has(
+                            `${selectedGroupId}:${selectedSubgroupId}`,
+                          );
+
+                        const groupAutocompleteOptions = (
+                          lookupGroupsData ?? []
+                        ).map((group) => ({
+                          label: `${group.hststrGroupName} (${group.hstnumGroupId})`,
+                          value: String(group.hstnumGroupId),
+                        }));
+                        if (
+                          selectedGroupId !== undefined &&
+                          !groupAutocompleteOptions.some(
+                            (option) => option.value === String(selectedGroupId),
+                          )
+                        ) {
+                          groupAutocompleteOptions.push({
+                            label: String(selectedGroupId),
+                            value: String(selectedGroupId),
+                          });
+                        }
+
+                        const subgroupAutocompleteOptions = subgroupOptions.map(
+                          (subgroup) => ({
+                            label: `${subgroup.hststrSubgroupName} (${subgroup.hstnumSubgroupId})`,
+                            value: String(subgroup.hstnumSubgroupId),
+                          }),
+                        );
+                        if (
+                          selectedSubgroupId !== undefined &&
+                          !subgroupAutocompleteOptions.some(
+                            (option) =>
+                              option.value === String(selectedSubgroupId),
+                          )
+                        ) {
+                          subgroupAutocompleteOptions.push({
+                            label: String(selectedSubgroupId),
+                            value: String(selectedSubgroupId),
+                          });
+                        }
+
+                        const drugAutocompleteOptions = catalogDrugOptions.map(
+                          (drug) => ({
+                            label: drug.hststr_item_name,
+                            value: String(drug.hstnum_item_id),
+                          }),
+                        );
+                        if (
+                          selectedDrugId &&
+                          !drugAutocompleteOptions.some(
+                            (option) => option.value === selectedDrugId,
+                          )
+                        ) {
+                          drugAutocompleteOptions.push({
+                            label: selectedDrugs[item.id]?.name ?? selectedDrugId,
+                            value: selectedDrugId,
+                          });
+                        }
+
+                        const handleGroupChange = (value: string) => {
+                          const groupId = value ? Number(value) : undefined;
+                          setSelectedGroupBySupplyRequestId((prev) => ({
+                            ...prev,
+                            [item.id]: groupId,
+                          }));
+                          setSelectedSubgroupBySupplyRequestId((prev) => ({
+                            ...prev,
+                            [item.id]: undefined,
+                          }));
+                          setSelectedDrugs((prev) => ({
+                            ...prev,
+                            [item.id]: undefined,
+                          }));
+                          if (groupId !== undefined) ensureSubgroupsLoaded(groupId);
+                        };
+
+                        const handleSubgroupChange = (value: string) => {
+                          if (selectedGroupId === undefined) return;
+                          const subgroupId = value ? Number(value) : undefined;
+                          setSelectedSubgroupBySupplyRequestId((prev) => ({
+                            ...prev,
+                            [item.id]: subgroupId,
+                          }));
+                          setSelectedDrugs((prev) => ({
+                            ...prev,
+                            [item.id]: undefined,
+                          }));
+                          if (subgroupId !== undefined)
+                            ensureDrugsLoaded(selectedGroupId, subgroupId);
+                        };
+
+                        const handleCatalogDrugChange = (value: string) => {
+                          if (!value) {
+                            setSelectedDrugs((prev) => ({
+                              ...prev,
+                              [item.id]: undefined,
+                            }));
+                            return;
+                          }
+                          const drug = catalogDrugOptions.find(
+                            (option) => String(option.hstnum_item_id) === value,
+                          );
+                          if (!drug) return;
+                          setSelectedDrugs((prev) => ({
+                            ...prev,
+                            [item.id]: {
+                              id: String(drug.hstnum_item_id),
+                              name: drug.hststr_item_name,
+                              brand_id: String(drug.hstnum_itembrand_id),
+                              group_id: String(drug.hstnum_group_id),
+                              sub_group_id: String(drug.hstnum_subgroup_id),
+                              unit_id: String(drug.gnum_inventory_unitid),
+                              drug_category: drug.sstnum_item_cat_no,
+                            },
+                          }));
+                        };
+
+                        return (
+                          <TableRow key={item.id}>
+                            <TableCell className="align-top">
+                              <div className="text-xs text-gray-500 mb-3">
+                                {" "}
+                              </div>
+                              {item.item.name}
+                              <div className="text-xs text-gray-500 mt-1">
+                                {" "}
+                              </div>
+                            </TableCell>
+                            <TableCell className="align-top">
+                              <div className="text-xs text-gray-500 mb-3">
+                                {" "}
+                              </div>
+                              {categoryByProductId.get(item.item.id) ?? "—"}
+                              <div className="text-xs text-gray-500 mt-1">
+                                {" "}
+                              </div>
+                            </TableCell>
+                            <TableCell className="align-top">
+                              <div className="text-xs text-gray-500 mb-3">
+                                {" "}
+                              </div>
+                              {formatQuantity(item.quantity)}{" "}
+                              {item.item.base_unit?.display}
+                              <div className="text-xs text-gray-500 mt-1">
+                                {" "}
+                              </div>
+                            </TableCell>
+                            {isViewOnlyStatus ? (
+                              <>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
+                                  {readOnlyDrug?.group_id ?? "—"}
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {" "}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
+                                  {readOnlyDrug?.sub_group_id ?? "—"}
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {" "}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
+                                  {readOnlyDrug?.name ?? "—"}
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {readOnlyDrug
+                                      ? `${t("drug_id")}: ${readOnlyDrug.id}`
+                                      : " "}
+                                  </div>
+                                </TableCell>
+                              </>
+                            ) : (
+                              <>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
+                                  <Autocomplete
+                                    className="h-8 min-w-24"
+                                    value={
+                                      selectedGroupId !== undefined
+                                        ? String(selectedGroupId)
+                                        : ""
+                                    }
+                                    onChange={handleGroupChange}
+                                    onOpenChange={(open) => {
+                                      if (open) ensureGroupsLoaded();
+                                    }}
+                                    isLoading={isLookupGroupsLoading}
+                                    disabled={!institute?.id}
+                                    placeholder="—"
+                                    inputPlaceholder={t("search_group")}
+                                    noOptionsMessage={t("no_groups_found")}
+                                    options={groupAutocompleteOptions}
+                                  />
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {" "}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
+                                  <Autocomplete
+                                    className="h-8 min-w-24"
+                                    value={
+                                      selectedSubgroupId !== undefined
+                                        ? String(selectedSubgroupId)
+                                        : ""
+                                    }
+                                    onChange={handleSubgroupChange}
+                                    onOpenChange={(open) => {
+                                      if (open && selectedGroupId !== undefined)
+                                        ensureSubgroupsLoaded(selectedGroupId);
+                                    }}
+                                    isLoading={isSubgroupsLoading}
+                                    disabled={selectedGroupId === undefined}
+                                    placeholder="—"
+                                    inputPlaceholder={t("search_subgroup")}
+                                    noOptionsMessage={t("no_subgroups_found")}
+                                    options={subgroupAutocompleteOptions}
+                                  />
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {" "}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
+                                  <Autocomplete
+                                    className="h-8 min-w-32"
+                                    value={selectedDrugId}
+                                    onChange={handleCatalogDrugChange}
+                                    onOpenChange={(open) => {
+                                      if (
+                                        open &&
+                                        selectedGroupId !== undefined &&
+                                        selectedSubgroupId !== undefined
+                                      )
+                                        ensureDrugsLoaded(
+                                          selectedGroupId,
+                                          selectedSubgroupId,
+                                        );
+                                    }}
+                                    isLoading={isDrugsLoading}
+                                    disabled={
+                                      selectedGroupId === undefined ||
+                                      selectedSubgroupId === undefined
+                                    }
+                                    placeholder="—"
+                                    inputPlaceholder={t("search_drug")}
+                                    noOptionsMessage={t("no_drugs_found")}
+                                    options={drugAutocompleteOptions}
+                                  />
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {selectedDrugId
+                                      ? `${t("drug_id")}: ${selectedDrugId}`
+                                      : " "}
+                                  </div>
+                                </TableCell>
+                              </>
+                            )}
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+
+                  {isDraftStatus && !hasSavedOnce && (
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        onClick={() => handleSupplyDeliveryAction("save")}
+                        disabled={
+                          saveItemsMutation.isPending || hasUnselectedDrug
+                        }
+                      >
+                        {t("save")}
+                        <ShortcutBadge actionId="submit-action" />
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <EmptyState
+                  title={t("no_items_found")}
+                  icon={<Box className="text-primary size-6" />}
+                />
+              )}
+
+              {isApprovable && hasSavedOnce && hasMoreSupplyRequests && (
+                <div className="flex justify-center">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => loadBalanceSupplyRequestsMutation.mutate()}
+                    disabled={loadBalanceSupplyRequestsMutation.isPending}
+                  >
+                    {t("show_balance_products")}
+                  </Button>
+                </div>
+              )}
+
+              {isApprovable && (
+                <div className="flex flex-row gap-2 justify-between bg-white p-4 items-center border border-gray-200 rounded-md">
+                  <div className="flex flex-col gap-2">
+                    <p className="font-bold">
+                      {t("review_and_finalise_request")}
+                    </p>
+                    <span className="text-sm text-gray-500">
+                      {t("review_and_finalise_request_description")}
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={() => approveRecordOrderMutation.mutate()}
+                    disabled={
+                      !recordItemOrdersData ||
+                      !recordItemOrdersData?.results?.length ||
+                      approveRecordOrderMutation.isPending
+                    }
+                  >
+                    {t("mark_as_approved")}
+                    <ShortcutBadge actionId="mark-as" />
+                  </Button>
+                </div>
+              )}
+              </div>
+            </CardContent>
+          </Card>
+      </div>
+    </div>
+  );
+};
+
+export default RequestOrderShowPage;

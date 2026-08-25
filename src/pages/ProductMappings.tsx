@@ -69,7 +69,6 @@ type ProductMappingsProps = {
 const DUPLICATE_REASON_MESSAGE_KEYS: Record<DuplicateReasonCode, string> = {
   DUPLICATE_ROW: "csv_duplicate_row",
   DUPLICATE_DRUG_ID: "csv_duplicate_drug_id",
-  DUPLICATE_SLUG: "csv_duplicate_slug",
 };
 
 const PRODUCT_MAPPING_BATCH_SIZE = 10;

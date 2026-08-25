@@ -1,4 +1,5 @@
-import { HttpMethod, RequestOptions } from "@/apis/types";
+import { apis } from "@/apis/index";
+import { BatchRequestBody, BatchResponse, BatchResult, HttpMethod, RequestOptions } from "@/apis/types";
 
 const CARE_ACCESS_TOKEN_KEY = "care_access_token";
 
@@ -11,6 +12,10 @@ export function extractErrorMessage(data: unknown): string | null {
 
   if (typeof obj.detail === "string") {
     return obj.detail;
+  }
+
+  if (typeof obj.error === "string") {
+    return obj.error;
   }
 
   if (Array.isArray(obj.errors) && obj.errors.length > 0) {
@@ -97,3 +102,60 @@ export const request = async <T>(
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 };
+
+export class BatchError extends Error {
+  results: BatchResult[];
+  failed: BatchResult[];
+  status?: number;
+  errorMessages: string[];
+
+  constructor(
+    message: string,
+    info: { results: BatchResult[]; failed: BatchResult[]; status?: number },
+  ) {
+    super(message);
+    this.name = "BatchError";
+    this.results = info.results;
+    this.failed = info.failed;
+    this.status = info.status;
+    this.errorMessages = this.failed
+      .map((result) => extractErrorMessage(result.data))
+      .filter((msg): msg is string => msg !== null);
+  }
+}
+
+function extractResultsFromError(err: unknown): BatchResult[] {
+  const e = err as {
+    data?: { results?: BatchResult[] };
+    error?: { results?: BatchResult[] };
+    results?: BatchResult[];
+  };
+  const results = e?.data?.results ?? e?.error?.results ?? e?.results;
+  return Array.isArray(results) ? results : [];
+}
+
+export async function performBatchRequest(
+  payload: BatchRequestBody,
+): Promise<BatchResult[]> {
+  let response: BatchResponse;
+  try {
+    response = await apis.batchRequest(payload);
+  } catch (err) {
+    const results = extractResultsFromError(err);
+    if (results.length) {
+      throw new BatchError("Batch rolled back", {
+        results,
+        failed: results.filter((r) => r.status_code > 299),
+        status: (err as { status?: number })?.status,
+      });
+    }
+    throw err;
+  }
+
+  const results = response.results ?? [];
+  const failed = results.filter((r) => r.status_code > 299);
+  if (failed.length) {
+    throw new BatchError("Batch rolled back", { results, failed });
+  }
+  return results;
+}

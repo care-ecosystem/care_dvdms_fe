@@ -1,4 +1,4 @@
-import { HttpMethod, PaginatedResponse } from "@/apis/types";
+import { BatchRequestBody, BatchResponse, HttpMethod, PaginatedResponse } from "@/apis/types";
 import { request } from "@/apis/query";
 import { Organization } from "@/types/organization";
 import { Facility } from "@/types/facility";
@@ -43,7 +43,11 @@ import {
 } from "@/types/superBatch";
 import { BatchRequestPayload, BatchResponse } from "@/types/batchRequest";
 
+export const BATCH_REQUEST_PATH = "/api/v1/batch_requests/";
+
 export const apis = {
+  batchRequest: (payload: BatchRequestBody) =>
+    request<BatchResponse>(BATCH_REQUEST_PATH, HttpMethod.POST, payload),
   organizations: {
     list: (params: { org_type: string; limit?: number; name?: string }) =>
       request<PaginatedResponse<Organization>>(
@@ -292,7 +296,10 @@ export const apis = {
       ),
   },
   productMappings: {
-    list: (instituteId: string, params?: { limit?: number; offset?: number }) =>
+    list: (
+      instituteId: string,
+      params?: { limit?: number; offset?: number; mapping_type?: string },
+    ) =>
       request<PaginatedResponse<DvdmsProductMapping>>(
         `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
         HttpMethod.GET,

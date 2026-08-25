@@ -1,4 +1,4 @@
-import { FC, useEffect, useMemo, useRef, useState } from "react";
+import { FC, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,8 +13,14 @@ import {
 } from "lucide-react";
 
 import { apis } from "@/apis";
+import { BatchError, extractErrorMessage, performBatchRequest } from "@/apis/query";
+import { BatchRequestBody, BatchResult, HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
-import { downloadProductMappingTemplate } from "@/lib/utils";
+import {
+  cn,
+  downloadProductMappingTemplate,
+  downloadProductMappingUploadReport,
+} from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import Pagination from "@/components/Pagination";
 import { Label } from "@/components/ui/label";
@@ -40,11 +46,115 @@ import FileDropzone from "@/components/FileDropzone";
 import { DvdmsProductMapping } from "@/types/dvdms_config";
 import { ProductKnowledge } from "@/types/productKnowledge";
 import { validateCSV } from "@/utils/csvValidation";
-import type { FormattedError, ProductMappingCsvRow } from "@/utils/csvValidation";
+import type {
+  DuplicateProductMappingCsvRow,
+  DuplicateReasonCode,
+  FormattedError,
+  ProductMappingCsvRow,
+} from "@/utils/csvValidation";
+import type { ProductMappingReportRow } from "@/lib/utils";
 
 type ProductMappingsProps = {
   facilityId: string;
 };
+
+const DUPLICATE_REASON_MESSAGE_KEYS: Record<DuplicateReasonCode, string> = {
+  DUPLICATE_ROW: "csv_duplicate_row",
+  DUPLICATE_DRUG_ID: "csv_duplicate_drug_id",
+  DUPLICATE_SLUG: "csv_duplicate_slug",
+};
+
+const PRODUCT_MAPPING_BATCH_SIZE = 10;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function getProgressPercent(progress: { done: number; total: number }): number {
+  if (progress.total <= 0) return 0;
+  return Math.min(100, Math.round((progress.done / progress.total) * 100));
+}
+
+async function resolveProductKnowledgeSlugsBatch(
+  slugs: string[],
+  slugToUrl: (slug: string) => string,
+  onProgress?: (done: number) => void,
+): Promise<Map<string, ProductKnowledge>> {
+  const resolved = new Map<string, ProductKnowledge>();
+
+  for (const chunk of chunkArray(slugs, PRODUCT_MAPPING_BATCH_SIZE)) {
+    const payload: BatchRequestBody = {
+      requests: chunk.map((slug, idx) => ({
+        reference_id: `pk_${idx}`,
+        url: `/api/v1/product_knowledge/${slugToUrl(slug)}/`,
+        method: HttpMethod.GET,
+      })),
+    };
+
+    const results = await performBatchRequest(payload).catch((error: unknown) =>
+      error instanceof BatchError ? error.results : ([] as BatchResult[]),
+    );
+
+    chunk.forEach((slug, idx) => {
+      const result = results.find((r) => r.reference_id === `pk_${idx}`);
+      if (result && result.status_code <= 299) {
+        resolved.set(slug, result.data as ProductKnowledge);
+      }
+    });
+    onProgress?.(chunk.length);
+  }
+
+  return resolved;
+}
+
+async function findExistingMappingDrugIdsBatch(
+  instituteId: string,
+  drugIds: string[],
+  onProgress?: (done: number) => void,
+): Promise<Set<string>> {
+  const existing = new Set<string>();
+
+  for (const chunk of chunkArray(drugIds, PRODUCT_MAPPING_BATCH_SIZE)) {
+    const payload: BatchRequestBody = {
+      requests: chunk.map((drugId, idx) => ({
+        reference_id: `check_${idx}`,
+        url: `/api/care_dvdms/institute/${instituteId}/product-mappings/?eaushadhi_drug_id=${encodeURIComponent(drugId)}&limit=1`,
+        method: HttpMethod.GET,
+      })),
+    };
+
+    const results = await performBatchRequest(payload).catch((error: unknown) =>
+      error instanceof BatchError ? error.results : ([] as BatchResult[]),
+    );
+
+    chunk.forEach((drugId, idx) => {
+      const result = results.find((r) => r.reference_id === `check_${idx}`);
+      const data = result?.data as { count?: number } | undefined;
+      if (result && result.status_code <= 299 && (data?.count ?? 0) > 0) {
+        existing.add(drugId);
+      }
+    });
+    onProgress?.(chunk.length);
+  }
+
+  return existing;
+}
+
+const CsvStatusCard: FC<{
+  title: string;
+  children: ReactNode;
+  action?: ReactNode;
+}> = ({ title, children, action }) => (
+  <div className="space-y-2 rounded-md border border-gray-200 bg-gray-100 p-3 text-sm">
+    <p className="font-semibold text-gray-900">{title}</p>
+    <div className="space-y-0.5 text-gray-700">{children}</div>
+    {action}
+  </div>
+);
 
 type DvdmsDrugValue = {
   id: string;
@@ -86,6 +196,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
       apis.productMappings.list(instituteId!, {
         limit: MAPPINGS_PAGE_SIZE,
         offset: (mappingsPage - 1) * MAPPINGS_PAGE_SIZE,
+        mapping_type: "default_mapping",
       }),
     enabled: !!instituteId,
   });
@@ -95,8 +206,14 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvErrors, setCsvErrors] = useState<FormattedError[]>([]);
   const [csvRows, setCsvRows] = useState<ProductMappingCsvRow[]>([]);
-  const [csvDuplicateCount, setCsvDuplicateCount] = useState(0);
+  const [csvDuplicateRows, setCsvDuplicateRows] = useState<
+    DuplicateProductMappingCsvRow[]
+  >([]);
+  const [csvReport, setCsvReport] = useState<ProductMappingReportRow[]>([]);
   const [isUploadingCsv, setIsUploadingCsv] = useState(false);
+  const [isValidatingCsv, setIsValidatingCsv] = useState(false);
+  const [validationProgress, setValidationProgress] = useState({ done: 0, total: 0 });
+  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
 
   const [mappingOpen, setMappingOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -203,6 +320,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           sub_group_id: mappingForm.dvdmsDrug!.sub_group_id,
         },
         product_knowledge_id: mappingForm.productKnowledge!.id,
+        mapping_type: "default_mapping",
       }),
     onSuccess: () => {
       toast.success(t("dvdms_product_mapping_save_success"));
@@ -247,7 +365,10 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     setCsvFile(null);
     setCsvErrors([]);
     setCsvRows([]);
-    setCsvDuplicateCount(0);
+    setCsvDuplicateRows([]);
+    setCsvReport([]);
+    setValidationProgress({ done: 0, total: 0 });
+    setUploadProgress({ done: 0, total: 0 });
   };
 
   const clearMappingForm = () => {
@@ -300,7 +421,8 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     setCsvFile(file);
     setCsvErrors([]);
     setCsvRows([]);
-    setCsvDuplicateCount(0);
+    setCsvDuplicateRows([]);
+    setCsvReport([]);
     if (!file) return;
 
     const reader = new FileReader();
@@ -334,7 +456,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
       }
 
       setCsvRows(validation.rows ?? []);
-      setCsvDuplicateCount(validation.duplicateRows?.length ?? 0);
+      setCsvDuplicateRows(validation.duplicateRows ?? []);
     };
     reader.readAsText(file);
   };
@@ -346,46 +468,227 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const uploadCsv = async () => {
     if (!instituteId || csvRows.length === 0 || isUploadingCsv) return;
 
-    setIsUploadingCsv(true);
+    setIsValidatingCsv(true);
     let successCount = 0;
-    const failedRows: string[] = [];
-    const productKnowledgeBySlug = new Map<string, ProductKnowledge | null>();
+    const report: ProductMappingReportRow[] = [];
 
+    const uniqueSlugs = Array.from(
+      new Set(csvRows.map((row) => row.pkSlug.toLowerCase())),
+    );
+    const unscopedSlugs = uniqueSlugs.filter(
+      (slug) => !slug.startsWith("f-") && !slug.startsWith("i-"),
+    );
+    const scopedSlugs = uniqueSlugs.filter(
+      (slug) => slug.startsWith("f-") || slug.startsWith("i-"),
+    );
+
+    setValidationProgress({ done: 0, total: uniqueSlugs.length });
+    const onValidationProgress = (done: number) =>
+      setValidationProgress((prev) => ({ ...prev, done: prev.done + done }));
+
+    const productKnowledgeBySlug = new Map<string, ProductKnowledge>([
+      ...(await resolveProductKnowledgeSlugsBatch(
+        scopedSlugs,
+        (slug) => slug,
+        onValidationProgress,
+      )),
+      ...(await resolveProductKnowledgeSlugsBatch(
+        unscopedSlugs,
+        (slug) => `f-${facilityId}-${slug}`,
+        onValidationProgress,
+      )),
+    ]);
+
+    const stillMissingSlugs = unscopedSlugs.filter(
+      (slug) => !productKnowledgeBySlug.has(slug),
+    );
+    if (stillMissingSlugs.length > 0) {
+      setValidationProgress((prev) => ({
+        ...prev,
+        total: prev.total + stillMissingSlugs.length,
+      }));
+      const instanceScoped = await resolveProductKnowledgeSlugsBatch(
+        stillMissingSlugs,
+        (slug) => `i-${slug}`,
+        onValidationProgress,
+      );
+      instanceScoped.forEach((pk, slug) => productKnowledgeBySlug.set(slug, pk));
+    }
+
+    const activeRows: { row: ProductMappingCsvRow; productKnowledge: ProductKnowledge }[] = [];
     for (const row of csvRows) {
-      const slug = row.pkSlug.toLowerCase();
-      if (!productKnowledgeBySlug.has(slug)) {
-        productKnowledgeBySlug.set(
-          slug,
-          await apis.productKnowledge.get(slug).catch(() => null),
-        );
-      }
-      const productKnowledge = productKnowledgeBySlug.get(slug);
+      const productKnowledge = productKnowledgeBySlug.get(row.pkSlug.toLowerCase());
       if (!productKnowledge) {
-        failedRows.push(row.pkSlug);
+        report.push({
+          drugId: row.drugId,
+          drugName: row.drugName,
+          pkName: row.pkName,
+          pkSlug: row.pkSlug,
+          status: "FAILED",
+          message: t("csv_product_knowledge_not_found"),
+        });
         continue;
       }
-      try {
-        await apis.productMappings.create(instituteId, {
-          eaushadhi_drug_details: { id: row.drugId, name: row.drugName },
-          product_knowledge_id: productKnowledge.id,
+      if (productKnowledge.status && productKnowledge.status !== "active") {
+        report.push({
+          drugId: row.drugId,
+          drugName: row.drugName,
+          pkName: row.pkName,
+          pkSlug: row.pkSlug,
+          status: "SKIPPED",
+          message: t("csv_skipped_inactive_product_knowledge", {
+            status: productKnowledge.status,
+          }),
         });
-        successCount += 1;
-      } catch {
-        failedRows.push(row.pkSlug);
+        continue;
+      }
+      activeRows.push({ row, productKnowledge });
+    }
+
+    const uniqueActiveDrugIds = Array.from(
+      new Set(activeRows.map(({ row }) => row.drugId)),
+    );
+    setValidationProgress((prev) => ({
+      ...prev,
+      total: prev.total + uniqueActiveDrugIds.length,
+    }));
+    const existingDrugIds = await findExistingMappingDrugIdsBatch(
+      instituteId,
+      uniqueActiveDrugIds,
+      onValidationProgress,
+    );
+
+    setIsValidatingCsv(false);
+
+    const resolvedRows: { row: ProductMappingCsvRow; productKnowledge: ProductKnowledge }[] =
+      [];
+    for (const entry of activeRows) {
+      if (existingDrugIds.has(entry.row.drugId)) {
+        report.push({
+          drugId: entry.row.drugId,
+          drugName: entry.row.drugName,
+          pkName: entry.row.pkName,
+          pkSlug: entry.row.pkSlug,
+          status: "SKIPPED",
+          message: t("csv_skipped_existing_mapping"),
+        });
+        continue;
+      }
+      resolvedRows.push(entry);
+    }
+
+    setIsUploadingCsv(true);
+    setUploadProgress({ done: 0, total: resolvedRows.length });
+
+    for (const chunk of chunkArray(resolvedRows, PRODUCT_MAPPING_BATCH_SIZE)) {
+      const payload: BatchRequestBody = {
+        requests: chunk.map(({ row, productKnowledge }, idx) => ({
+          reference_id: `create_${idx}`,
+          url: `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
+          method: HttpMethod.POST,
+          body: {
+            eaushadhi_drug_details: { id: row.drugId, name: row.drugName },
+            product_knowledge_id: productKnowledge.id,
+            mapping_type: "default_mapping",
+          },
+        })),
+      };
+
+      try {
+        await performBatchRequest(payload);
+        chunk.forEach(({ row }) => {
+          successCount += 1;
+          report.push({
+            drugId: row.drugId,
+            drugName: row.drugName,
+            pkName: row.pkName,
+            pkSlug: row.pkSlug,
+            status: "SUCCESS",
+          });
+        });
+      } catch (error) {
+        if (!(error instanceof BatchError)) {
+          const message = getErrorMessage(error) || t("csv_row_upload_error");
+          chunk.forEach(({ row }) => {
+            report.push({
+              drugId: row.drugId,
+              drugName: row.drugName,
+              pkName: row.pkName,
+              pkSlug: row.pkSlug,
+              status: "FAILED",
+              message,
+            });
+          });
+          continue;
+        }
+
+        const resultByRef = new Map(error.results.map((r) => [r.reference_id, r]));
+
+        chunk.forEach(({ row }, idx) => {
+          const result = resultByRef.get(`create_${idx}`);
+          if (result && result.status_code <= 299) {
+            report.push({
+              drugId: row.drugId,
+              drugName: row.drugName,
+              pkName: row.pkName,
+              pkSlug: row.pkSlug,
+              status: "SKIPPED",
+              message: t("csv_skipped_batch_rollback"),
+            });
+            return;
+          }
+          if (result && result.status_code === 409) {
+            report.push({
+              drugId: row.drugId,
+              drugName: row.drugName,
+              pkName: row.pkName,
+              pkSlug: row.pkSlug,
+              status: "SKIPPED",
+              message: t("csv_skipped_existing_mapping"),
+            });
+            return;
+          }
+          report.push({
+            drugId: row.drugId,
+            drugName: row.drugName,
+            pkName: row.pkName,
+            pkSlug: row.pkSlug,
+            status: "FAILED",
+            message:
+              (result && extractErrorMessage(result.data)) ||
+              t("csv_row_upload_error"),
+          });
+        });
+      } finally {
+        setUploadProgress((prev) => ({ ...prev, done: prev.done + chunk.length }));
       }
     }
 
+    for (const row of csvDuplicateRows) {
+      report.push({
+        drugId: row.drugId,
+        drugName: row.drugName,
+        pkName: row.pkName,
+        pkSlug: row.pkSlug,
+        status: "SKIPPED",
+        message: t(DUPLICATE_REASON_MESSAGE_KEYS[row.reasonCode]),
+      });
+    }
+
+    const failedCount = report.filter((row) => row.status === "FAILED").length;
+
     setIsUploadingCsv(false);
     invalidateMappings();
-    resetCsvState();
+    setCsvReport(report);
 
-    if (failedRows.length === 0) {
+    if (failedCount === 0) {
+      resetCsvState();
       toast.success(t("csv_upload_success", { count: successCount }));
     } else {
       toast.error(
         t("csv_upload_partial_failure", {
           success: successCount,
-          failed: failedRows.length,
+          failed: failedCount,
         }),
       );
     }
@@ -450,11 +753,15 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                 <div className="px-1 space-y-8">
                   {!editingId && (
                     <>
-                      <div className="space-y-2">
-                        <Label>{t("upload_mapping_csv")}</Label>
-                        <p className="text-sm text-gray-500">
-                          {t("upload_mapping_csv_subtitle")}
-                        </p>
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <h4 className="text-base font-semibold text-gray-900">
+                            {t("upload_csv_section_title")}
+                          </h4>
+                          <p className="text-sm text-gray-500">
+                            {t("upload_mapping_csv_subtitle")}
+                          </p>
+                        </div>
                         <FileDropzone
                           accept=".csv"
                           selectedFile={csvFile}
@@ -463,10 +770,50 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                           browseLabel={t("browse_file")}
                           onInvalidFile={handleInvalidCsvFile}
                         />
+                        {isValidatingCsv && (
+                          <div className="flex flex-col gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                            <div className="flex items-center gap-2">
+                              <Loader2Icon className="size-4 shrink-0 animate-spin" />
+                              <span>
+                                {t("csv_validating_rows", {
+                                  percent: getProgressPercent(validationProgress),
+                                })}
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+                              <div
+                                className="h-full rounded-full bg-primary-500 transition-[width]"
+                                style={{
+                                  width: `${getProgressPercent(validationProgress)}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                        {isUploadingCsv && (
+                          <div className="flex flex-col gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                            <div className="flex items-center gap-2">
+                              <Loader2Icon className="size-4 shrink-0 animate-spin" />
+                              <span>
+                                {t("csv_uploading_progress", {
+                                  percent: getProgressPercent(uploadProgress),
+                                })}
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+                              <div
+                                className="h-full rounded-full bg-primary-500 transition-[width]"
+                                style={{
+                                  width: `${getProgressPercent(uploadProgress)}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )}
                         {csvErrors.length > 0 && (
-                          <div className="space-y-1 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                          <CsvStatusCard title={t("csv_validation_issues")}>
                             {csvErrors.map((error, idx) => (
-                              <p key={idx}>
+                              <p key={idx} className="text-red-600">
                                 {error.type === "missing_headers" &&
                                   `${t("csv_missing_headers")}: ${
                                     Array.isArray(error.data)
@@ -479,15 +826,83 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                                   `${t("csv_parse_error")}: ${error.data}`}
                               </p>
                             ))}
-                          </div>
+                          </CsvStatusCard>
                         )}
-                        {csvFile && csvErrors.length === 0 && csvRows.length > 0 && (
-                          <p className="text-sm text-gray-500">
-                            {t("csv_ready_to_upload", { count: csvRows.length })}
-                            {csvDuplicateCount > 0 &&
-                              ` ${t("csv_duplicates_skipped", { count: csvDuplicateCount })}`}
-                          </p>
-                        )}
+                        {csvFile &&
+                          csvErrors.length === 0 &&
+                          csvRows.length > 0 &&
+                          csvReport.length === 0 &&
+                          !isValidatingCsv &&
+                          !isUploadingCsv && (
+                            <CsvStatusCard title={t("csv_ready_title")}>
+                              <p>
+                                {t("csv_ready_to_upload", { count: csvRows.length })}
+                              </p>
+                              {csvDuplicateRows.length > 0 && (
+                                <p>
+                                  {t("csv_duplicates_skipped", {
+                                    count: csvDuplicateRows.length,
+                                  })}
+                                </p>
+                              )}
+                            </CsvStatusCard>
+                          )}
+                        {csvReport.length > 0 &&
+                          (() => {
+                            const successCount = csvReport.filter(
+                              (row) => row.status === "SUCCESS",
+                            ).length;
+                            const skippedCount = csvReport.filter(
+                              (row) => row.status === "SKIPPED",
+                            ).length;
+                            const failedCount = csvReport.filter(
+                              (row) => row.status === "FAILED",
+                            ).length;
+
+                            return (
+                              <CsvStatusCard
+                                title={t("csv_upload_status_title")}
+                                action={
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="bg-white"
+                                    onClick={() =>
+                                      downloadProductMappingUploadReport(csvReport)
+                                    }
+                                  >
+                                    <DownloadIcon className="mr-2 size-4" />
+                                    {t("download_report")}
+                                  </Button>
+                                }
+                              >
+                                <ul className="list-disc space-y-0.5 pl-4">
+                                  {successCount > 0 && (
+                                    <li className="text-primary-700">
+                                      {t("csv_report_summary_success", {
+                                        count: successCount,
+                                      })}
+                                    </li>
+                                  )}
+                                  {skippedCount > 0 && (
+                                    <li className="text-gray-900">
+                                      {t("csv_report_summary_skipped", {
+                                        count: skippedCount,
+                                      })}
+                                    </li>
+                                  )}
+                                  {failedCount > 0 && (
+                                    <li className="text-red-600">
+                                      {t("csv_report_summary_failed", {
+                                        count: failedCount,
+                                      })}
+                                    </li>
+                                  )}
+                                </ul>
+                              </CsvStatusCard>
+                            );
+                          })()}
                         <div className="flex justify-end gap-2">
                           <Button
                             type="button"
@@ -499,16 +914,17 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                           </Button>
                           <Button
                             type="button"
-                            variant="primary_gradient"
+                            variant="primary"
                             disabled={
                               !csvFile ||
                               csvErrors.length > 0 ||
                               csvRows.length === 0 ||
+                              isValidatingCsv ||
                               isUploadingCsv
                             }
                             onClick={uploadCsv}
                           >
-                            {isUploadingCsv && (
+                            {(isValidatingCsv || isUploadingCsv) && (
                               <Loader2Icon className="mr-2 size-4 animate-spin" />
                             )}
                             {t("upload")}
@@ -516,15 +932,13 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                         </div>
                       </div>
 
-                      <div className="relative">
-                        <hr className="border-gray-200" />
-                        <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-2 text-xs uppercase text-gray-500">
-                          {t("or")}
-                        </span>
-                      </div>
+                      <hr className="border-gray-200" />
                     </>
                   )}
-                  <div className="space-y-4">
+                  <div className="space-y-3">
+                    <h4 className="text-base font-semibold text-gray-900">
+                      {t("add_manually_section_title")}
+                    </h4>
                     <div className="space-y-2">
                       <Label>
                         {t("product_knowledge")}

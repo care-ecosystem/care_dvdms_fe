@@ -235,6 +235,7 @@ export type DvdmsProductMappingCreatePayload = {
     drug_category?: string;
   };
   product_knowledge_id: string;
+  mapping_type?: string;
 };
 
 export type DvdmsProductMappingUpdatePayload =

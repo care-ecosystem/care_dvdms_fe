@@ -48,6 +48,7 @@ export function downloadProductMappingTemplate(): void {
     ["6.6.19", "Cefotaxime Injection IP 1gm 1x1Vial", "Cefotaxime 1gm Injection", "cefotaxime-1gm-injection"],
     ["D00045", "Ibuprofen Oral Suspension IP 100mg/5ml 1x60ml bottle", "Ibuprofen 100mg/5ml Suspension", "ibuprofen-suspension"],
     ["D00046", "Aceclofenac Tablet 100 mg 1x1", "Aceclofenac 100mg Tablet", "aceclofenac-100mg"],
+    ["10000409", "Fentanyl 100 Mcg/2ml(100 Mcg/2Ml)", "Fentanyl 100mcg/2ml Injection", "fentanyl-100mcg2ml-inject"],
   ];
 
   const rows = [
@@ -55,4 +56,42 @@ export function downloadProductMappingTemplate(): void {
     ...sampleData.map((row) => row.map((cell) => `"${cell}"`).join(",")),
   ];
   downloadCsv("product_mapping_template.csv", rows.join("\n"));
+}
+
+export type ProductMappingReportRow = {
+  drugId: string;
+  drugName: string;
+  pkName: string;
+  pkSlug: string;
+  status: "SUCCESS" | "FAILED" | "SKIPPED";
+  message?: string;
+};
+
+export function downloadProductMappingUploadReport(
+  rows: ProductMappingReportRow[],
+): void {
+  const headers = [
+    "DVDMS Drug ID",
+    "DVDMS Drug Name",
+    "Product Knowledge Name",
+    "Product Knowledge Slug",
+    "Status",
+    "Reason",
+  ];
+  const csvRows = [
+    headers.map((h) => `"${h}"`).join(","),
+    ...rows.map((row) =>
+      [
+        row.drugId,
+        row.drugName,
+        row.pkName,
+        row.pkSlug,
+        row.status,
+        row.message ?? "",
+      ]
+        .map((cell) => `"${cell.replace(/"/g, '""')}"`)
+        .join(","),
+    ),
+  ];
+  downloadCsv("product_mapping_upload_report.csv", "\uFEFF" + csvRows.join("\n"));
 }

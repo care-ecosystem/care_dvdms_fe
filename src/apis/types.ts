@@ -19,3 +19,24 @@ export interface PaginatedResponse<T> {
   previous: string | null;
   results: T[];
 }
+
+export interface BatchSubRequest {
+  reference_id: string;
+  url: string;
+  method: HttpMethod;
+  body?: Record<string, unknown>;
+}
+
+export interface BatchRequestBody {
+  requests: BatchSubRequest[];
+}
+
+export interface BatchResult<T = unknown> {
+  reference_id: string;
+  data: T;
+  status_code: number;
+}
+
+export interface BatchResponse<T = unknown> {
+  results: BatchResult<T>[];
+}

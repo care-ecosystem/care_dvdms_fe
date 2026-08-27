@@ -25,6 +25,7 @@ import {
 } from "@/types/dvdms_config";
 import {
   RecordOrder,
+  RecordOrderOutward,
   RecordOrderPayload,
   RecordOrderUpdatePayload,
 } from "@/types/recordOrder";
@@ -179,6 +180,27 @@ export const apis = {
         `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/${recordOrderItemId}/`,
         HttpMethod.PATCH,
         { ...payload },
+      ),
+  },
+  recordOrderOutward: {
+    list: (
+      instituteId: string,
+      recordOrderId: string,
+      params: {
+        limit?: number;
+        offset?: number;
+        ordering?: string;
+      } = {},
+    ) =>
+      request<PaginatedResponse<RecordOrderOutward>>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/outward/`,
+        HttpMethod.GET,
+        params,
+      ),
+    fetchInwards: (instituteId: string, recordOrderId: string) =>
+      request<RecordOrderOutward>(
+        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/outward/fetch-inwards/`,
+        HttpMethod.POST,
       ),
   },
   recordOrderProductMappings: {

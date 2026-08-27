@@ -9,6 +9,7 @@ import {
   Edit,
   EllipsisVertical,
   Printer,
+  RefreshCw,
 } from "lucide-react";
 
 import { apis } from "@/apis";
@@ -199,6 +200,23 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       }),
     enabled: !!institute?.id && !!recordOrder?.id,
   });
+
+  const isOutwardStatus =
+    !!recordOrder?.status &&
+    !["draft", "pending"].includes(recordOrder.status);
+  const canSyncDvdmsStatus =
+    !!recordOrder?.status &&
+    !["draft", "pending", "cancelled"].includes(recordOrder.status);
+
+  const { data: outwardData } = useQuery({
+    queryKey: ["dvdms_record_order_outward", institute?.id, recordOrder?.id],
+    queryFn: () =>
+      apis.recordOrderOutward.list(institute!.id, recordOrder!.id, {
+        limit: 1,
+      }),
+    enabled: !!institute?.id && !!recordOrder?.id && isOutwardStatus,
+  });
+  const outward = outwardData?.results?.[0];
 
   const existingItemBySupplyRequestId = new Map(
     (recordItemOrdersData?.results ?? []).map((item) => [
@@ -409,6 +427,26 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     },
   });
 
+  const retryRecordOrderMutation = useMutation({
+    mutationFn: () => {
+      if (!institute?.id || !recordOrder?.id) {
+        throw new Error("Missing institute or record order");
+      }
+      return apis.recordOrders.update(institute.id, recordOrder.id, {
+        status: "approved",
+      });
+    },
+    onSuccess: () => {
+      toast.success(t("record_order_retried"));
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+      });
+    },
+    onError: () => {
+      toast.error(t("record_order_retry_failed"));
+    },
+  });
+
   const cancelRecordOrderMutation = useMutation({
     mutationFn: () => {
       if (!institute?.id || !recordOrder?.id) {
@@ -426,6 +464,27 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     },
     onError: () => {
       toast.error(t("record_order_cancel_failed"));
+    },
+  });
+
+  const fetchInwardsMutation = useMutation({
+    mutationFn: () => {
+      if (!institute?.id || !recordOrder?.id) {
+        throw new Error("Missing institute or record order");
+      }
+      return apis.recordOrderOutward.fetchInwards(institute.id, recordOrder.id);
+    },
+    onSuccess: () => {
+      toast.success(t("eaushadhi_status_synced"));
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_order_outward", institute?.id, recordOrder?.id],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+      });
+    },
+    onError: () => {
+      toast.error(t("eaushadhi_status_sync_failed"));
     },
   });
 
@@ -454,6 +513,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const isViewOnlyStatus = !isDraftStatus;
   const isApprovable =
     recordOrderStatus === "draft" || recordOrderStatus === "pending";
+  const isFailedStatus = recordOrderStatus === "failed";
 
   return (
     <div className="md:px-6 py-0 space-y-4 min-w-0">
@@ -492,6 +552,15 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
             <Printer className="size-4" /> {t("print")}
             <ShortcutBadge actionId="print-button" />
           </Button>
+          {canSyncDvdmsStatus && (
+            <Button
+              variant="outline"
+              onClick={() => fetchInwardsMutation.mutate()}
+              disabled={fetchInwardsMutation.isPending}
+            >
+              <RefreshCw className="size-4" /> {t("sync_dvdms_status")}
+            </Button>
+          )}
           {recordOrder?.status == "draft" &&
             <Button
               variant="outline"
@@ -600,6 +669,49 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
           )}
         </CardContent>
       </Card>
+
+      {isOutwardStatus && outward && (
+        <Card className="border-none rounded-lg">
+          <CardContent className="space-y-1 p-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-12 gap-y-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  {t("eaushadhi_indent_no")}
+                </label>
+                <div className="text-lg font-semibold text-gray-950">
+                  {outward.eaushadhi_indent_no ?? "—"}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  {t("eaushadhi_indent_status")}
+                </label>
+                <div className="text-lg font-semibold text-gray-950">
+                  {outward.eaushadhi_indent_status ?? "—"}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  {t("outward_status")}
+                </label>
+                <div>
+                  <Badge
+                    className="rounded-sm"
+                    variant={
+                      REQUEST_ORDER_STATUS_VARIANTS[outward.status] ??
+                      "secondary"
+                    }
+                  >
+                    {t(outward.status)}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="mt-2 space-y-4">
         <Card className="bg-gray-50 py-4 rounded-md">
@@ -997,6 +1109,24 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                   >
                     {t("mark_as_approved")}
                     <ShortcutBadge actionId="mark-as" />
+                  </Button>
+                </div>
+              )}
+
+              {isFailedStatus && (
+                <div className="flex flex-row gap-2 justify-between bg-white p-4 items-center border border-gray-200 rounded-md">
+                  <div className="flex flex-col gap-2">
+                    <p className="font-bold">{t("record_order_failed_title")}</p>
+                    <span className="text-sm text-gray-500">
+                      {t("record_order_failed_description")}
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={() => retryRecordOrderMutation.mutate()}
+                    disabled={retryRecordOrderMutation.isPending}
+                  >
+                    {t("retry")}
                   </Button>
                 </div>
               )}

@@ -243,7 +243,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     outward?.id,
   );
   const canCreateDelivery =
-    outward?.eaushadhi_indent_status === "Issue in Process";
+    outward?.eaushadhi_indent_status === "Issued";
 
   const existingItemBySupplyRequestId = new Map(
     (recordItemOrdersData?.results ?? []).map((item) => [

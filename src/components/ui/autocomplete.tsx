@@ -118,7 +118,7 @@ export default function Autocomplete({
             role="combobox"
             aria-expanded={open}
             className={cn(
-              "w-full justify-between pr-8",
+              "w-full min-w-0 justify-between pr-8",
               className,
               selectedOption && showClearButton && "rounded-r-none",
             )}
@@ -138,13 +138,9 @@ export default function Autocomplete({
         <PopoverContent
           align={align}
           className={cn(
-            "p-0 pointer-events-auto w-[var(--radix-popover-trigger-width)]",
+            "p-0 pointer-events-auto w-auto min-w-[var(--radix-popover-trigger-width)] max-w-[min(28rem,calc(100vw-2rem))]",
             popoverContentClassName,
           )}
-          style={{
-            width: "var(--radix-popover-trigger-width)",
-            maxWidth: "var(--radix-popover-trigger-width)",
-          }}
         >
           <Command>
             <CommandInput
@@ -186,7 +182,10 @@ export default function Autocomplete({
                         value === option.value ? "opacity-100" : "opacity-0",
                       )}
                     />
-                    <span className="min-w-0 flex-1 truncate">
+                    <span
+                      className="min-w-0 flex-1 truncate"
+                      title={option.label}
+                    >
                       {option.label}
                     </span>
                   </CommandItem>
@@ -201,7 +200,7 @@ export default function Autocomplete({
           type="button"
           variant="outline"
           size="icon"
-          className="rounded-l-none border-l-0 text-gray-400 h-auto"
+          className="rounded-l-none border-l-0 text-gray-400 h-auto shrink-0"
           onClick={handleClear}
           title={clearLabel}
           hidden={disabled}

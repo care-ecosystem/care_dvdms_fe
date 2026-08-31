@@ -47,6 +47,23 @@ export function formatQuantity(quantity: string | number): string {
   return Number.isFinite(value) ? value.toFixed(2) : String(quantity);
 }
 
+export function parseLookupId(
+  value: string | number | null | undefined,
+): number | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+export function formatLookupId(
+  value: string | number | null | undefined,
+): string {
+  if (value === null || value === undefined) return "—";
+  const text = String(value).trim();
+  if (!text || text === "null" || text === "undefined") return "—";
+  return text;
+}
+
 export function chunk<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < items.length; i += size) {

@@ -49,6 +49,13 @@ import { Organization } from "@/types/organization";
 
 const PAGE_SIZE = 9;
 
+const DEAD_END_RECORD_ORDER_STATUSES = new Set([
+  "approved",
+  "rejected",
+  "completed",
+  "failed",
+]);
+
 type RecordOrderFormValues = {
   name: string;
   eaushadhiWarehouseId: string;
@@ -307,15 +314,52 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
     queryFn: () => apis.institutes.get(facilityId),
   });
 
+  const { data: recordOrderStatusBatchResponse } = useQuery({
+    queryKey: [
+      "dvdms_linked_record_order_status",
+      institute?.id,
+      candidateOrderIds,
+    ],
+    queryFn: () =>
+      apis.batchRequests.create({
+        requests: candidateOrders.map((order) => ({
+          url: `/api/care_dvdms/institute/${institute!.id}/record_order/`,
+          method: HttpMethod.GET,
+          body: { order: order.id, limit: 1, ordering: "-created_date" },
+          reference_id: order.id,
+        })),
+      }),
+    enabled: !!institute?.id && candidateOrders.length > 0,
+  });
+
+  const linkedRecordOrderStatusByOrderId = new Map(
+    recordOrderStatusBatchResponse?.results.map((result) => [
+      result.reference_id,
+      (result.data as { results?: { status?: string }[] } | undefined)
+        ?.results?.[0]?.status,
+    ]) ?? [],
+  );
+
+  const visibleCandidateOrders = candidateOrders.filter((order) => {
+    const linkedStatus = linkedRecordOrderStatusByOrderId.get(order.id);
+    return !linkedStatus || !DEAD_END_RECORD_ORDER_STATUSES.has(linkedStatus);
+  });
+
+  const isCandidateOrdersFiltering =
+    candidateOrders.length > 0 && !recordOrderStatusBatchResponse;
+
   const handleSelectOrder = async (order: RequestOrder) => {
     if (!institute) return;
     setCheckingOrderId(order.id);
     try {
       const existingRecordOrders = await apis.recordOrders.list(
         institute.id,
-        { order: order.id, limit: 1 },
+        { order: order.id, limit: 1, ordering: "-created_date" },
       );
-      if (existingRecordOrders.results.length > 0) {
+      const latestRecordOrder = existingRecordOrders.results[0];
+      const hasBlockingRecordOrder =
+        !!latestRecordOrder && latestRecordOrder.status !== "cancelled";
+      if (hasBlockingRecordOrder) {
         navigate(`${returnPath}/${order.id}`);
         return;
       }
@@ -430,74 +474,27 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
         return Promise.reject(new Error("Select a supplier and store first."));
       }
 
-      const warehouseName = form.getValues("eaushadhiWarehouseName");
-      let supplierMappingId: string | undefined;
       const existingSupplierMapping = selectedOrder.supplier
         ? instituteSuppliers.find(
             (item) => item.supplier?.id === selectedOrder.supplier!.id,
           )
         : undefined;
-      if (existingSupplierMapping?.eaushadhi_warehouse_id === selectedWarehouseId) {
-        supplierMappingId = existingSupplierMapping.id;
-      } else if (existingSupplierMapping) {
-        const updatedSupplierMapping = await apis.supplierMappings.update(
-          institute.id,
-          existingSupplierMapping.id,
-          {
-            eaushadhi_warehouse_id: selectedWarehouseId,
-            eaushadhi_warehouse_name: warehouseName,
-          },
+      if (!existingSupplierMapping) {
+        return Promise.reject(
+          new Error("No DVDMS supplier mapping configured for this supplier."),
         );
-        supplierMappingId = updatedSupplierMapping.id;
-      } else {
-        if (!selectedOrder.supplier) {
-          return Promise.reject(
-            new Error("This order has no CARE supplier to map to eAushadhi."),
-          );
-        }
-        const createdSupplierMapping = await apis.supplierMappings.create(
-          institute.id,
-          {
-            supplier: selectedOrder.supplier.id,
-            eaushadhi_warehouse_id: selectedWarehouseId,
-            eaushadhi_warehouse_name: warehouseName,
-            is_default: instituteSuppliers.length === 0,
-          },
-        );
-        supplierMappingId = createdSupplierMapping.id;
       }
+      const supplierMappingId = existingSupplierMapping.id;
 
-      const storeName = form.getValues("eaushadhiStoreName");
-      let storeMappingId: string | undefined;
       const existingStoreMapping = instituteStores.find(
         (item) => item.store.id === locationId,
       );
-      if (existingStoreMapping?.eaushadhi_store_id === selectedStoreId) {
-        storeMappingId = existingStoreMapping.id;
-      } else if (existingStoreMapping) {
-        const updatedStoreMapping = await apis.storeMappings.update(
-          facilityId,
-          institute.id,
-          existingStoreMapping.id,
-          {
-            eaushadhi_store_id: selectedStoreId,
-            eaushadhi_store_name: storeName,
-          },
+      if (!existingStoreMapping) {
+        return Promise.reject(
+          new Error("No DVDMS store mapping configured for this location."),
         );
-        storeMappingId = updatedStoreMapping.id;
-      } else {
-        const createdStoreMapping = await apis.dvdmsInstituteStores.create(
-          facilityId,
-          institute.id,
-          {
-            store: locationId,
-            eaushadhi_store_id: selectedStoreId,
-            eaushadhi_store_name: storeName,
-            is_default: instituteStores.length === 0,
-          },
-        );
-        storeMappingId = createdStoreMapping.id;
       }
+      const storeMappingId = existingStoreMapping.id;
 
       return apis.recordOrders.create(institute.id, {
         name: form.getValues("name"),
@@ -576,15 +573,15 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               />
             </div>
 
-            {isCandidateOrdersLoading ? (
+            {isCandidateOrdersLoading || isCandidateOrdersFiltering ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <Skeleton key={i} className="h-48 w-full" />
                 ))}
               </div>
-            ) : candidateOrders.length > 0 ? (
+            ) : visibleCandidateOrders.length > 0 ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {candidateOrders.map((order) => (
+                {visibleCandidateOrders.map((order) => (
                   <OrderCard
                     key={order.id}
                     order={order}
@@ -650,7 +647,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                 <Card className="p-0 bg-white">
                   <CardContent className="space-y-4 p-4 rounded-md">
                     <h3 className="font-semibold text-gray-900">
-                      {t("eaushadhi_connection_details")}
+                      {t("dvdms_connection_details")}
                     </h3>
 
                     <FormField

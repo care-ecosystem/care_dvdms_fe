@@ -12,6 +12,10 @@ const PrintRequestOrderPage = lazy(
   () => import("./pages/PrintRequestOrderPage"),
 );
 const ProductMappings = lazy(() => import("./pages/ProductMappings"));
+const CreateDeliveryPage = lazy(() => import("./pages/CreateDeliveryPage"));
+const AddDeliveryItemsPage = lazy(
+  () => import("./pages/AddDeliveryItemsPage"),
+);
 
 const routes = {
   "/facility/:facilityId/settings/general/dvdms": ({
@@ -80,6 +84,43 @@ const routes = {
         facilityId={facilityId}
         locationId={locationId}
         requestOrderId={requestOrderId}
+      />
+    ),
+
+  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/create-delivery":
+    ({
+      facilityId,
+      locationId,
+      requestOrderId,
+    }: {
+      facilityId: string;
+      locationId: string;
+      requestOrderId: string;
+    }) => (
+      <CreateDeliveryPage
+        facilityId={facilityId}
+        locationId={locationId}
+        requestOrderId={requestOrderId}
+      />
+    ),
+
+  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/create-delivery/:deliveryOrderId":
+    ({
+      facilityId,
+      locationId,
+      requestOrderId,
+      deliveryOrderId,
+    }: {
+      facilityId: string;
+      locationId: string;
+      requestOrderId: string;
+      deliveryOrderId: string;
+    }) => (
+      <AddDeliveryItemsPage
+        facilityId={facilityId}
+        locationId={locationId}
+        requestOrderId={requestOrderId}
+        deliveryOrderId={deliveryOrderId}
       />
     ),
 

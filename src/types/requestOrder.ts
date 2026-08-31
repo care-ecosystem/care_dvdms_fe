@@ -47,6 +47,8 @@ export const REQUEST_ORDER_STATUS_VARIANTS: Record<
   rejected: "destructive",
   cancelled: "destructive",
   failed: "destructive",
+  created: "yellow",
+  submitted: "green",
 };
 
 export const REQUEST_ORDER_PRIORITY_VARIANTS: Record<

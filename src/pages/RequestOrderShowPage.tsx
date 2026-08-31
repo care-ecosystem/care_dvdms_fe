@@ -8,6 +8,8 @@ import {
   ChevronLeft,
   Edit,
   EllipsisVertical,
+  Package,
+  PackagePlus,
   Printer,
   RefreshCw,
 } from "lucide-react";
@@ -15,7 +17,13 @@ import {
 import { apis } from "@/apis";
 import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
-import { chunk, formatQuantity } from "@/lib/utils";
+import {
+  chunk,
+  formatDate,
+  formatLookupId,
+  formatQuantity,
+  parseLookupId,
+} from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -53,6 +61,7 @@ import {
   DvdmsLookupGroup,
   DvdmsLookupSubgroup,
 } from "@/types/dvdms_config";
+import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
 type RequestOrderShowPageProps = {
   facilityId: string;
@@ -61,6 +70,16 @@ type RequestOrderShowPageProps = {
 };
 
 const MAX_ITEMS_PER_BATCH = 50;
+
+const drugsKey = (groupId: number, subgroupId?: number) =>
+  `${groupId}:${subgroupId ?? ""}`;
+
+const toDrugPayload = (drug: RecordItemOrderDrug): RecordItemOrderDrug => {
+  const { sub_group_id, ...rest } = drug;
+  return parseLookupId(sub_group_id) !== undefined
+    ? { ...rest, sub_group_id }
+    : rest;
+};
 
 const RequestOrderShowPage: FC<RequestOrderShowPageProps> = (props) => (
   <ShortcutProvider>
@@ -112,8 +131,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       }),
   });
 
-  const [loadedSupplyRequestsCount, setLoadedSupplyRequestsCount] =
-    useState(0);
+  const [loadedSupplyRequestsCount, setLoadedSupplyRequestsCount] = useState(0);
   const [hasSavedOnce, setHasSavedOnce] = useState(false);
 
   useEffect(() => {
@@ -202,8 +220,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   });
 
   const isOutwardStatus =
-    !!recordOrder?.status &&
-    !["draft", "pending"].includes(recordOrder.status);
+    !!recordOrder?.status && !["draft", "pending"].includes(recordOrder.status);
+  const showCareIndentNo =
+    !!recordOrder?.status && recordOrder.status !== "draft";
   const canSyncDvdmsStatus =
     !!recordOrder?.status &&
     !["draft", "pending", "cancelled"].includes(recordOrder.status);
@@ -217,6 +236,14 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     enabled: !!institute?.id && !!recordOrder?.id && isOutwardStatus,
   });
   const outward = outwardData?.results?.[0];
+  const displayStatus = outward?.status ?? recordOrder?.status;
+
+  const { deliveries: recordDeliveries } = useRecordInwardDeliveries(
+    institute?.id,
+    outward?.id,
+  );
+  const canCreateDelivery =
+    outward?.eaushadhi_indent_status === "Issue in Process";
 
   const existingItemBySupplyRequestId = new Map(
     (recordItemOrdersData?.results ?? []).map((item) => [
@@ -273,7 +300,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     try {
       const data = await queryClient.fetchQuery({
         queryKey: ["dvdms_lookup_subgroups", instituteId, groupId],
-        queryFn: () => apis.institutes.lookupSubgroups(instituteId, groupId),
+        queryFn: () =>
+          apis.institutes.lookupSubgroups(instituteId, String(groupId)),
       });
       setSubgroupsByGroupId((prev) => ({ ...prev, [groupId]: data }));
     } finally {
@@ -285,9 +313,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     }
   };
 
-  const ensureDrugsLoaded = async (groupId: number, subgroupId: number) => {
+  const ensureDrugsLoaded = async (groupId: number, subgroupId?: number) => {
     if (!institute?.id) return;
-    const key = `${groupId}:${subgroupId}`;
+    const key = drugsKey(groupId, subgroupId);
     if (drugsByGroupAndSubgroup[key] || loadingDrugKeys.has(key)) return;
     const instituteId = institute.id;
     setLoadingDrugKeys((prev) => new Set(prev).add(key));
@@ -296,8 +324,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         queryKey: ["dvdms_lookup_drugs", instituteId, groupId, subgroupId],
         queryFn: () =>
           apis.institutes.lookupDrugs(instituteId, {
-            hstnum_group_id: groupId,
-            hstnum_subgroup_id: subgroupId,
+            hstnum_group_id: String(groupId),
+            ...(subgroupId !== undefined
+              ? { hstnum_subgroup_id: String(subgroupId) }
+              : {}),
           }),
       });
       setDrugsByGroupAndSubgroup((prev) => ({ ...prev, [key]: data }));
@@ -334,8 +364,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         const drug =
           existingItemBySupplyRequestId.get(item.id)?.drug ??
           suggestedDrugBySupplyRequestId.get(item.id);
-        if (drug?.group_id) {
-          next[item.id] = Number(drug.group_id);
+        const groupId = parseLookupId(drug?.group_id);
+        if (groupId !== undefined) {
+          next[item.id] = groupId;
           changed = true;
         }
       });
@@ -349,8 +380,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         const drug =
           existingItemBySupplyRequestId.get(item.id)?.drug ??
           suggestedDrugBySupplyRequestId.get(item.id);
-        if (drug?.sub_group_id) {
-          next[item.id] = Number(drug.sub_group_id);
+        const subgroupId = parseLookupId(drug?.sub_group_id);
+        if (subgroupId !== undefined) {
+          next[item.id] = subgroupId;
           changed = true;
         }
       });
@@ -372,7 +404,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         .map((item) => ({
           url: `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
           method: HttpMethod.POST,
-          body: { supply_request: item.id, drug: selectedDrugs[item.id] },
+          body: {
+            supply_request: item.id,
+            drug: toDrugPayload(selectedDrugs[item.id]!),
+          },
           reference_id: `item-${item.id}`,
         }));
 
@@ -477,7 +512,11 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     onSuccess: () => {
       toast.success(t("eaushadhi_status_synced"));
       queryClient.invalidateQueries({
-        queryKey: ["dvdms_record_order_outward", institute?.id, recordOrder?.id],
+        queryKey: [
+          "dvdms_record_order_outward",
+          institute?.id,
+          recordOrder?.id,
+        ],
       });
       queryClient.invalidateQueries({
         queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
@@ -513,6 +552,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const isViewOnlyStatus = !isDraftStatus;
   const isApprovable =
     recordOrderStatus === "draft" || recordOrderStatus === "pending";
+  const isPendingStatus = recordOrderStatus === "pending";
   const isFailedStatus = recordOrderStatus === "failed";
 
   return (
@@ -540,7 +580,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             variant="outline"
             onClick={() =>
@@ -561,7 +601,55 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               <RefreshCw className="size-4" /> {t("sync_dvdms_status")}
             </Button>
           )}
-          {recordOrder?.status == "draft" &&
+          {canCreateDelivery && (
+            <Button
+              onClick={() =>
+                navigate(
+                  `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/create-delivery`,
+                )
+              }
+            >
+              <PackagePlus className="size-4" /> {t("create_delivery")}
+            </Button>
+          )}
+          {recordDeliveries.length === 1 && (
+            <Button
+              variant="outline"
+              onClick={() =>
+                navigate(
+                  `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/create-delivery/${recordDeliveries[0].delivery_order.id}`,
+                )
+              }
+            >
+              <Package className="size-4" /> {t("view_delivery")}
+            </Button>
+          )}
+          {recordDeliveries.length > 1 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">
+                  <Package className="size-4" /> {t("view_deliveries")}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {recordDeliveries.map((delivery, index) => (
+                  <DropdownMenuItem
+                    key={delivery.id}
+                    onClick={() =>
+                      navigate(
+                        `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/create-delivery/${delivery.delivery_order.id}`,
+                      )
+                    }
+                  >
+                    {delivery.delivery_order.name} —{" "}
+                    {formatDate(delivery.created_date)}
+                    {index === 0 ? ` (${t("latest")})` : ""}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {recordOrder?.status == "draft" && (
             <Button
               variant="outline"
               onClick={() =>
@@ -573,16 +661,16 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               <Edit className="size-4" /> {t("edit")}
               <ShortcutBadge actionId="edit-order" />
             </Button>
-          }
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               {(recordOrder?.status === "draft" ||
                 recordOrder?.status === "pending") && (
-                  <Button variant="outline" className="border-gray-400 px-2">
-                    <EllipsisVertical />
-                  </Button>
-                )}
+                <Button variant="outline" className="border-gray-400 px-2">
+                  <EllipsisVertical />
+                </Button>
+              )}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
@@ -639,7 +727,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               </div>
             </div>
 
-            {recordOrder && (
+            {displayStatus && (
               <div>
                 <label className="text-sm font-medium text-gray-700">
                   {t("status")}
@@ -648,14 +736,57 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                   <Badge
                     className="rounded-sm"
                     variant={
-                      REQUEST_ORDER_STATUS_VARIANTS[recordOrder.status] ??
+                      REQUEST_ORDER_STATUS_VARIANTS[displayStatus] ??
                       "secondary"
                     }
                   >
-                    {t(recordOrder.status)}
+                    {t(displayStatus)}
                   </Badge>
                 </div>
               </div>
+            )}
+
+            {showCareIndentNo && (
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  {t("care_indent_no")}
+                </label>
+                <div className="text-lg font-semibold text-gray-950">
+                  {recordOrder?.care_indent_no ?? "—"}
+                </div>
+              </div>
+            )}
+
+            {isOutwardStatus && outward && (
+              <>
+                <div className="col-span-full border-t border-gray-100" />
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700">
+                    {t("eaushadhi_indent_no")}
+                  </label>
+                  <div className="text-lg font-semibold text-gray-950">
+                    {outward.eaushadhi_indent_no ?? "—"}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700">
+                    {t("eaushadhi_indent_status")}
+                  </label>
+                  <div>
+                    {outward.eaushadhi_indent_status ? (
+                      <Badge className="rounded-sm" variant="secondary">
+                        {outward.eaushadhi_indent_status}
+                      </Badge>
+                    ) : (
+                      <div className="text-lg font-semibold text-gray-950">
+                        —
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
@@ -670,82 +801,38 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         </CardContent>
       </Card>
 
-      {isOutwardStatus && outward && (
-        <Card className="border-none rounded-lg">
-          <CardContent className="space-y-1 p-4">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-12 gap-y-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  {t("eaushadhi_indent_no")}
-                </label>
-                <div className="text-lg font-semibold text-gray-950">
-                  {outward.eaushadhi_indent_no ?? "—"}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  {t("eaushadhi_indent_status")}
-                </label>
-                <div className="text-lg font-semibold text-gray-950">
-                  {outward.eaushadhi_indent_status ?? "—"}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  {t("outward_status")}
-                </label>
-                <div>
-                  <Badge
-                    className="rounded-sm"
-                    variant={
-                      REQUEST_ORDER_STATUS_VARIANTS[outward.status] ??
-                      "secondary"
-                    }
-                  >
-                    {t(outward.status)}
-                  </Badge>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       <div className="mt-2 space-y-4">
-        <Card className="bg-gray-50 py-4 rounded-md">
-            <CardContent>
-              <div className="bg-white rounded-md p-4 pb-0">
-                <h3 className="text-base font-semibold text-gray-950">
-                  {t("drug_list_mapping")}
-                </h3>
-                <p className="text-sm text-gray-500">
-                  {t("drug_list_mapping_description")}
-                </p>
-              </div>
+        <Card className="border-none rounded-lg">
+          <CardContent className="space-y-4 p-4">
+            <div>
+              <h3 className="text-base font-semibold text-gray-950">
+                {t("drug_list_mapping")}
+              </h3>
+              <p className="text-sm text-gray-500">
+                {t("drug_list_mapping_description")}
+              </p>
+            </div>
 
-              <div className="space-y-4">
+            <div className="space-y-4">
               {tableItems.length > 0 ? (
                 <>
-                  <Table>
+                  <Table className="min-w-[56rem]">
                     <TableHeader>
                       <TableRow>
                         <TableHead rowSpan={2}>{t("product")}</TableHead>
                         <TableHead rowSpan={2}>{t("category")}</TableHead>
                         <TableHead rowSpan={2}>{t("qty")}</TableHead>
-                        <TableHead
-                          colSpan={3}
-                          className="text-center border-b"
-                        >
+                        <TableHead colSpan={3} className="text-center border-b">
                           {t("eaushadhi_drug_details")}
                         </TableHead>
                         {/* <TableHead rowSpan={2}>{t("actions")}</TableHead> */}
                       </TableRow>
                       <TableRow>
-                        <TableHead>{t("group_id")}</TableHead>
-                        <TableHead>{t("sub_group_id")}</TableHead>
-                        <TableHead>{t("drug_name")}</TableHead>
+                        <TableHead className="w-72">{t("group_id")}</TableHead>
+                        <TableHead className="w-72">
+                          {t("sub_group_id")}
+                        </TableHead>
+                        <TableHead className="w-72">{t("drug_name")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -766,30 +853,29 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                         const isSubgroupsLoading =
                           selectedGroupId !== undefined &&
                           loadingSubgroupGroupIds.has(selectedGroupId);
+                        const drugsCacheKey =
+                          selectedGroupId !== undefined
+                            ? drugsKey(selectedGroupId, selectedSubgroupId)
+                            : undefined;
                         const catalogDrugOptions =
-                          selectedGroupId !== undefined &&
-                            selectedSubgroupId !== undefined
-                            ? (drugsByGroupAndSubgroup[
-                              `${selectedGroupId}:${selectedSubgroupId}`
-                            ] ?? [])
+                          drugsCacheKey !== undefined
+                            ? (drugsByGroupAndSubgroup[drugsCacheKey] ?? [])
                             : [];
                         const isDrugsLoading =
-                          selectedGroupId !== undefined &&
-                          selectedSubgroupId !== undefined &&
-                          loadingDrugKeys.has(
-                            `${selectedGroupId}:${selectedSubgroupId}`,
-                          );
+                          drugsCacheKey !== undefined &&
+                          loadingDrugKeys.has(drugsCacheKey);
 
                         const groupAutocompleteOptions = (
                           lookupGroupsData ?? []
                         ).map((group) => ({
-                          label: `${group.hststrGroupName} (${group.hstnumGroupId})`,
+                          label: group.hststrGroupName,
                           value: String(group.hstnumGroupId),
                         }));
                         if (
                           selectedGroupId !== undefined &&
                           !groupAutocompleteOptions.some(
-                            (option) => option.value === String(selectedGroupId),
+                            (option) =>
+                              option.value === String(selectedGroupId),
                           )
                         ) {
                           groupAutocompleteOptions.push({
@@ -800,7 +886,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
 
                         const subgroupAutocompleteOptions = subgroupOptions.map(
                           (subgroup) => ({
-                            label: `${subgroup.hststrSubgroupName} (${subgroup.hstnumSubgroupId})`,
+                            label: subgroup.hststrSubgroupName,
                             value: String(subgroup.hstnumSubgroupId),
                           }),
                         );
@@ -830,7 +916,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                           )
                         ) {
                           drugAutocompleteOptions.push({
-                            label: selectedDrugs[item.id]?.name ?? selectedDrugId,
+                            label:
+                              selectedDrugs[item.id]?.name ?? selectedDrugId,
                             value: selectedDrugId,
                           });
                         }
@@ -849,7 +936,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                             ...prev,
                             [item.id]: undefined,
                           }));
-                          if (groupId !== undefined) ensureSubgroupsLoaded(groupId);
+                          if (groupId !== undefined)
+                            ensureSubgroupsLoaded(groupId);
                         };
 
                         const handleSubgroupChange = (value: string) => {
@@ -863,8 +951,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                             ...prev,
                             [item.id]: undefined,
                           }));
-                          if (subgroupId !== undefined)
-                            ensureDrugsLoaded(selectedGroupId, subgroupId);
+                          ensureDrugsLoaded(selectedGroupId, subgroupId);
                         };
 
                         const handleCatalogDrugChange = (value: string) => {
@@ -879,6 +966,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                             (option) => String(option.hstnum_item_id) === value,
                           );
                           if (!drug) return;
+                          const drugSubgroupId = parseLookupId(
+                            drug.hstnum_subgroup_id,
+                          );
                           setSelectedDrugs((prev) => ({
                             ...prev,
                             [item.id]: {
@@ -886,7 +976,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                               name: drug.hststr_item_name,
                               brand_id: String(drug.hstnum_itembrand_id),
                               group_id: String(drug.hstnum_group_id),
-                              sub_group_id: String(drug.hstnum_subgroup_id),
+                              ...(drugSubgroupId !== undefined
+                                ? { sub_group_id: String(drugSubgroupId) }
+                                : {}),
                               unit_id: String(drug.gnum_inventory_unitid),
                               drug_category: drug.sstnum_item_cat_no,
                             },
@@ -929,7 +1021,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   <div className="text-xs text-gray-500 mb-3">
                                     {" "}
                                   </div>
-                                  {readOnlyDrug?.group_id ?? "—"}
+                                  {formatLookupId(readOnlyDrug?.group_id)}
                                   <div className="text-xs text-gray-500 mt-1">
                                     {" "}
                                   </div>
@@ -938,7 +1030,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   <div className="text-xs text-gray-500 mb-3">
                                     {" "}
                                   </div>
-                                  {readOnlyDrug?.sub_group_id ?? "—"}
+                                  {formatLookupId(readOnlyDrug?.sub_group_id)}
                                   <div className="text-xs text-gray-500 mt-1">
                                     {" "}
                                   </div>
@@ -961,84 +1053,95 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   <div className="text-xs text-gray-500 mb-3">
                                     {" "}
                                   </div>
-                                  <Autocomplete
-                                    className="h-8 min-w-24"
-                                    value={
-                                      selectedGroupId !== undefined
-                                        ? String(selectedGroupId)
-                                        : ""
-                                    }
-                                    onChange={handleGroupChange}
-                                    onOpenChange={(open) => {
-                                      if (open) ensureGroupsLoaded();
-                                    }}
-                                    isLoading={isLookupGroupsLoading}
-                                    disabled={!institute?.id}
-                                    placeholder="—"
-                                    inputPlaceholder={t("search_group")}
-                                    noOptionsMessage={t("no_groups_found")}
-                                    options={groupAutocompleteOptions}
-                                  />
+                                  <div className="w-72">
+                                    <Autocomplete
+                                      className="h-8 w-full"
+                                      value={
+                                        selectedGroupId !== undefined
+                                          ? String(selectedGroupId)
+                                          : ""
+                                      }
+                                      onChange={handleGroupChange}
+                                      onOpenChange={(open) => {
+                                        if (open) ensureGroupsLoaded();
+                                      }}
+                                      isLoading={isLookupGroupsLoading}
+                                      disabled={!institute?.id}
+                                      placeholder="—"
+                                      inputPlaceholder={t("search_group")}
+                                      noOptionsMessage={t("no_groups_found")}
+                                      options={groupAutocompleteOptions}
+                                    />
+                                  </div>
                                   <div className="text-xs text-gray-500 mt-1">
-                                    {" "}
+                                    {selectedGroupId !== undefined
+                                      ? `${t("group_id")}: ${selectedGroupId}`
+                                      : " "}
                                   </div>
                                 </TableCell>
                                 <TableCell className="align-top">
                                   <div className="text-xs text-gray-500 mb-3">
                                     {" "}
                                   </div>
-                                  <Autocomplete
-                                    className="h-8 min-w-24"
-                                    value={
-                                      selectedSubgroupId !== undefined
-                                        ? String(selectedSubgroupId)
-                                        : ""
-                                    }
-                                    onChange={handleSubgroupChange}
-                                    onOpenChange={(open) => {
-                                      if (open && selectedGroupId !== undefined)
-                                        ensureSubgroupsLoaded(selectedGroupId);
-                                    }}
-                                    isLoading={isSubgroupsLoading}
-                                    disabled={selectedGroupId === undefined}
-                                    placeholder="—"
-                                    inputPlaceholder={t("search_subgroup")}
-                                    noOptionsMessage={t("no_subgroups_found")}
-                                    options={subgroupAutocompleteOptions}
-                                  />
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    {" "}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="align-top">
-                                  <div className="text-xs text-gray-500 mb-3">
-                                    {" "}
-                                  </div>
-                                  <Autocomplete
-                                    className="h-8 min-w-32"
-                                    value={selectedDrugId}
-                                    onChange={handleCatalogDrugChange}
-                                    onOpenChange={(open) => {
-                                      if (
-                                        open &&
-                                        selectedGroupId !== undefined &&
+                                  <div className="w-72">
+                                    <Autocomplete
+                                      className="h-8 w-full"
+                                      value={
                                         selectedSubgroupId !== undefined
-                                      )
-                                        ensureDrugsLoaded(
-                                          selectedGroupId,
-                                          selectedSubgroupId,
-                                        );
-                                    }}
-                                    isLoading={isDrugsLoading}
-                                    disabled={
-                                      selectedGroupId === undefined ||
-                                      selectedSubgroupId === undefined
-                                    }
-                                    placeholder="—"
-                                    inputPlaceholder={t("search_drug")}
-                                    noOptionsMessage={t("no_drugs_found")}
-                                    options={drugAutocompleteOptions}
-                                  />
+                                          ? String(selectedSubgroupId)
+                                          : ""
+                                      }
+                                      onChange={handleSubgroupChange}
+                                      onOpenChange={(open) => {
+                                        if (
+                                          open &&
+                                          selectedGroupId !== undefined
+                                        )
+                                          ensureSubgroupsLoaded(
+                                            selectedGroupId,
+                                          );
+                                      }}
+                                      isLoading={isSubgroupsLoading}
+                                      disabled={selectedGroupId === undefined}
+                                      placeholder="—"
+                                      inputPlaceholder={t("search_subgroup")}
+                                      noOptionsMessage={t("no_subgroups_found")}
+                                      options={subgroupAutocompleteOptions}
+                                    />
+                                  </div>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    {selectedSubgroupId !== undefined
+                                      ? `${t("sub_group_id")}: ${selectedSubgroupId}`
+                                      : " "}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="align-top">
+                                  <div className="text-xs text-gray-500 mb-3">
+                                    {" "}
+                                  </div>
+                                  <div className="w-72">
+                                    <Autocomplete
+                                      className="h-8 w-full"
+                                      value={selectedDrugId}
+                                      onChange={handleCatalogDrugChange}
+                                      onOpenChange={(open) => {
+                                        if (
+                                          open &&
+                                          selectedGroupId !== undefined
+                                        )
+                                          ensureDrugsLoaded(
+                                            selectedGroupId,
+                                            selectedSubgroupId,
+                                          );
+                                      }}
+                                      isLoading={isDrugsLoading}
+                                      disabled={selectedGroupId === undefined}
+                                      placeholder="—"
+                                      inputPlaceholder={t("search_drug")}
+                                      noOptionsMessage={t("no_drugs_found")}
+                                      options={drugAutocompleteOptions}
+                                    />
+                                  </div>
                                   <div className="text-xs text-gray-500 mt-1">
                                     {selectedDrugId
                                       ? `${t("drug_id")}: ${selectedDrugId}`
@@ -1088,8 +1191,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                 </div>
               )}
 
-              {isApprovable && (
-                <div className="flex flex-row gap-2 justify-between bg-white p-4 items-center border border-gray-200 rounded-md">
+              {isPendingStatus && (
+                <div className="flex flex-col sm:flex-row gap-3 justify-between bg-white p-4 sm:items-center border border-gray-200 rounded-md">
                   <div className="flex flex-col gap-2">
                     <p className="font-bold">
                       {t("review_and_finalise_request")}
@@ -1100,6 +1203,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                   </div>
                   <Button
                     type="button"
+                    className="w-full sm:w-auto shrink-0"
                     onClick={() => approveRecordOrderMutation.mutate()}
                     disabled={
                       !recordItemOrdersData ||
@@ -1114,15 +1218,18 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               )}
 
               {isFailedStatus && (
-                <div className="flex flex-row gap-2 justify-between bg-white p-4 items-center border border-gray-200 rounded-md">
+                <div className="flex flex-col sm:flex-row gap-3 justify-between bg-white p-4 sm:items-center border border-gray-200 rounded-md">
                   <div className="flex flex-col gap-2">
-                    <p className="font-bold">{t("record_order_failed_title")}</p>
+                    <p className="font-bold">
+                      {t("record_order_failed_title")}
+                    </p>
                     <span className="text-sm text-gray-500">
                       {t("record_order_failed_description")}
                     </span>
                   </div>
                   <Button
                     type="button"
+                    className="w-full sm:w-auto shrink-0"
                     onClick={() => retryRecordOrderMutation.mutate()}
                     disabled={retryRecordOrderMutation.isPending}
                   >
@@ -1130,9 +1237,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                   </Button>
                 </div>
               )}
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

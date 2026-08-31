@@ -160,7 +160,7 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
         throw new Error("Select an order first.");
       }
       if (!institute) {
-        throw new Error("No eAushadhi institute configured for this facility.");
+        throw new Error("No DVDMS institute configured for this facility.");
       }
       const [suppliersResponse, storesResponse] = await Promise.all([
         apis.supplierMappings.list(institute.id),
@@ -170,13 +170,13 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
         (item) => item.supplier?.id === selectedOrder.supplier!.id,
       );
       if (!supplier) {
-        throw new Error("No matching eAushadhi supplier found.");
+        throw new Error("No matching DVDMS supplier found.");
       }
       const store = storesResponse.results.find(
         (item) => item.store.id === selectedOrder.destination!.id,
       );
       if (!store) {
-        throw new Error("No matching eAushadhi store found.");
+        throw new Error("No matching DVDMS store found.");
       }
       return { supplier, store };
     },

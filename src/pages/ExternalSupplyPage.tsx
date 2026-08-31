@@ -1,6 +1,6 @@
 import { FC, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { navigate } from "raviger";
 import { Link2Icon } from "lucide-react";
 
@@ -102,6 +102,23 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
         order.institute_supplier?.supplier?.id === supplierFilter.id),
   );
 
+  const approvedOrders = orders.filter((order) => order.status === "approved");
+
+  const outwardQueries = useQueries({
+    queries: approvedOrders.map((order) => ({
+      queryKey: ["dvdms_record_order_outward", institute?.id, order.id],
+      queryFn: () =>
+        apis.recordOrderOutward.list(institute!.id, order.id, { limit: 1 }),
+      enabled: !!institute?.id,
+    })),
+  });
+
+  const outwardStatusByOrderId: Record<string, string> = {};
+  approvedOrders.forEach((order, index) => {
+    const status = outwardQueries[index]?.data?.results?.[0]?.status;
+    if (status) outwardStatusByOrderId[order.id] = status;
+  });
+
   const renderFilters = () => (
     <div className="flex flex-col md:flex-row gap-4">
       <SupplierSelect
@@ -168,6 +185,8 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
               orders={orders}
               isLoading={isLoading}
               emptyMessage={t(EMPTY_MESSAGE_KEYS[tab.value])}
+              showIndentNo={tab.value === "tracking"}
+              outwardStatusByOrderId={outwardStatusByOrderId}
             />
             <Pagination
               page={page}

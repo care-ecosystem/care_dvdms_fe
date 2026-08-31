@@ -29,6 +29,8 @@ type RequestOrderTableProps = {
   orders: RecordOrder[];
   isLoading: boolean;
   emptyMessage: string;
+  showIndentNo?: boolean;
+  outwardStatusByOrderId?: Record<string, string>;
 };
 
 const RequestOrderTable: FC<RequestOrderTableProps> = ({
@@ -37,6 +39,8 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
   orders,
   isLoading,
   emptyMessage,
+  showIndentNo = false,
+  outwardStatusByOrderId = {},
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
@@ -64,6 +68,7 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
       <TableHeader>
         <TableRow>
           <TableHead>{t("name")}</TableHead>
+          {showIndentNo && <TableHead>{t("care_indent_no")}</TableHead>}
           <TableHead>{t("supplier")}</TableHead>
           <TableHead>{t("deliver_to")}</TableHead>
           <TableHead>{t("status")}</TableHead>
@@ -73,55 +78,63 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {orders.map((order) => (
-          <TableRow key={order.id}>
-            <TableCell className="font-medium">{order.name}</TableCell>
-            <TableCell className="font-medium">
-              {order.institute_supplier?.supplier?.name ?? "—"}
-            </TableCell>
-            <TableCell className="font-medium">
-              {order.institute_store?.store?.name ?? "—"}
-            </TableCell>
-            <TableCell>
-              <Badge
-                variant={
-                  REQUEST_ORDER_STATUS_VARIANTS[order.status] ?? "secondary"
-                }
-              >
-                {t(order.status)}
-              </Badge>
-            </TableCell>
-            <TableCell>
-              <Badge
-                variant={
-                  REQUEST_ORDER_PRIORITY_VARIANTS[order.order.priority] ??
-                  "secondary"
-                }
-              >
-                {t(order.order.priority)}
-              </Badge>
-            </TableCell>
-            <TableCell>
-              <div className="flex flex-col">
-                <span className="font-medium text-gray-900">
-                  {order.created_by
-                    ? `${order.created_by.first_name} ${order.created_by.last_name}`.trim() ||
-                      order.created_by.username
-                    : "—"}
-                </span>
-                <span className="text-xs text-gray-500">
-                  {formatDate(order.created_date)}
-                </span>
-              </div>
-            </TableCell>
-            <TableCell>
-              <Button variant="outline" onClick={() => handleViewDetails(order)}>
-                <Eye />
-                {t("see_details")}
-              </Button>
-            </TableCell>
-          </TableRow>
-        ))}
+        {orders.map((order) => {
+          const displayStatus = outwardStatusByOrderId[order.id] ?? order.status;
+          return (
+            <TableRow key={order.id}>
+              <TableCell className="font-medium">{order.name}</TableCell>
+              {showIndentNo && (
+                <TableCell className="font-medium">
+                  {order.care_indent_no ?? "—"}
+                </TableCell>
+              )}
+              <TableCell className="font-medium">
+                {order.institute_supplier?.supplier?.name ?? "—"}
+              </TableCell>
+              <TableCell className="font-medium">
+                {order.institute_store?.store?.name ?? "—"}
+              </TableCell>
+              <TableCell>
+                <Badge
+                  variant={
+                    REQUEST_ORDER_STATUS_VARIANTS[displayStatus] ?? "secondary"
+                  }
+                >
+                  {t(displayStatus)}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <Badge
+                  variant={
+                    REQUEST_ORDER_PRIORITY_VARIANTS[order.order.priority] ??
+                    "secondary"
+                  }
+                >
+                  {t(order.order.priority)}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <div className="flex flex-col">
+                  <span className="font-medium text-gray-900">
+                    {order.created_by
+                      ? `${order.created_by.first_name} ${order.created_by.last_name}`.trim() ||
+                        order.created_by.username
+                      : "—"}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {formatDate(order.created_date)}
+                  </span>
+                </div>
+              </TableCell>
+              <TableCell>
+                <Button variant="outline" onClick={() => handleViewDetails(order)}>
+                  <Eye />
+                  {t("see_details")}
+                </Button>
+              </TableCell>
+            </TableRow>
+          );
+        })}
       </TableBody>
     </Table>
   );

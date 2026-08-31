@@ -5,7 +5,8 @@ export interface RecordItemOrderDrug {
   name: string;
   brand_id: string;
   group_id: string;
-  sub_group_id: string;
+  // Optional in the API spec (defaults to ""); absent for drugs with no subgroup.
+  sub_group_id?: string;
   unit_id: string;
   drug_category: string;
 }

@@ -1,10 +1,11 @@
 import { FC, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { navigate } from "raviger";
 import { Link2Icon } from "lucide-react";
 
 import { apis } from "@/apis";
+import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -103,21 +104,36 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   );
 
   const approvedOrders = orders.filter((order) => order.status === "approved");
+  const approvedOrderIds = approvedOrders.map((order) => order.id);
 
-  const outwardQueries = useQueries({
-    queries: approvedOrders.map((order) => ({
-      queryKey: ["dvdms_record_order_outward", institute?.id, order.id],
+  const { data: outwardBatchResponse, isPending: isOutwardBatchPending } =
+    useQuery({
+      queryKey: [
+        "dvdms_record_order_outward_batch",
+        institute?.id,
+        approvedOrderIds,
+      ],
       queryFn: () =>
-        apis.recordOrderOutward.list(institute!.id, order.id, { limit: 1 }),
-      enabled: !!institute?.id,
-    })),
-  });
+        apis.batchRequests.create({
+          requests: approvedOrders.map((order) => ({
+            url: apis.recordOrderOutward.path(institute!.id, order.id),
+            method: HttpMethod.GET,
+            body: { limit: 1 },
+            reference_id: order.id,
+          })),
+        }),
+      enabled: !!institute?.id && approvedOrders.length > 0,
+    });
 
   const outwardStatusByOrderId: Record<string, string> = {};
-  approvedOrders.forEach((order, index) => {
-    const status = outwardQueries[index]?.data?.results?.[0]?.status;
-    if (status) outwardStatusByOrderId[order.id] = status;
+  outwardBatchResponse?.results.forEach((result) => {
+    const status = (
+      result.data as { results?: { status?: string }[] } | undefined
+    )?.results?.[0]?.status;
+    if (status) outwardStatusByOrderId[result.reference_id] = status;
   });
+  const isOutwardStatusLoading =
+    approvedOrders.length > 0 && isOutwardBatchPending;
 
   const renderFilters = () => (
     <div className="flex flex-col md:flex-row gap-4">
@@ -183,7 +199,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
               facilityId={facilityId}
               locationId={locationId}
               orders={orders}
-              isLoading={isLoading}
+              isLoading={isLoading || isOutwardStatusLoading}
               emptyMessage={t(EMPTY_MESSAGE_KEYS[tab.value])}
               showIndentNo={tab.value === "tracking"}
               outwardStatusByOrderId={outwardStatusByOrderId}

@@ -37,89 +37,104 @@ const routes = {
     facilityId: string;
     locationId: string;
   }) => <LinkOrderFormPage facilityId={facilityId} locationId={locationId} />,
-  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId":
+  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/record/:recordOrderId":
     ({
       facilityId,
       locationId,
       requestOrderId,
+      recordOrderId,
     }: {
       facilityId: string;
       locationId: string;
       requestOrderId: string;
+      recordOrderId: string;
     }) => (
       <RequestOrderShowPage
         facilityId={facilityId}
         locationId={locationId}
         requestOrderId={requestOrderId}
+        recordOrderId={recordOrderId}
       />
     ),
-  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/edit":
+  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/record/:recordOrderId/edit":
     ({
       facilityId,
       locationId,
       requestOrderId,
+      recordOrderId,
     }: {
       facilityId: string;
       locationId: string;
       // tab: string;
       requestOrderId: string;
+      recordOrderId: string;
     }) => (
       <RequestOrderEditPage
         facilityId={facilityId}
         locationId={locationId}
         requestOrderId={requestOrderId}
+        recordOrderId={recordOrderId}
       />
     ),
-  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/print":
+  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/record/:recordOrderId/print":
     ({
       facilityId,
       locationId,
       requestOrderId,
+      recordOrderId,
     }: {
       facilityId: string;
       locationId: string;
       requestOrderId: string;
+      recordOrderId: string;
     }) => (
       <PrintRequestOrderPage
         facilityId={facilityId}
         locationId={locationId}
         requestOrderId={requestOrderId}
+        recordOrderId={recordOrderId}
       />
     ),
 
-  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/create-delivery":
+  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/record/:recordOrderId/create-delivery":
     ({
       facilityId,
       locationId,
       requestOrderId,
+      recordOrderId,
     }: {
       facilityId: string;
       locationId: string;
       requestOrderId: string;
+      recordOrderId: string;
     }) => (
       <CreateDeliveryPage
         facilityId={facilityId}
         locationId={locationId}
         requestOrderId={requestOrderId}
+        recordOrderId={recordOrderId}
       />
     ),
 
-  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/create-delivery/:deliveryOrderId":
+  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/record/:recordOrderId/delivery/:deliveryOrderId":
     ({
       facilityId,
       locationId,
       requestOrderId,
+      recordOrderId,
       deliveryOrderId,
     }: {
       facilityId: string;
       locationId: string;
       requestOrderId: string;
+      recordOrderId: string;
       deliveryOrderId: string;
     }) => (
       <AddDeliveryItemsPage
         facilityId={facilityId}
         locationId={locationId}
         requestOrderId={requestOrderId}
+        recordOrderId={recordOrderId}
         deliveryOrderId={deliveryOrderId}
       />
     ),

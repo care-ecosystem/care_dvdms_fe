@@ -7,7 +7,7 @@ import { XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
-import { I18N_NAMESPACE } from "@/lib/constants";
+import { I18N_NAMESPACE, RECORD_ORDERS_FETCH_LIMIT } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -47,6 +47,7 @@ type RequestOrderEditPageProps = {
   facilityId: string;
   locationId: string;
   requestOrderId: string;
+  recordOrderId: string;
 };
 
 const RequestOrderEditPage: FC<RequestOrderEditPageProps> = (props) => (
@@ -59,12 +60,13 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
   facilityId,
   locationId,
   requestOrderId,
+  recordOrderId,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
 
-  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}`;
+  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/record/${recordOrderId}`;
 
   const { data: linkedOrder, isLoading: isLoadingLinkedOrder } = useQuery({
     queryKey: ["dvdms_request_order", facilityId, requestOrderId],
@@ -82,11 +84,13 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
       queryFn: () =>
         apis.recordOrders.list(institute!.id, {
           order: requestOrderId,
-          limit: 1,
+          limit: RECORD_ORDERS_FETCH_LIMIT,
         }),
       enabled: !!institute?.id,
     });
-  const recordOrder = recordOrdersResponse?.results[0];
+  const recordOrder = recordOrdersResponse?.results.find(
+    (item) => item.id === recordOrderId,
+  );
 
   const { data: pendingOrdersResponse, isLoading: isPendingOrdersLoading } =
     useQuery({

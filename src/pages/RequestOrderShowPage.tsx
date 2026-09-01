@@ -9,14 +9,14 @@ import {
   Edit,
   EllipsisVertical,
   Package,
-  PackagePlus,
+  Plus,
   Printer,
   RefreshCw,
 } from "lucide-react";
 
 import { apis } from "@/apis";
-import { HttpMethod } from "@/apis/types";
-import { I18N_NAMESPACE } from "@/lib/constants";
+import { HttpMethod, PaginatedResponse } from "@/apis/types";
+import { I18N_NAMESPACE, RECORD_ORDERS_FETCH_LIMIT } from "@/lib/constants";
 import {
   chunk,
   formatDate,
@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import Autocomplete from "@/components/ui/autocomplete";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -44,12 +45,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
+import { TableSkeleton } from "@/components/SkeletonLoading";
 import BackButton from "@/components/BackButton";
 import {
   ShortcutProvider,
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
 import { REQUEST_ORDER_STATUS_VARIANTS } from "@/types/requestOrder";
+import { RecordOrder, RecordOrderOutward } from "@/types/recordOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
 import { RecordItemOrderDrug } from "@/types/recordOrderItem";
 import {
@@ -67,19 +70,37 @@ type RequestOrderShowPageProps = {
   facilityId: string;
   locationId: string;
   requestOrderId: string;
+  recordOrderId: string;
 };
 
 const MAX_ITEMS_PER_BATCH = 50;
+
+const DVDMS_SUBMISSION_POLL_INTERVAL_MS = 5_000;
+const DVDMS_SUBMISSION_POLL_WINDOW_MS = 2 * 60 * 1_000;
 
 const drugsKey = (groupId: number, subgroupId?: number) =>
   `${groupId}:${subgroupId ?? ""}`;
 
 const toDrugPayload = (drug: RecordItemOrderDrug): RecordItemOrderDrug => {
-  const { sub_group_id, ...rest } = drug;
-  return parseLookupId(sub_group_id) !== undefined
-    ? { ...rest, sub_group_id }
-    : rest;
+  const { sub_group_id, brand_id, ...rest } = drug;
+  const withBrand = {
+    ...rest,
+    brand_id: brand_id && brand_id !== "undefined" ? brand_id : drug.id,
+  };
+  return sub_group_id !== undefined && sub_group_id !== ""
+    ? { ...withBrand, sub_group_id }
+    : withBrand;
 };
+
+const lookupDrugToPayload = (drug: DvdmsLookupDrug): RecordItemOrderDrug => ({
+  id: String(drug.hstnum_item_id),
+  name: drug.hststr_item_name,
+  brand_id: String(drug.hstnum_itembrand_id ?? drug.hstnum_item_id),
+  group_id: String(drug.hstnum_group_id),
+  sub_group_id: String(drug.hstnum_subgroup_id),
+  unit_id: String(drug.gnum_inventory_unitid),
+  drug_category: drug.sstnum_item_cat_no,
+});
 
 const RequestOrderShowPage: FC<RequestOrderShowPageProps> = (props) => (
   <ShortcutProvider>
@@ -91,10 +112,13 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   facilityId,
   locationId,
   requestOrderId,
+  recordOrderId,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
+
+  const recordBasePath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/record/${recordOrderId}`;
 
   const [tableItems, setTableItems] = useState<SupplyRequest[]>([]);
   const [selectedDrugs, setSelectedDrugs] = useState<
@@ -120,16 +144,17 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
 
   const SUPPLY_REQUESTS_PAGE_SIZE = 14;
 
-  const { data: supplyRequestsData } = useQuery({
-    queryKey: ["dvdms_supply_requests", requestOrderId],
-    queryFn: () =>
-      apis.supplyRequests.list({
-        order: requestOrderId,
-        ordering: "-created_date",
-        limit: SUPPLY_REQUESTS_PAGE_SIZE,
-        offset: 0,
-      }),
-  });
+  const { data: supplyRequestsData, isLoading: isSupplyRequestsLoading } =
+    useQuery({
+      queryKey: ["dvdms_supply_requests", requestOrderId],
+      queryFn: () =>
+        apis.supplyRequests.list({
+          order: requestOrderId,
+          ordering: "-created_date",
+          limit: SUPPLY_REQUESTS_PAGE_SIZE,
+          offset: 0,
+        }),
+    });
 
   const [loadedSupplyRequestsCount, setLoadedSupplyRequestsCount] = useState(0);
   const [hasSavedOnce, setHasSavedOnce] = useState(false);
@@ -186,16 +211,49 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     queryFn: () => apis.institutes.get(facilityId),
   });
 
+  const recordOrderStatusQueryKey = [
+    "dvdms_record_order_status",
+    institute?.id,
+    requestOrderId,
+  ];
+
+  const dvdmsSubmissionPollInterval = () => {
+    const order = queryClient
+      .getQueryData<PaginatedResponse<RecordOrder>>(recordOrderStatusQueryKey)
+      ?.results?.find((item) => item.id === recordOrderId);
+    if (order?.status !== "approved") {
+      return false;
+    }
+    const outwardRow = queryClient.getQueryData<
+      PaginatedResponse<RecordOrderOutward>
+    >(["dvdms_record_order_outward", institute?.id, order.id])?.results?.[0];
+    if (outwardRow?.eaushadhi_indent_no || outwardRow?.status === "submitted") {
+      return false;
+    }
+    const approvedAt = Date.parse(order.modified_date);
+    if (
+      !Number.isFinite(approvedAt) ||
+      Date.now() - approvedAt > DVDMS_SUBMISSION_POLL_WINDOW_MS
+    ) {
+      return false;
+    }
+    return DVDMS_SUBMISSION_POLL_INTERVAL_MS;
+  };
+
   const { data: recordOrdersData } = useQuery({
-    queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+    queryKey: recordOrderStatusQueryKey,
     queryFn: () =>
       apis.recordOrders.list(institute!.id, {
         order: requestOrderId,
-        limit: 1,
+        limit: RECORD_ORDERS_FETCH_LIMIT,
+        ordering: "-created_date",
       }),
     enabled: !!institute?.id,
+    refetchInterval: dvdmsSubmissionPollInterval,
   });
-  const recordOrder = recordOrdersData?.results?.[0];
+  const recordOrder = recordOrdersData?.results?.find(
+    (item) => item.id === recordOrderId,
+  );
 
   const recordItemOrdersQueryKey = [
     "dvdms_record_item_orders",
@@ -223,9 +281,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     !!recordOrder?.status && !["draft", "pending"].includes(recordOrder.status);
   const showCareIndentNo =
     !!recordOrder?.status && recordOrder.status !== "draft";
-  const canSyncDvdmsStatus =
-    !!recordOrder?.status &&
-    !["draft", "pending", "cancelled"].includes(recordOrder.status);
 
   const { data: outwardData } = useQuery({
     queryKey: ["dvdms_record_order_outward", institute?.id, recordOrder?.id],
@@ -234,16 +289,25 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         limit: 1,
       }),
     enabled: !!institute?.id && !!recordOrder?.id && isOutwardStatus,
+    refetchInterval: dvdmsSubmissionPollInterval,
   });
   const outward = outwardData?.results?.[0];
-  const displayStatus = outward?.status ?? recordOrder?.status;
+  const hasStaleOutwardFailure =
+    outward?.status === "failed" && recordOrder?.status !== "failed";
+  const displayStatus =
+    hasStaleOutwardFailure || !outward?.status
+      ? recordOrder?.status
+      : outward.status;
 
-  const { deliveries: recordDeliveries } = useRecordInwardDeliveries(
-    institute?.id,
-    outward?.id,
-  );
+  const canSyncDvdmsStatus =
+    !!recordOrder?.status &&
+    !["draft", "pending", "cancelled"].includes(recordOrder.status) &&
+    !!outward?.eaushadhi_indent_no;
+
+  const { deliveries: recordDeliveries, inwardRecord } =
+    useRecordInwardDeliveries(institute?.id, outward?.id);
   const canCreateDelivery =
-    outward?.eaushadhi_indent_status === "Issued";
+    outward?.eaushadhi_indent_status === "Issued" && !inwardRecord;
 
   const existingItemBySupplyRequestId = new Map(
     (recordItemOrdersData?.results ?? []).map((item) => [
@@ -456,6 +520,13 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       queryClient.invalidateQueries({
         queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
       });
+      queryClient.invalidateQueries({
+        queryKey: [
+          "dvdms_record_order_outward",
+          institute?.id,
+          recordOrder?.id,
+        ],
+      });
     },
     onError: () => {
       toast.error(t("record_order_approve_failed"));
@@ -475,6 +546,13 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       toast.success(t("record_order_retried"));
       queryClient.invalidateQueries({
         queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: [
+          "dvdms_record_order_outward",
+          institute?.id,
+          recordOrder?.id,
+        ],
       });
     },
     onError: () => {
@@ -535,8 +613,47 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
 
   const hasUnselectedDrug = tableItems.some((item) => !selectedDrugs[item.id]);
 
-  if (isLoading) {
-    return <div className="p-6 text-sm text-gray-500">{t("loading")}</div>;
+  if (isLoading || isSupplyRequestsLoading) {
+    return (
+      <div className="md:px-6 py-0 space-y-4 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-4 min-w-0">
+            <Skeleton className="size-9 shrink-0 rounded-md" />
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-48" />
+              <Skeleton className="h-4 w-72" />
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 shrink-0">
+            <Skeleton className="h-9 w-24 rounded-md" />
+            <Skeleton className="h-9 w-32 rounded-md" />
+          </div>
+        </div>
+
+        <Card className="border-none rounded-lg">
+          <CardContent className="p-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-12 gap-y-4">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="space-y-2">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-6 w-32" />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-none rounded-lg">
+          <CardContent className="space-y-4 p-4">
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-4 w-64" />
+            </div>
+            <TableSkeleton count={5} />
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   if (!order) {
@@ -553,12 +670,13 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const isApprovable =
     recordOrderStatus === "draft" || recordOrderStatus === "pending";
   const isPendingStatus = recordOrderStatus === "pending";
-  const isFailedStatus = recordOrderStatus === "failed";
+  const isFailedStatus = displayStatus === "failed";
+  const isCancelledStatus = recordOrderStatus === "cancelled";
 
   return (
     <div className="md:px-6 py-0 space-y-4 min-w-0">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 min-w-0">
           <BackButton size="icon" className="shrink-0">
             <ChevronLeft />
             <span className="sr-only">{t("back")}</span>
@@ -580,18 +698,27 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
           <Button
             variant="outline"
             onClick={() =>
-              navigate(
-                `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/print`,
-              )
+              navigate(`${recordBasePath}/print`)
             }
           >
             <Printer className="size-4" /> {t("print")}
             <ShortcutBadge actionId="print-button" />
           </Button>
+          {isCancelledStatus && (
+            <Button
+              onClick={() =>
+                navigate(
+                  `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/new?order=${requestOrderId}`,
+                )
+              }
+            >
+              <Plus className="size-4" /> {t("create_new_record_order")}
+            </Button>
+          )}
           {canSyncDvdmsStatus && (
             <Button
               variant="outline"
@@ -604,12 +731,13 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
           {canCreateDelivery && (
             <Button
               onClick={() =>
-                navigate(
-                  `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/create-delivery`,
-                )
+                navigate(`${recordBasePath}/create-delivery`)
               }
+              title={t("create_delivery")}
+              aria-label={t("create_delivery")}
             >
-              <PackagePlus className="size-4" /> {t("create_delivery")}
+              <Plus className="size-4" />
+              <span className="hidden sm:inline">{t("create_delivery")}</span>
             </Button>
           )}
           {recordDeliveries.length === 1 && (
@@ -617,7 +745,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               variant="outline"
               onClick={() =>
                 navigate(
-                  `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/create-delivery/${recordDeliveries[0].delivery_order.id}`,
+                  `${recordBasePath}/delivery/${recordDeliveries[0].delivery_order.id}`,
                 )
               }
             >
@@ -637,7 +765,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                     key={delivery.id}
                     onClick={() =>
                       navigate(
-                        `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/create-delivery/${delivery.delivery_order.id}`,
+                        `${recordBasePath}/delivery/${delivery.delivery_order.id}`,
                       )
                     }
                   >
@@ -653,9 +781,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
             <Button
               variant="outline"
               onClick={() =>
-                navigate(
-                  `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/edit`,
-                )
+                navigate(`${recordBasePath}/edit`)
               }
             >
               <Edit className="size-4" /> {t("edit")}
@@ -665,8 +791,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              {(recordOrder?.status === "draft" ||
-                recordOrder?.status === "pending") && (
+              {isDraftStatus && (
                 <Button variant="outline" className="border-gray-400 px-2">
                   <EllipsisVertical />
                 </Button>
@@ -771,7 +896,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-sm font-medium text-gray-700">
+                  <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
                     {t("eaushadhi_indent_status")}
                   </label>
                   <div>
@@ -966,22 +1091,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                             (option) => String(option.hstnum_item_id) === value,
                           );
                           if (!drug) return;
-                          const drugSubgroupId = parseLookupId(
-                            drug.hstnum_subgroup_id,
-                          );
                           setSelectedDrugs((prev) => ({
                             ...prev,
-                            [item.id]: {
-                              id: String(drug.hstnum_item_id),
-                              name: drug.hststr_item_name,
-                              brand_id: String(drug.hstnum_itembrand_id),
-                              group_id: String(drug.hstnum_group_id),
-                              ...(drugSubgroupId !== undefined
-                                ? { sub_group_id: String(drugSubgroupId) }
-                                : {}),
-                              unit_id: String(drug.gnum_inventory_unitid),
-                              drug_category: drug.sstnum_item_cat_no,
-                            },
+                            [item.id]: lookupDrugToPayload(drug),
                           }));
                         };
 
@@ -1039,7 +1151,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   <div className="text-xs text-gray-500 mb-3">
                                     {" "}
                                   </div>
-                                  {readOnlyDrug?.name ?? "—"}
+                                  <div
+                                    className="w-72 whitespace-normal break-words"
+                                    title={readOnlyDrug?.name}
+                                  >
+                                    {readOnlyDrug?.name ?? "—"}
+                                  </div>
                                   <div className="text-xs text-gray-500 mt-1">
                                     {readOnlyDrug
                                       ? `${t("drug_id")}: ${readOnlyDrug.id}`
@@ -1233,7 +1350,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                     onClick={() => retryRecordOrderMutation.mutate()}
                     disabled={retryRecordOrderMutation.isPending}
                   >
-                    {t("retry")}
+                    {t("resend_to_dvdms")}
                   </Button>
                 </div>
               )}

@@ -201,6 +201,8 @@ export const apis = {
       ),
   },
   recordOrderOutward: {
+    path: (instituteId: string, recordOrderId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/outward/`,
     list: (
       instituteId: string,
       recordOrderId: string,
@@ -211,7 +213,7 @@ export const apis = {
       } = {},
     ) =>
       request<PaginatedResponse<RecordOrderOutward>>(
-        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/outward/`,
+        apis.recordOrderOutward.path(instituteId, recordOrderId),
         HttpMethod.GET,
         params,
       ),

@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { apis } from "@/apis";
 import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
-import { cn, formatDate } from "@/lib/utils";
+import { chunk, cn, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -48,6 +48,10 @@ import {
 import { Organization } from "@/types/organization";
 
 const PAGE_SIZE = 9;
+
+const CANDIDATE_FETCH_LIMIT = 100;
+
+const MAX_REQUESTS_PER_BATCH = 20;
 
 const DEAD_END_RECORD_ORDER_STATUSES = new Set([
   "approved",
@@ -101,11 +105,11 @@ const OrderCard: FC<OrderCardProps> = ({
     <Card className="bg-white h-full flex flex-col">
       <CardContent className="space-y-3 pt-6 flex flex-col flex-1">
         <div className="flex items-start justify-between gap-2">
-          <div className={cn(!isSelectable && "opacity-50")}>
-            <h3 className="text-lg font-semibold text-gray-950">
+          <div className={cn("min-w-0", !isSelectable && "opacity-50")}>
+            <h3 className="text-base sm:text-lg font-semibold text-gray-950 wrap-break-word">
               {order.name}
             </h3>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 wrap-break-word">
               {order.supplier?.name ?? "—"}
             </p>
           </div>
@@ -120,15 +124,15 @@ const OrderCard: FC<OrderCardProps> = ({
         <div
           className={cn("grid grid-cols-2 gap-3", !isSelectable && "opacity-50")}
         >
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-medium text-gray-500 uppercase">
               {t("deliver_to")}
             </p>
-            <p className="text-sm font-semibold text-gray-900">
+            <p className="text-sm font-semibold text-gray-900 wrap-break-word">
               {order.destination?.name ?? "—"}
             </p>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-medium text-gray-500 uppercase">
               {t("items")}
             </p>
@@ -161,19 +165,20 @@ const OrderCard: FC<OrderCardProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-gray-100 pt-3 mt-auto">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-3 mt-auto">
           {isSelectable ? (
-            <p className="text-xs text-gray-500">
+            <p className="min-w-0 flex-1 text-xs text-gray-500 wrap-break-word">
               {t("created_by")}: {createdByName}
             </p>
           ) : (
-            <p className="text-xs text-red-500">
+            <p className="min-w-0 flex-1 text-xs text-red-500 wrap-break-word">
               {t("must_be_approved_before_sending")}
             </p>
           )}
           <Button
             type="button"
             size="sm"
+            className="ml-auto shrink-0"
             onClick={onSelect}
             disabled={!isSelectable || isChecking}
           >
@@ -235,7 +240,6 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
         "dvdms_link_order_candidates",
         facilityId,
         locationId,
-        page,
         supplierFilter?.id,
         statusFilter,
         priorityFilter,
@@ -243,8 +247,8 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
       queryFn: () =>
         apis.requestOrders.list(facilityId, {
           destination: locationId,
-          limit: PAGE_SIZE,
-          offset: (page - 1) * PAGE_SIZE,
+          limit: CANDIDATE_FETCH_LIMIT,
+          offset: 0,
           status: statusFilter || "pending,draft",
           origin_isnull: true,
           ...(supplierFilter ? { supplier: supplierFilter.id } : {}),
@@ -272,18 +276,81 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
 
   const candidateOrderIds = candidateOrders.map((order) => order.id);
 
+  const { data: institute } = useQuery({
+    queryKey: ["dvdms_institute", facilityId],
+    queryFn: () => apis.institutes.get(facilityId),
+  });
+
+  const { data: recordOrderStatusResults } = useQuery({
+    queryKey: [
+      "dvdms_linked_record_order_status",
+      institute?.id,
+      candidateOrderIds,
+    ],
+    queryFn: async () => {
+      const batches = chunk(
+        candidateOrders.map((order) => ({
+          url: `/api/care_dvdms/institute/${institute!.id}/record_order/`,
+          method: HttpMethod.GET,
+          body: { order: order.id, limit: 1, ordering: "-created_date" },
+          reference_id: order.id,
+        })),
+        MAX_REQUESTS_PER_BATCH,
+      );
+      const responses = await Promise.all(
+        batches.map((requests) => apis.batchRequests.create({ requests })),
+      );
+      return responses.flatMap((response) => response.results);
+    },
+    enabled: !!institute?.id && candidateOrders.length > 0,
+  });
+
+  const linkedRecordOrderStatusByOrderId = new Map(
+    recordOrderStatusResults?.map((result) => [
+      result.reference_id,
+      (result.data as { results?: { status?: string }[] } | undefined)
+        ?.results?.[0]?.status,
+    ]) ?? [],
+  );
+
+  const visibleCandidateOrders = candidateOrders.filter((order) => {
+    const linkedStatus = linkedRecordOrderStatusByOrderId.get(order.id);
+    return !linkedStatus || !DEAD_END_RECORD_ORDER_STATUSES.has(linkedStatus);
+  });
+
+  const pagedCandidateOrders = visibleCandidateOrders.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE,
+  );
+
+  const isCandidateOrdersFiltering =
+    candidateOrders.length > 0 && !recordOrderStatusResults;
+
+  const isCandidateListPending =
+    isCandidateOrdersLoading || isCandidateOrdersFiltering;
+
+  useEffect(() => {
+    const lastPage = Math.max(
+      1,
+      Math.ceil(visibleCandidateOrders.length / PAGE_SIZE),
+    );
+    if (page > lastPage) setPage(lastPage);
+  }, [visibleCandidateOrders.length, page]);
+
+  const pagedCandidateOrderIds = pagedCandidateOrders.map((order) => order.id);
+
   const { data: itemCountBatchResponse } = useQuery({
-    queryKey: ["dvdms_supply_requests_count", candidateOrderIds],
+    queryKey: ["dvdms_supply_requests_count", pagedCandidateOrderIds],
     queryFn: () =>
       apis.batchRequests.create({
-        requests: candidateOrders.map((order) => ({
+        requests: pagedCandidateOrders.map((order) => ({
           url: apis.supplyRequests.path,
           method: HttpMethod.GET,
           body: { order: order.id, limit: 1, offset: 0 },
           reference_id: order.id,
         })),
       }),
-    enabled: candidateOrders.length > 0,
+    enabled: pagedCandidateOrders.length > 0,
   });
 
   const itemCountByOrderId = new Map(
@@ -309,45 +376,6 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
   const selectedOrderItemCount =
     knownSelectedOrderItemCount ?? fetchedSelectedOrderItemCount;
 
-  const { data: institute } = useQuery({
-    queryKey: ["dvdms_institute", facilityId],
-    queryFn: () => apis.institutes.get(facilityId),
-  });
-
-  const { data: recordOrderStatusBatchResponse } = useQuery({
-    queryKey: [
-      "dvdms_linked_record_order_status",
-      institute?.id,
-      candidateOrderIds,
-    ],
-    queryFn: () =>
-      apis.batchRequests.create({
-        requests: candidateOrders.map((order) => ({
-          url: `/api/care_dvdms/institute/${institute!.id}/record_order/`,
-          method: HttpMethod.GET,
-          body: { order: order.id, limit: 1, ordering: "-created_date" },
-          reference_id: order.id,
-        })),
-      }),
-    enabled: !!institute?.id && candidateOrders.length > 0,
-  });
-
-  const linkedRecordOrderStatusByOrderId = new Map(
-    recordOrderStatusBatchResponse?.results.map((result) => [
-      result.reference_id,
-      (result.data as { results?: { status?: string }[] } | undefined)
-        ?.results?.[0]?.status,
-    ]) ?? [],
-  );
-
-  const visibleCandidateOrders = candidateOrders.filter((order) => {
-    const linkedStatus = linkedRecordOrderStatusByOrderId.get(order.id);
-    return !linkedStatus || !DEAD_END_RECORD_ORDER_STATUSES.has(linkedStatus);
-  });
-
-  const isCandidateOrdersFiltering =
-    candidateOrders.length > 0 && !recordOrderStatusBatchResponse;
-
   const handleSelectOrder = async (order: RequestOrder) => {
     if (!institute) return;
     setCheckingOrderId(order.id);
@@ -360,7 +388,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
       const hasBlockingRecordOrder =
         !!latestRecordOrder && latestRecordOrder.status !== "cancelled";
       if (hasBlockingRecordOrder) {
-        navigate(`${returnPath}/${order.id}`);
+        navigate(`${returnPath}/${order.id}/record/${latestRecordOrder.id}`);
         return;
       }
       setQueryParams({ order: order.id });
@@ -504,16 +532,26 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
         status: "draft",
       });
     },
-    onSuccess: () => {
+    onSuccess: (createdRecordOrder) => {
       toast.success(t("record_order_created_successfully"));
       queryClient.invalidateQueries({ queryKey: ["dvdms_record_orders"] });
+      queryClient.invalidateQueries({
+        queryKey: [
+          "dvdms_record_order_status",
+          institute?.id,
+          selectedOrder!.id,
+        ],
+      });
       queryClient.invalidateQueries({
         queryKey: ["dvdms_supplier_mappings", institute?.id],
       });
       queryClient.invalidateQueries({
         queryKey: ["dvdms_institute_stores", facilityId, institute?.id],
       });
-      navigate(`${returnPath}/${selectedOrder!.id}`, { replace: true });
+      navigate(
+        `${returnPath}/${selectedOrder!.id}/record/${createdRecordOrder.id}`,
+        { replace: true },
+      );
     },
     onError: () => toast.error(t("failed_to_create_record_order")),
   });
@@ -523,8 +561,8 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
   return (
     <div className="md:px-6 py-0 min-w-0">
       <div className="container mx-auto max-w-7xl">
-        <div className="flex justify-between items-start mb-6">
-          <div className="flex items-start gap-4">
+        <div className="flex justify-between items-start gap-3 mb-4 sm:mb-6">
+          <div className="flex min-w-0 items-start gap-2 sm:gap-4">
             <BackButton
               size="icon"
               className="shrink-0"
@@ -535,12 +573,12 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               <ChevronLeftIcon className="size-4" />
               <span className="sr-only">{t("back")}</span>
             </BackButton>
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-semibold text-gray-900 flex items-center gap-2 wrap-break-word">
                 {t("send_order_to_eaushadhi")}
                 {/* <Badge variant="secondary">{t("draft")}</Badge> */}
               </h1>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-sm text-gray-500 mt-1 wrap-break-word">
                 {selectedOrderId
                   ? t("confirm_supplier_and_store_description")
                   : t("send_order_to_eaushadhi_description")}
@@ -550,6 +588,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
           <Button
             variant="outline"
             size="icon"
+            className="shrink-0"
             onClick={() => navigate(returnPath)}
           >
             <XIcon className="size-5" />
@@ -563,25 +602,27 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               <SupplierSelect
                 value={supplierFilter}
                 onChange={handleSupplierFilterChange}
-                className="sm:min-w-0 sm:flex-1"
+                className="sm:min-w-0 sm:max-w-sm"
               />
-              <OrderFilters
-                status={statusFilter}
-                priority={priorityFilter}
-                onStatusChange={handleStatusFilterChange}
-                onPriorityChange={handlePriorityFilterChange}
-              />
+              <div className="sm:ml-auto">
+                <OrderFilters
+                  status={statusFilter}
+                  priority={priorityFilter}
+                  onStatusChange={handleStatusFilterChange}
+                  onPriorityChange={handlePriorityFilterChange}
+                />
+              </div>
             </div>
 
-            {isCandidateOrdersLoading || isCandidateOrdersFiltering ? (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {isCandidateListPending ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <Skeleton key={i} className="h-48 w-full" />
                 ))}
               </div>
-            ) : visibleCandidateOrders.length > 0 ? (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {visibleCandidateOrders.map((order) => (
+            ) : pagedCandidateOrders.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
+                {pagedCandidateOrders.map((order) => (
                   <OrderCard
                     key={order.id}
                     order={order}
@@ -598,12 +639,14 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               />
             )}
 
-            <Pagination
-              page={page}
-              pageSize={PAGE_SIZE}
-              totalCount={candidateOrdersResponse?.count ?? 0}
-              onPageChange={setPage}
-            />
+            {!isCandidateListPending && (
+              <Pagination
+                page={page}
+                pageSize={PAGE_SIZE}
+                totalCount={visibleCandidateOrders.length}
+                onPageChange={setPage}
+              />
+            )}
           </div>
         ) : isSelectedOrderLoading || !selectedOrder ? (
           <div className="space-y-4">
@@ -613,28 +656,28 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
         ) : (
           <div className="space-y-4">
             <Card className="bg-white">
-              <CardContent className="grid sm:grid-cols-3 gap-4 py-4">
-                <div>
+              <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 py-4">
+                <div className="min-w-0">
                   <p className="text-xs font-medium text-gray-500 uppercase">
                     {t("order")}
                   </p>
-                  <p className="font-semibold text-gray-950">
+                  <p className="font-semibold text-gray-950 wrap-break-word">
                     {selectedOrder.name}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs font-medium text-gray-500 uppercase">
                     {t("deliver_to")}
                   </p>
-                  <p className="font-semibold text-gray-950">
+                  <p className="font-semibold text-gray-950 wrap-break-word">
                     {selectedOrder.destination?.name ?? "—"}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs font-medium text-gray-500 uppercase">
                     {t("items")}
                   </p>
-                  <p className="font-semibold text-gray-950">
+                  <p className="font-semibold text-gray-950 wrap-break-word">
                     {selectedOrderItemCount ?? "—"} {t("items")}
                   </p>
                 </div>
@@ -645,7 +688,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               <form onSubmit={onSubmit} className="space-y-6">
                 <input type="submit" hidden />
                 <Card className="p-0 bg-white">
-                  <CardContent className="space-y-4 p-4 rounded-md">
+                  <CardContent className="space-y-4 p-3 sm:p-4 rounded-md">
                     <h3 className="font-semibold text-gray-900">
                       {t("dvdms_connection_details")}
                     </h3>
@@ -705,8 +748,8 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                       )}
                     />
                     {selectedOrder.supplier && (
-                      <p className="flex items-center gap-2 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">
-                        <InfoIcon className="size-4 shrink-0" />
+                      <p className="flex items-start gap-2 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700 wrap-break-word">
+                        <InfoIcon className="size-4 shrink-0 mt-0.5" />
                         {t("supplier_in_care_order", {
                           name: selectedOrder.supplier.name,
                         })}
@@ -753,10 +796,11 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                       )}
                     />
 
-                    <div className="border-t border-gray-200 pt-4 flex justify-end space-x-3">
+                    <div className="border-t border-gray-200 pt-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
                       <Button
                         type="button"
                         variant="outline"
+                        className="w-full sm:w-auto"
                         onClick={() => setQueryParams({})}
                       >
                         {t("cancel")}
@@ -764,6 +808,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                       </Button>
                       <Button
                         type="submit"
+                        className="w-full sm:w-auto"
                         disabled={
                           isCreating || !selectedWarehouseId || !selectedStoreId
                         }

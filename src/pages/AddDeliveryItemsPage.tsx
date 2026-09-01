@@ -3,11 +3,12 @@ import { useTranslation } from "react-i18next";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { navigate } from "raviger";
 import { useFieldArray, useForm } from "react-hook-form";
-import { PlusCircle, Trash2, XIcon } from "lucide-react";
+import { ChevronLeftIcon, PlusCircle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
-import { I18N_NAMESPACE } from "@/lib/constants";
+import { I18N_NAMESPACE, RECORD_ORDERS_FETCH_LIMIT } from "@/lib/constants";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -27,17 +28,21 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
+import BackButton from "@/components/BackButton";
 import DisablingCover from "@/components/DisablingCover";
 import {
   ShortcutProvider,
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
 import { RecordInwardItem } from "@/types/recordOrder";
+import { REQUEST_ORDER_STATUS_VARIANTS } from "@/types/requestOrder";
+import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
 type AddDeliveryItemsPageProps = {
   facilityId: string;
   locationId: string;
   requestOrderId: string;
+  recordOrderId: string;
   deliveryOrderId: string;
 };
 
@@ -83,12 +88,14 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   facilityId,
   locationId,
   requestOrderId,
+  recordOrderId,
+  deliveryOrderId,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   useShortcutSubContext("facility:inventory");
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}`;
+  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/record/${recordOrderId}`;
 
   const { data: institute } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
@@ -101,12 +108,14 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       queryFn: () =>
         apis.recordOrders.list(institute!.id, {
           order: requestOrderId,
-          limit: 1,
+          limit: RECORD_ORDERS_FETCH_LIMIT,
         }),
       enabled: !!institute?.id,
     },
   );
-  const recordOrder = recordOrdersData?.results?.[0];
+  const recordOrder = recordOrdersData?.results?.find(
+    (item) => item.id === recordOrderId,
+  );
 
   const { data: outwardData, isLoading: isOutwardLoading } = useQuery({
     queryKey: ["dvdms_record_order_outward", institute?.id, recordOrder?.id],
@@ -132,6 +141,14 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   const recordInwards = (recordInwardsData?.results ?? []).filter(
     (inward) => inward.outward_record === outward?.id,
   );
+
+  const { deliveries: recordDeliveries } = useRecordInwardDeliveries(
+    institute?.id,
+    outward?.id,
+  );
+  const recordDeliveryStatus = recordDeliveries.find(
+    (delivery) => delivery.delivery_order.id === deliveryOrderId,
+  )?.status;
 
   const recordInwardDetailQueries = useQueries({
     queries: recordInwards.map((inward) => ({
@@ -190,7 +207,15 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   return (
     <div className="md:px-6 py-0 min-w-0">
       <div className="container mx-auto max-w-6xl">
-        <div className="flex justify-between items-start mb-6">
+        <div className="flex items-start gap-4 mb-6">
+          <BackButton
+            size="icon"
+            className="shrink-0"
+            onClick={() => navigate(returnPath)}
+          >
+            <ChevronLeftIcon className="size-4" />
+            <span className="sr-only">{t("back")}</span>
+          </BackButton>
           <div>
             <h1 className="text-xl font-semibold text-gray-900">
               {t("add_delivery_items")}
@@ -199,14 +224,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
               {t("add_delivery_items_description")}
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => navigate(returnPath)}
-          >
-            <XIcon className="size-5" />
-            <span className="sr-only">{t("close")}</span>
-          </Button>
         </div>
 
         {isLoadingContext || isLoadingApiItems ? (
@@ -216,6 +233,78 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           </div>
         ) : (
           <DisablingCover disabled={isProcessing} message={t("saving")}>
+            <Card className="mb-4">
+              <CardContent className="space-y-1 p-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("deliver_to")}
+                    </label>
+                    <div className="text-lg font-semibold text-gray-950">
+                      {recordOrder?.institute_store?.store.name ?? "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("supplier")}
+                    </label>
+                    <div className="text-lg font-semibold text-gray-950">
+                      {recordOrder?.institute_supplier?.supplier?.name ?? "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("status")}
+                    </label>
+                    <div>
+                      {recordDeliveryStatus ? (
+                        <Badge
+                          className="rounded-sm"
+                          variant={
+                            REQUEST_ORDER_STATUS_VARIANTS[
+                              recordDeliveryStatus
+                            ] ?? "secondary"
+                          }
+                        >
+                          {t(recordDeliveryStatus)}
+                        </Badge>
+                      ) : (
+                        <div className="text-lg font-semibold text-gray-950">
+                          —
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                      {t("eaushadhi_indent_status")}
+                    </label>
+                    <div>
+                      <Badge className="rounded-sm" variant="secondary">
+                        {outward?.eaushadhi_indent_status ?? "—"}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("care_indent_no")}
+                    </label>
+                    <div className="text-lg font-semibold text-gray-950">
+                      {recordOrder?.care_indent_no ?? "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("eaushadhi_indent_no")}
+                    </label>
+                    <div className="text-lg font-semibold text-gray-950">
+                      {outward?.eaushadhi_indent_no ?? "—"}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             <Card className="bg-gray-50 py-4 rounded-md">
               <CardContent className="space-y-4">
                 {fields.length > 0 ? (

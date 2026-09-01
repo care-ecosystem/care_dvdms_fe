@@ -46,7 +46,7 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
 
   const handleViewDetails = (order: RecordOrder) => {
     navigate(
-      `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${order.order.id}`,
+      `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${order.order.id}/record/${order.id}`,
     );
   };
 

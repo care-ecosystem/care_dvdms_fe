@@ -7,7 +7,7 @@ import { XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
-import { I18N_NAMESPACE, RECORD_ORDERS_FETCH_LIMIT } from "@/lib/constants";
+import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -84,7 +84,7 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
       queryFn: () =>
         apis.recordOrders.list(institute!.id, {
           order: requestOrderId,
-          limit: RECORD_ORDERS_FETCH_LIMIT,
+          limit: LIST_FETCH_LIMIT,
         }),
       enabled: !!institute?.id,
     });

@@ -1,13 +1,13 @@
 import { FC, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { navigate } from "raviger";
 import { useFieldArray, useForm } from "react-hook-form";
 import { ChevronLeftIcon, PlusCircle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
-import { I18N_NAMESPACE, RECORD_ORDERS_FETCH_LIMIT } from "@/lib/constants";
+import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -108,7 +108,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       queryFn: () =>
         apis.recordOrders.list(institute!.id, {
           order: requestOrderId,
-          limit: RECORD_ORDERS_FETCH_LIMIT,
+          limit: LIST_FETCH_LIMIT,
         }),
       enabled: !!institute?.id,
     },
@@ -127,44 +127,23 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   });
   const outward = outwardData?.results?.[0];
 
-  const { data: recordInwardsData, isLoading: isRecordInwardsLoading } =
-    useQuery({
-      queryKey: ["dvdms_record_inwards", institute?.id, outward?.id],
-      queryFn: () =>
-        apis.recordInwards.list(institute!.id, {
-          limit: 100,
-          ordering: "-created_at",
-        }),
-      enabled: !!institute?.id && !!outward?.id,
-    });
+  const {
+    inwardRecord,
+    deliveries: recordDeliveries,
+    isLoading: isRecordInwardsLoading,
+  } = useRecordInwardDeliveries(institute?.id, outward?.id);
 
-  const recordInwards = (recordInwardsData?.results ?? []).filter(
-    (inward) => inward.outward_record === outward?.id,
-  );
-
-  const { deliveries: recordDeliveries } = useRecordInwardDeliveries(
-    institute?.id,
-    outward?.id,
-  );
   const recordDeliveryStatus = recordDeliveries.find(
     (delivery) => delivery.delivery_order.id === deliveryOrderId,
   )?.status;
 
-  const recordInwardDetailQueries = useQueries({
-    queries: recordInwards.map((inward) => ({
-      queryKey: ["dvdms_record_inward_detail", institute?.id, inward.id],
-      queryFn: () => apis.recordInwards.retrieve(institute!.id, inward.id),
-      enabled: !!institute?.id,
-    })),
+  const { data: recordInwardDetail, isLoading: isLoadingApiItems } = useQuery({
+    queryKey: ["dvdms_record_inward_detail", institute?.id, inwardRecord?.id],
+    queryFn: () => apis.recordInwards.retrieve(institute!.id, inwardRecord!.id),
+    enabled: !!institute?.id && !!inwardRecord?.id,
   });
 
-  const isLoadingApiItems = recordInwardDetailQueries.some(
-    (query) => query.isLoading,
-  );
-
-  const apiItems: RecordInwardItem[] = recordInwardDetailQueries.flatMap(
-    (query) => query.data?.items ?? [],
-  );
+  const apiItems: RecordInwardItem[] = recordInwardDetail?.items ?? [];
 
   const form = useForm<DeliveryItemsFormValues>({
     defaultValues: { items: [] },

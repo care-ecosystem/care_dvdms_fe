@@ -8,8 +8,8 @@ import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { HttpMethod } from "@/apis/types";
-import { I18N_NAMESPACE } from "@/lib/constants";
-import { chunk, cn, formatDate } from "@/lib/utils";
+import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
+import { cn, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -48,10 +48,6 @@ import {
 import { Organization } from "@/types/organization";
 
 const PAGE_SIZE = 9;
-
-const CANDIDATE_FETCH_LIMIT = 100;
-
-const MAX_REQUESTS_PER_BATCH = 20;
 
 const DEAD_END_RECORD_ORDER_STATUSES = new Set([
   "approved",
@@ -247,7 +243,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
       queryFn: () =>
         apis.requestOrders.list(facilityId, {
           destination: locationId,
-          limit: CANDIDATE_FETCH_LIMIT,
+          limit: LIST_FETCH_LIMIT,
           offset: 0,
           status: statusFilter || "pending,draft",
           origin_isnull: true,
@@ -288,19 +284,15 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
       candidateOrderIds,
     ],
     queryFn: async () => {
-      const batches = chunk(
-        candidateOrders.map((order) => ({
+      const response = await apis.batchRequests.createChunked({
+        requests: candidateOrders.map((order) => ({
           url: `/api/care_dvdms/institute/${institute!.id}/record_order/`,
           method: HttpMethod.GET,
           body: { order: order.id, limit: 1, ordering: "-created_date" },
           reference_id: order.id,
         })),
-        MAX_REQUESTS_PER_BATCH,
-      );
-      const responses = await Promise.all(
-        batches.map((requests) => apis.batchRequests.create({ requests })),
-      );
-      return responses.flatMap((response) => response.results);
+      });
+      return response.results;
     },
     enabled: !!institute?.id && candidateOrders.length > 0,
   });

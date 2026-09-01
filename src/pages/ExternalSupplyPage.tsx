@@ -114,7 +114,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
         approvedOrderIds,
       ],
       queryFn: () =>
-        apis.batchRequests.create({
+        apis.batchRequests.createChunked({
           requests: approvedOrders.map((order) => ({
             url: apis.recordOrderOutward.path(institute!.id, order.id),
             method: HttpMethod.GET,

@@ -16,7 +16,7 @@ import {
 
 import { apis } from "@/apis";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
-import { I18N_NAMESPACE, RECORD_ORDERS_FETCH_LIMIT } from "@/lib/constants";
+import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import {
   chunk,
   formatDate,
@@ -245,7 +245,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     queryFn: () =>
       apis.recordOrders.list(institute!.id, {
         order: requestOrderId,
-        limit: RECORD_ORDERS_FETCH_LIMIT,
+        limit: LIST_FETCH_LIMIT,
         ordering: "-created_date",
       }),
     enabled: !!institute?.id,

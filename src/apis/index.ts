@@ -1,5 +1,7 @@
 import { BatchRequestBody, BatchResponse, HttpMethod, PaginatedResponse } from "@/apis/types";
 import { request } from "@/apis/query";
+import { MAX_REQUESTS_PER_BATCH } from "@/lib/constants";
+import { chunk } from "@/lib/utils";
 import { Organization } from "@/types/organization";
 import { Facility } from "@/types/facility";
 import { LocationRead } from "@/types/location";
@@ -540,6 +542,16 @@ export const apis = {
         HttpMethod.POST,
         { ...payload },
       ),
+    createChunked: async (
+      payload: BatchRequestPayload,
+    ): Promise<BatchRequestsResponse> => {
+      const responses = await Promise.all(
+        chunk(payload.requests, MAX_REQUESTS_PER_BATCH).map((requests) =>
+          apis.batchRequests.create({ requests }),
+        ),
+      );
+      return { results: responses.flatMap((response) => response.results) };
+    },
   },
   deliveryOrders: {
     create: (facilityId: string, payload: DeliveryOrderCreatePayload) =>

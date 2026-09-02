@@ -1,13 +1,13 @@
-import { FC, useEffect } from "react";
+import { FC, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
 import { useForm } from "react-hook-form";
 import { XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
-import { I18N_NAMESPACE } from "@/lib/constants";
+import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,13 +29,14 @@ import {
 } from "@/context/ShortcutContext";
 import { Organization } from "@/types/organization";
 import { DeliveryOrderStatus } from "@/types/deliveryOrder";
-import { RecordDeliveryStatus } from "@/types/recordOrder";
+import { REQUEST_ORDER_STATUS_VARIANTS } from "@/types/requestOrder";
 import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
 type CreateDeliveryPageProps = {
   facilityId: string;
   locationId: string;
   requestOrderId: string;
+  recordOrderId: string;
 };
 
 type DeliveryFormValues = {
@@ -54,29 +55,32 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
   facilityId,
   locationId,
   requestOrderId,
+  recordOrderId,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   useShortcutSubContext("facility:inventory");
+  const queryClient = useQueryClient();
+  const hasSubmitted = useRef(false);
 
-  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}`;
+  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/record/${recordOrderId}`;
 
   const { data: institute } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
     queryFn: () => apis.institutes.get(facilityId),
   });
 
-  const { data: recordOrdersData, isLoading: isRecordOrderLoading } = useQuery(
-    {
-      queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
-      queryFn: () =>
-        apis.recordOrders.list(institute!.id, {
-          order: requestOrderId,
-          limit: 1,
-        }),
-      enabled: !!institute?.id,
-    },
+  const { data: recordOrdersData, isLoading: isRecordOrderLoading } = useQuery({
+    queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+    queryFn: () =>
+      apis.recordOrders.list(institute!.id, {
+        order: requestOrderId,
+        limit: LIST_FETCH_LIMIT,
+      }),
+    enabled: !!institute?.id,
+  });
+  const recordOrder = recordOrdersData?.results?.find(
+    (item) => item.id === recordOrderId,
   );
-  const recordOrder = recordOrdersData?.results?.[0];
 
   const { data: outwardData, isLoading: isOutwardLoading } = useQuery({
     queryKey: ["dvdms_record_order_outward", institute?.id, recordOrder?.id],
@@ -114,17 +118,17 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
     });
   }, [recordOrder, form]);
 
-  const { mutate: createDeliveryOrder, isPending: isCreating } = useMutation({
-    mutationFn: async () => {
-      const deliveryOrder = await apis.deliveryOrders.create(facilityId, {
-        status: DeliveryOrderStatus.draft,
-        name: form.getValues("name"),
-        note: form.getValues("note") || undefined,
-        supplier: form.getValues("supplier")?.id,
-        destination: locationId,
-        extensions: {},
-      });
+  useEffect(() => {
+    if (hasSubmitted.current || isInwardRecordLoading || !inwardRecord) return;
+    toast.info(t("delivery_already_created"));
+    navigate(returnPath, { replace: true });
+  }, [inwardRecord, isInwardRecordLoading, returnPath, t]);
 
+  const { mutate: createDeliveryOrder, isPending: isCreating } = useMutation({
+    onMutate: () => {
+      hasSubmitted.current = true;
+    },
+    mutationFn: async () => {
       if (
         !institute?.id ||
         !outward?.id ||
@@ -134,24 +138,26 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
         throw new Error("Missing DVDMS indent number for this outward record");
       }
 
-      const resolvedInwardRecord =
-        inwardRecord ??
-        (await apis.recordInwards.create(institute.id, {
+      if (!inwardRecord) {
+        await apis.recordInwards.create(institute.id, {
           eaushadhi_issue_no: outward.eaushadhi_indent_no,
           outward_record: outward.id,
-        }));
+        });
+      }
 
-      await apis.recordInwards.createDelivery(institute.id, resolvedInwardRecord.id, {
-        delivery_order: deliveryOrder.id,
-        record_order: recordOrder.id,
-        status: RecordDeliveryStatus.pending,
+      return apis.deliveryOrders.create(facilityId, {
+        status: DeliveryOrderStatus.draft,
+        name: form.getValues("name"),
+        note: form.getValues("note") || undefined,
+        supplier: form.getValues("supplier")?.id,
+        destination: locationId,
+        extensions: {},
       });
-
-      return deliveryOrder;
     },
     onSuccess: (deliveryOrder) => {
       toast.success(t("delivery_order_created_successfully"));
-      navigate(`${returnPath}/create-delivery/${deliveryOrder.id}`, {
+      queryClient.invalidateQueries({ queryKey: ["dvdms_record_inwards"] });
+      navigate(`${returnPath}/delivery/${deliveryOrder.id}`, {
         replace: true,
       });
     },
@@ -165,7 +171,7 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
 
   return (
     <div className="md:px-6 py-0 min-w-0">
-      <div className="container mx-auto max-w-3xl">
+      <div className="container mx-auto max-w-6xl">
         <div className="flex justify-between items-start mb-6">
           <div>
             <h1 className="text-xl font-semibold text-gray-900">
@@ -192,39 +198,68 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
           </div>
         ) : (
           <div className="space-y-4">
-            <Card className="bg-white">
-              <CardContent className="grid sm:grid-cols-4 gap-4 py-4">
-                <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase">
-                    {t("care_indent_no")}
-                  </p>
-                  <p className="font-semibold text-gray-950">
-                    {recordOrder?.care_indent_no ?? "—"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase">
-                    {t("eaushadhi_indent_no")}
-                  </p>
-                  <p className="font-semibold text-gray-950">
-                    {outward?.eaushadhi_indent_no ?? "—"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase">
-                    {t("eaushadhi_indent_status")}
-                  </p>
-                  <Badge className="rounded-sm" variant="secondary">
-                    {outward?.eaushadhi_indent_status ?? "—"}
-                  </Badge>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase">
-                    {t("deliver_to")}
-                  </p>
-                  <p className="font-semibold text-gray-950">
-                    {recordOrder?.institute_store?.store.name ?? "—"}
-                  </p>
+            <Card>
+              <CardContent className="space-y-1 p-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("deliver_to")}
+                    </label>
+                    <div className="text-lg font-semibold text-gray-950">
+                      {recordOrder?.institute_store?.store.name ?? "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("supplier")}
+                    </label>
+                    <div className="text-lg font-semibold text-gray-950">
+                      {recordOrder?.institute_supplier?.supplier?.name ?? "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("status")}
+                    </label>
+                    <div>
+                      <Badge
+                        className="rounded-sm"
+                        variant={
+                          REQUEST_ORDER_STATUS_VARIANTS[
+                            DeliveryOrderStatus.draft
+                          ] ?? "secondary"
+                        }
+                      >
+                        {t(DeliveryOrderStatus.draft)}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                      {t("eaushadhi_indent_status")}
+                    </label>
+                    <div>
+                      <Badge className="rounded-sm" variant="secondary">
+                        {outward?.eaushadhi_indent_status ?? "—"}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("care_indent_no")}
+                    </label>
+                    <div className="text-lg font-semibold text-gray-950">
+                      {recordOrder?.care_indent_no ?? "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("eaushadhi_indent_no")}
+                    </label>
+                    <div className="text-lg font-semibold text-gray-950">
+                      {outward?.eaushadhi_indent_no ?? "—"}
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>

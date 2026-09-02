@@ -1,3 +1,5 @@
+import { RequestOrderBadgeVariant } from "@/types/requestOrder";
+
 export interface RecordOrderPayload {
   name: string;
   order: string;
@@ -117,11 +119,25 @@ export enum RecordDeliveryStatus {
   cancelled = "cancelled",
 }
 
+export const RECORD_DELIVERY_STATUS_VARIANTS: Record<
+  RecordDeliveryStatus,
+  RequestOrderBadgeVariant
+> = {
+  [RecordDeliveryStatus.pending]: "yellow",
+  [RecordDeliveryStatus.in_progress]: "indigo",
+  [RecordDeliveryStatus.completed]: "green",
+  [RecordDeliveryStatus.cancelled]: "destructive",
+};
+
 export interface RecordDeliveryPayload {
   delivery_order: string;
   record_order: string;
   status: RecordDeliveryStatus;
 }
+
+export type RecordDeliveryUpdatePayload = {
+  status: RecordDeliveryStatus;
+};
 
 export interface RecordDeliveryOrder {
   id: string;
@@ -146,7 +162,7 @@ export interface RecordDelivery {
   id: string;
   delivery_order: RecordDeliveryOrder;
   record_order: RecordDeliveryRecordOrder;
-  status: string;
+  status: RecordDeliveryStatus;
   created_by: RecordOrderUser | null;
   updated_by: RecordOrderUser | null;
   created_date: string;
@@ -179,13 +195,18 @@ export interface RecordDeliveryItemSuppliedItem {
   };
 }
 
+/**
+ * As serialized under a record delivery's items — the nested order, inventory
+ * item and supplied item are only present on the standalone supply delivery
+ * read, not here.
+ */
 export interface RecordDeliveryItemSupplyDelivery {
   id: string;
   status: string;
   modified_date: string;
-  order: RecordDeliveryItemSupplyDeliveryOrder;
-  supplied_inventory_item: RecordDeliveryItemSuppliedInventoryItem;
-  supplied_item: RecordDeliveryItemSuppliedItem;
+  order?: RecordDeliveryItemSupplyDeliveryOrder;
+  supplied_inventory_item?: RecordDeliveryItemSuppliedInventoryItem;
+  supplied_item?: RecordDeliveryItemSuppliedItem;
   supplied_item_condition: string;
   supplied_item_pack_quantity: number;
   supplied_item_pack_size: number;
@@ -199,7 +220,7 @@ export interface RecordDeliveryItemRecordDeliveryRef {
 
 export interface RecordDeliveryItemProduct {
   id: string;
-  name: string;
+  name?: string;
 }
 
 export interface RecordDeliveryItem {
@@ -207,12 +228,12 @@ export interface RecordDeliveryItem {
   inward_record_item: RecordDeliveryItemInwardRecordItem;
   supply_delivery: RecordDeliveryItemSupplyDelivery;
   record_delivery: RecordDeliveryItemRecordDeliveryRef;
-  product: RecordDeliveryItemProduct;
-  product_knowledge: RecordDeliveryItemProduct;
-  quantity_dispatched: number;
-  quantity_accepted: number;
-  quantity_damaged: number;
-  quantity_short: number;
+  product: RecordDeliveryItemProduct | null;
+  product_knowledge: RecordDeliveryItemProduct | null;
+  quantity_dispatched: string;
+  quantity_accepted: string;
+  quantity_damaged: string;
+  quantity_short: string;
   status: string;
   deleted: boolean;
   created_by: RecordOrderUser | null;

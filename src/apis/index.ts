@@ -1,4 +1,9 @@
-import { BatchRequestBody, BatchResponse, HttpMethod, PaginatedResponse } from "@/apis/types";
+import {
+  BatchRequestBody,
+  BatchResponse,
+  HttpMethod,
+  PaginatedResponse,
+} from "@/apis/types";
 import { request } from "@/apis/query";
 import { MAX_REQUESTS_PER_BATCH } from "@/lib/constants";
 import { chunk } from "@/lib/utils";
@@ -10,6 +15,12 @@ import {
   DeliveryOrderRetrieve,
 } from "@/types/deliveryOrder";
 import { ProductKnowledge, ResourceCategory } from "@/types/productKnowledge";
+import {
+  ChargeItemDefinition,
+  ChargeItemDefinitionCreatePayload,
+  Product,
+  ProductCreatePayload,
+} from "@/types/inventory";
 import {
   DvdmsInstitute,
   DvdmsInstitutePayload,
@@ -27,15 +38,14 @@ import {
   DvdmsSupplierOrgMappingPayload,
   DvdmsSupplierOrgMappingUpdatePayload,
   DvdmsInstituteStore,
-  DvdmsInstituteStorePayload,
 } from "@/types/dvdms_config";
 import {
   RecordDelivery,
   RecordDeliveryDetail,
   RecordDeliveryItem,
   RecordDeliveryItemPayload,
-  RecordDeliveryItemUpdatePayload,
   RecordDeliveryPayload,
+  RecordDeliveryUpdatePayload,
   RecordInward,
   RecordInwardDetail,
   RecordInwardPayload,
@@ -50,6 +60,11 @@ import {
 } from "@/types/recordOrderItem";
 import { RecordOrderProductMapping } from "@/types/productMapping";
 import { RequestOrder } from "@/types/requestOrder";
+import {
+  SUPPLY_DELIVERY_ITEM_TYPE,
+  SupplyDeliveryCreatePayload,
+  SupplyDeliveryRetrieve,
+} from "@/types/supplyDelivery";
 import { SupplyRequest } from "@/types/supplyRequest";
 import { TagConfig } from "@/types/tagConfig";
 import {
@@ -128,6 +143,15 @@ export const apis = {
         apis.supplyRequests.path,
         HttpMethod.GET,
         params,
+      ),
+  },
+  supplyDeliveries: {
+    path: "/api/v1/supply_delivery/",
+    create: (payload: SupplyDeliveryCreatePayload) =>
+      request<SupplyDeliveryRetrieve>(
+        apis.supplyDeliveries.path,
+        HttpMethod.POST,
+        { supplied_item_type: SUPPLY_DELIVERY_ITEM_TYPE, ...payload },
       ),
   },
   recordOrders: {
@@ -285,6 +309,17 @@ export const apis = {
         `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/`,
         HttpMethod.GET,
       ),
+    updateDelivery: (
+      instituteId: string,
+      recordInwardId: string,
+      recordDeliveryId: string,
+      payload: RecordDeliveryUpdatePayload,
+    ) =>
+      request<RecordDelivery>(
+        `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/`,
+        HttpMethod.PATCH,
+        { ...payload },
+      ),
     createDeliveryItem: (
       instituteId: string,
       recordInwardId: string,
@@ -296,17 +331,14 @@ export const apis = {
         HttpMethod.POST,
         { ...payload },
       ),
-    updateDeliveryItem: (
+    retryDeliveryAcknowledgement: (
       instituteId: string,
       recordInwardId: string,
       recordDeliveryId: string,
-      itemDeliveryId: string,
-      payload: RecordDeliveryItemUpdatePayload,
     ) =>
-      request<RecordDeliveryItem>(
-        `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/items/${itemDeliveryId}/`,
-        HttpMethod.PATCH,
-        { ...payload },
+      request<void>(
+        `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/retry-acknowledgement/`,
+        HttpMethod.POST,
       ),
   },
   recordOrderProductMappings: {
@@ -423,18 +455,27 @@ export const apis = {
       ),
   },
   productMappings: {
+    path: (instituteId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
     list: (
       instituteId: string,
-      params?: { limit?: number; offset?: number; mapping_type?: string },
+      params?: {
+        limit?: number;
+        offset?: number;
+        mapping_type?: string;
+        eaushadhi_drug_id?: string;
+        product_knowledge_id?: string;
+        ordering?: string;
+      },
     ) =>
       request<PaginatedResponse<DvdmsProductMapping>>(
-        `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
+        apis.productMappings.path(instituteId),
         HttpMethod.GET,
         params,
       ),
     create: (instituteId: string, payload: DvdmsProductMappingCreatePayload) =>
       request<DvdmsProductMapping>(
-        `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
+        apis.productMappings.path(instituteId),
         HttpMethod.POST,
         payload,
       ),
@@ -487,16 +528,6 @@ export const apis = {
         HttpMethod.GET,
         params,
       ),
-    create: (
-      facilityId: string,
-      instituteId: string,
-      payload: DvdmsInstituteStorePayload,
-    ) =>
-      request<DvdmsInstituteStore>(
-        `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
-        HttpMethod.POST,
-        { ...payload },
-      ),
   },
   productKnowledge: {
     list: (params: {
@@ -520,11 +551,55 @@ export const apis = {
       ),
   },
   resourceCategories: {
-    list: (facilityId: string, params: { resource_type: string }) =>
+    list: (
+      facilityId: string,
+      params: {
+        resource_type: string;
+        parent?: string;
+        title?: string;
+        limit?: number;
+      },
+    ) =>
       request<PaginatedResponse<ResourceCategory>>(
         `/api/v1/facility/${facilityId}/resource_category/`,
         HttpMethod.GET,
         params,
+      ),
+    get: (facilityId: string, slug: string) =>
+      request<ResourceCategory>(
+        `/api/v1/facility/${facilityId}/resource_category/${slug}/`,
+        HttpMethod.GET,
+      ),
+  },
+  products: {
+    list: (
+      facilityId: string,
+      params: {
+        product_knowledge?: string;
+        status?: string;
+        ordering?: string;
+        limit?: number;
+        offset?: number;
+      },
+    ) =>
+      request<PaginatedResponse<Product>>(
+        `/api/v1/facility/${facilityId}/product/`,
+        HttpMethod.GET,
+        params,
+      ),
+    create: (facilityId: string, payload: ProductCreatePayload) =>
+      request<Product>(
+        `/api/v1/facility/${facilityId}/product/`,
+        HttpMethod.POST,
+        { ...payload },
+      ),
+  },
+  chargeItemDefinitions: {
+    create: (facilityId: string, payload: ChargeItemDefinitionCreatePayload) =>
+      request<ChargeItemDefinition>(
+        `/api/v1/facility/${facilityId}/charge_item_definition/`,
+        HttpMethod.POST,
+        { ...payload },
       ),
   },
   superBatch: {

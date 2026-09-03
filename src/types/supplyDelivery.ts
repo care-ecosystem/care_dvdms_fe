@@ -5,11 +5,16 @@ export enum SupplyDeliveryStatus {
   entered_in_error = "entered_in_error",
 }
 
+export enum SupplyDeliveryCondition {
+  normal = "normal",
+  damaged = "damaged",
+}
+
 export const SUPPLY_DELIVERY_ITEM_TYPE = "product";
 
 export interface SupplyDeliveryCreatePayload {
   status: SupplyDeliveryStatus;
-  supplied_item_condition: string;
+  supplied_item_condition: SupplyDeliveryCondition;
   supplied_item_quantity: string | number;
   supplied_item: string;
   supplied_item_pack_quantity: number;
@@ -24,7 +29,7 @@ export interface SupplyDeliveryCreatePayload {
 export interface SupplyDeliveryRetrieve {
   id: string;
   status: SupplyDeliveryStatus;
-  supplied_item_condition: string;
+  supplied_item_condition: SupplyDeliveryCondition;
   supplied_item_quantity: number;
   supplied_item_pack_quantity: number;
   supplied_item_pack_size: number;
@@ -34,4 +39,10 @@ export interface SupplyDeliveryRetrieve {
   order: { id: string; status: string };
   created_date: string;
   modified_date: string;
+}
+
+export interface SupplyDeliveryUpsertPayload {
+  id: string;
+  status: SupplyDeliveryStatus;
+  supplied_item_condition: SupplyDeliveryCondition;
 }

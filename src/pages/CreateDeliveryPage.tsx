@@ -1,7 +1,7 @@
 import { FC, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { navigate } from "raviger";
+import { navigate, useQueryParams } from "raviger";
 import { useForm } from "react-hook-form";
 import { XIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -29,6 +29,7 @@ import {
 } from "@/context/ShortcutContext";
 import { Organization } from "@/types/organization";
 import { DeliveryOrderStatus } from "@/types/deliveryOrder";
+import { RecordDeliveryStatus } from "@/types/recordOrder";
 import { REQUEST_ORDER_STATUS_VARIANTS } from "@/types/requestOrder";
 import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
@@ -62,6 +63,8 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
   const queryClient = useQueryClient();
   const hasSubmitted = useRef(false);
 
+  const [{ issue: issueId }] = useQueryParams<{ issue?: string }>();
+
   const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/record/${recordOrderId}`;
 
   const { data: institute } = useQuery({
@@ -92,8 +95,13 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
   });
   const outward = outwardData?.results?.[0];
 
-  const { inwardRecord, isLoading: isInwardRecordLoading } =
-    useRecordInwardDeliveries(institute?.id, outward?.id);
+  const {
+    inwardRecord,
+    deliveries: recordDeliveries,
+    isLoading: isInwardRecordLoading,
+  } = useRecordInwardDeliveries(institute?.id, outward?.id, {
+    inwardRecordId: issueId,
+  });
 
   const form = useForm<DeliveryFormValues>({
     defaultValues: {
@@ -119,10 +127,16 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
   }, [recordOrder, form]);
 
   useEffect(() => {
-    if (hasSubmitted.current || isInwardRecordLoading || !inwardRecord) return;
+    if (
+      hasSubmitted.current ||
+      isInwardRecordLoading ||
+      !inwardRecord ||
+      recordDeliveries.length === 0
+    )
+      return;
     toast.info(t("delivery_already_created"));
     navigate(returnPath, { replace: true });
-  }, [inwardRecord, isInwardRecordLoading, returnPath, t]);
+  }, [inwardRecord, recordDeliveries, isInwardRecordLoading, returnPath, t]);
 
   const { mutate: createDeliveryOrder, isPending: isCreating } = useMutation({
     onMutate: () => {
@@ -138,14 +152,14 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
         throw new Error("Missing DVDMS indent number for this outward record");
       }
 
-      if (!inwardRecord) {
-        await apis.recordInwards.create(institute.id, {
+      const inward =
+        inwardRecord ??
+        (await apis.recordInwards.create(institute.id, {
           eaushadhi_issue_no: outward.eaushadhi_indent_no,
           outward_record: outward.id,
-        });
-      }
+        }));
 
-      return apis.deliveryOrders.create(facilityId, {
+      const deliveryOrder = await apis.deliveryOrders.create(facilityId, {
         status: DeliveryOrderStatus.draft,
         name: form.getValues("name"),
         note: form.getValues("note") || undefined,
@@ -153,13 +167,23 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
         destination: locationId,
         extensions: {},
       });
+
+      await apis.recordInwards.createDelivery(institute.id, inward.id, {
+        delivery_order: deliveryOrder.id,
+        record_order: recordOrder.id,
+        status: RecordDeliveryStatus.pending,
+      });
+
+      return { deliveryOrder, inwardRecordId: inward.id };
     },
-    onSuccess: (deliveryOrder) => {
+    onSuccess: ({ deliveryOrder, inwardRecordId }) => {
       toast.success(t("delivery_order_created_successfully"));
       queryClient.invalidateQueries({ queryKey: ["dvdms_record_inwards"] });
-      navigate(`${returnPath}/delivery/${deliveryOrder.id}`, {
-        replace: true,
-      });
+      queryClient.invalidateQueries({ queryKey: ["dvdms_record_deliveries"] });
+      navigate(
+        `${returnPath}/delivery/${deliveryOrder.id}?issue=${inwardRecordId}`,
+        { replace: true },
+      );
     },
     onError: () => toast.error(t("failed_to_create_delivery_order")),
   });
@@ -258,6 +282,14 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
                     </label>
                     <div className="text-lg font-semibold text-gray-950">
                       {outward?.eaushadhi_indent_no ?? "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("issue_no")}
+                    </label>
+                    <div className="text-lg font-semibold text-gray-950">
+                      {inwardRecord?.eaushadhi_issue_no ?? "—"}
                     </div>
                   </div>
                 </div>

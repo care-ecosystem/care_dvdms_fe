@@ -1,9 +1,9 @@
 import { FC, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { navigate } from "raviger";
+import { navigate, useQueryParams } from "raviger";
 import { useFieldArray, useForm } from "react-hook-form";
-import { ChevronLeftIcon } from "lucide-react";
+import { ChevronLeftIcon, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
@@ -18,6 +18,7 @@ import { chunk } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Form } from "@/components/ui/form";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -31,6 +32,7 @@ import {
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import BackButton from "@/components/BackButton";
 import DeliveryItemRow from "@/components/DeliveryItemRow";
+import ReceiveStockDialog from "@/components/ReceiveStockDialog";
 import {
   ShortcutProvider,
   useShortcutSubContext,
@@ -49,11 +51,20 @@ import {
 } from "@/types/inventory";
 import { ProductKnowledge } from "@/types/productKnowledge";
 import {
+  RECORD_DELIVERY_ITEM_STATUS_LABELS,
+  RECORD_DELIVERY_ITEM_STATUS_VARIANTS,
   RECORD_DELIVERY_STATUS_VARIANTS,
+  DvdmsSyncRequestStatus,
+  DvdmsSyncType,
+  RecordDeliveryItem,
+  RecordDeliveryItemStatus,
   RecordDeliveryStatus,
   RecordInwardItem,
 } from "@/types/recordOrder";
-import { SupplyDeliveryStatus } from "@/types/supplyDelivery";
+import {
+  SupplyDeliveryCondition,
+  SupplyDeliveryStatus,
+} from "@/types/supplyDelivery";
 import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
 const toQuantity = (value: string | undefined) =>
@@ -63,6 +74,10 @@ const hasQuantity = (value: string | undefined) =>
   !!value?.trim() && Number(value) >= 1;
 
 const toPrice = (value: number) => Number(value.toFixed(6));
+
+const isPendingReceipt = (item: RecordDeliveryItem) =>
+  item.status === RecordDeliveryItemStatus.draft &&
+  item.supply_delivery.status === SupplyDeliveryStatus.in_progress;
 
 type AddDeliveryItemsPageProps = {
   facilityId: string;
@@ -89,6 +104,12 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedSavedItemIds, setSelectedSavedItemIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [isReceiveStockOpen, setIsReceiveStockOpen] = useState(false);
+
+  const [{ issue: issueId }] = useQueryParams<{ issue?: string }>();
 
   const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/record/${recordOrderId}`;
 
@@ -121,14 +142,25 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   const outward = outwardData?.results?.[0];
 
   const {
-    inwardRecord,
-    deliveries: recordDeliveries,
+    inwardRecord: fallbackInwardRecord,
+    inwardRecords,
+    deliveriesByInwardId,
     isLoading: isRecordInwardsLoading,
-  } = useRecordInwardDeliveries(institute?.id, outward?.id);
+  } = useRecordInwardDeliveries(institute?.id, outward?.id, {
+    inwardRecordId: issueId,
+  });
 
-  const recordDelivery = recordDeliveries.find(
-    (delivery) => delivery.delivery_order.id === deliveryOrderId,
-  );
+  const deliveryOwner = inwardRecords
+    .map((record) => ({
+      inwardRecord: record,
+      recordDelivery: (deliveriesByInwardId.get(record.id) ?? []).find(
+        (delivery) => delivery.delivery_order.id === deliveryOrderId,
+      ),
+    }))
+    .find((entry) => !!entry.recordDelivery);
+
+  const inwardRecord = deliveryOwner?.inwardRecord ?? fallbackInwardRecord;
+  const recordDelivery = deliveryOwner?.recordDelivery;
   const recordDeliveryStatus = recordDelivery?.status;
 
   const { data: recordDeliveryDetail, isLoading: isLoadingSavedItems } =
@@ -266,6 +298,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
         drug_name: item.drug_name,
         eaushadhi_batch: item.batch,
         received_quantity: item.received_quantity,
+        quantity_dispatched: item.received_quantity,
+        quantity_damaged: "0",
+        quantity_short: "0",
         product_knowledge: productKnowledgeByDrugId.get(item.drug_id),
       })),
     );
@@ -306,12 +341,14 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       }
 
       // The backend rejects received + damaged + short > dispatched.
-      const dispatched = toQuantity(
-        inwardItemById.get(item.inward_record_item)?.received_quantity,
-      );
-      if (dispatched > 0 && toQuantity(item.received_quantity) > dispatched) {
+      const dispatched = toQuantity(item.quantity_dispatched);
+      const accountedFor =
+        toQuantity(item.received_quantity) +
+        toQuantity(item.quantity_damaged) +
+        toQuantity(item.quantity_short);
+      if (dispatched > 0 && accountedFor > dispatched) {
         toast.error(
-          t("received_qty_exceeds_dispatched_at_row", { row, dispatched }),
+          t("quantities_exceed_dispatched_at_row", { row, dispatched }),
         );
         return false;
       }
@@ -320,7 +357,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     return true;
   };
 
-  
   const processRowItem = async (
     item: DeliveryItemFormValues,
     index: number,
@@ -384,7 +420,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     const quantity = toQuantity(item.received_quantity);
     const supplyDelivery = await apis.supplyDeliveries.create({
       status: SupplyDeliveryStatus.in_progress,
-      supplied_item_condition: "normal",
+      supplied_item_condition: SupplyDeliveryCondition.normal,
       supplied_item_quantity: quantity,
       supplied_item: productId!,
       supplied_item_pack_quantity: 1,
@@ -403,9 +439,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     // Rows added by hand have no eAushadhi item to record against.
     if (!item.inward_record_item) return;
 
-    const dispatched = toQuantity(
-      inwardItemById.get(item.inward_record_item)?.received_quantity,
-    );
     await apis.recordInwards.createDeliveryItem(
       institute!.id,
       inwardRecord!.id,
@@ -413,10 +446,10 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       {
         inward_record_item: item.inward_record_item,
         supply_delivery: supplyDelivery.id,
-        quantity_dispatched: dispatched,
+        quantity_dispatched: toQuantity(item.quantity_dispatched),
         quantity_accepted: quantity,
-        quantity_damaged: 0,
-        quantity_short: Math.max(0, dispatched - quantity),
+        quantity_damaged: toQuantity(item.quantity_damaged),
+        quantity_short: toQuantity(item.quantity_short),
       },
     );
   };
@@ -431,9 +464,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     setIsProcessing(true);
     try {
       const recordDeliveryId =
-        recordDeliveries.find(
-          (delivery) => delivery.delivery_order.id === deliveryOrderId,
-        )?.id ??
+        recordDelivery?.id ??
         (
           await apis.recordInwards.createDelivery(
             institute.id,
@@ -492,6 +523,89 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     }
   });
 
+  const pendingSavedItems = useMemo(
+    () => savedItems.filter(isPendingReceipt),
+    [savedItems],
+  );
+
+  useEffect(() => {
+    const pendingIds = new Set(pendingSavedItems.map((item) => item.id));
+    setSelectedSavedItemIds((previous) => {
+      const next = new Set([...previous].filter((id) => pendingIds.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [pendingSavedItems]);
+
+  const selectedSavedItems = pendingSavedItems.filter((item) =>
+    selectedSavedItemIds.has(item.id),
+  );
+
+  const receiveStockMutation = useMutation({
+    mutationFn: async ({
+      status,
+      condition,
+    }: {
+      status: SupplyDeliveryStatus;
+      condition: SupplyDeliveryCondition;
+    }) => {
+      await apis.supplyDeliveries.upsert(
+        selectedSavedItems.map((item) => ({
+          id: item.supply_delivery.id,
+          status,
+          supplied_item_condition: condition,
+        })),
+      );
+
+      if (
+        status !== SupplyDeliveryStatus.completed ||
+        condition !== SupplyDeliveryCondition.normal ||
+        !institute?.id ||
+        !inwardRecord?.id ||
+        !recordDelivery?.id
+      ) {
+        return;
+      }
+
+      const results = await Promise.allSettled(
+        selectedSavedItems.map((item) =>
+          apis.recordInwards.updateDeliveryItem(
+            institute.id,
+            inwardRecord.id,
+            recordDelivery.id,
+            item.id,
+            { status: RecordDeliveryItemStatus.active },
+          ),
+        ),
+      );
+
+      const failedCount = results.filter(
+        (result) => result.status === "rejected",
+      ).length;
+      if (failedCount > 0) {
+        throw new Error(
+          t("delivery_items_activate_failed", { count: failedCount }),
+        );
+      }
+    },
+    onSuccess: () => {
+      toast.success(t("stock_updated"));
+      setIsReceiveStockOpen(false);
+      setSelectedSavedItemIds(new Set());
+    },
+    onError: (error: { message?: string }) => {
+      toast.error(error?.message || t("stock_update_failed"));
+    },
+
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_record_delivery_detail"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["dvdms_products"] }),
+      ]);
+    },
+  });
+
   const approveDeliveryMutation = useMutation({
     mutationFn: () => {
       if (!institute?.id || !inwardRecord?.id || !recordDelivery?.id) {
@@ -516,6 +630,40 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     },
   });
 
+  const retryAcknowledgementMutation = useMutation({
+    mutationFn: () => {
+      if (!institute?.id || !inwardRecord?.id || !recordDelivery?.id) {
+        throw new Error("Missing institute, inward record or record delivery");
+      }
+      return apis.recordInwards.retryDeliveryAcknowledgement(
+        institute.id,
+        inwardRecord.id,
+        recordDelivery.id,
+      );
+    },
+    onSuccess: () => {
+      toast.success(t("acknowledgement_retry_queued"));
+      queryClient.invalidateQueries({ queryKey: ["dvdms_record_inwards"] });
+      queryClient.invalidateQueries({ queryKey: ["dvdms_record_deliveries"] });
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_delivery_detail"],
+      });
+    },
+    onError: (error: { message?: string }) => {
+      toast.error(error?.message || t("acknowledgement_retry_failed"));
+    },
+  });
+
+
+  const failedAcknowledgement =
+    inwardRecord?.sync_log?.sync_type === DvdmsSyncType.acknowledge_issue &&
+    inwardRecord.sync_log.request_status === DvdmsSyncRequestStatus.failure
+      ? inwardRecord.sync_log
+      : undefined;
+
+  const hasFailedAcknowledgement =
+    !!recordDelivery?.id && !!failedAcknowledgement;
+
   const canApproveDelivery =
     !!recordDelivery?.id &&
     recordDeliveryStatus !== RecordDeliveryStatus.completed &&
@@ -523,6 +671,8 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     fields.length === 0 &&
     savedItems.length > 0 &&
     !isProcessing;
+
+  const hasUnreceivedItems = pendingSavedItems.length > 0;
 
   const isLoadingContext =
     isRecordOrderLoading || isOutwardLoading || isRecordInwardsLoading;
@@ -547,16 +697,44 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
               {t("add_delivery_items_description")}
             </p>
           </div>
+          {hasFailedAcknowledgement && (
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0"
+              onClick={() => retryAcknowledgementMutation.mutate()}
+              disabled={retryAcknowledgementMutation.isPending}
+              title={
+                failedAcknowledgement?.error_detail ??
+                (failedAcknowledgement?.http_status_code
+                  ? t("acknowledgement_failed_with_status", {
+                      status: failedAcknowledgement.http_status_code,
+                    })
+                  : undefined)
+              }
+            >
+              <RefreshCw className="size-4" />
+              {retryAcknowledgementMutation.isPending
+                ? t("retrying")
+                : t("retry_acknowledgement")}
+            </Button>
+          )}
           {canApproveDelivery && (
             <Button
               type="button"
               className="shrink-0"
               onClick={() => approveDeliveryMutation.mutate()}
-              disabled={approveDeliveryMutation.isPending}
+              disabled={approveDeliveryMutation.isPending || hasUnreceivedItems}
+              title={
+                hasUnreceivedItems
+                  ? t("receive_all_items_to_approve")
+                  : undefined
+              }
             >
               {approveDeliveryMutation.isPending
                 ? t("saving")
                 : t("mark_as_approved")}
+              <ShortcutBadge actionId="mark-as" />
             </Button>
           )}
         </div>
@@ -636,6 +814,14 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                       {outward?.eaushadhi_indent_no ?? "—"}
                     </div>
                   </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("issue_no")}
+                    </label>
+                    <div className="text-lg font-semibold text-gray-950">
+                      {inwardRecord?.eaushadhi_issue_no ?? "—"}
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -643,19 +829,53 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
             {savedItems.length > 0 && (
               <Card className="mb-4 py-4 rounded-md">
                 <CardContent className="space-y-3">
-                  <div>
-                    <h2 className="text-base font-semibold text-gray-900">
-                      {t("items_already_added")}
-                    </h2>
-                    <p className="text-sm text-gray-500">
-                      {t("items_already_added_description")}
-                    </p>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h2 className="text-base font-semibold text-gray-900">
+                        {t("items_already_added")}
+                      </h2>
+                      <p className="text-sm text-gray-500">
+                        {t("items_already_added_description")}
+                      </p>
+                    </div>
+                    {pendingSavedItems.length > 0 && (
+                      <Button
+                        type="button"
+                        className="shrink-0"
+                        onClick={() => setIsReceiveStockOpen(true)}
+                        disabled={selectedSavedItemIds.size === 0}
+                      >
+                        {t("receive_update_stock")}
+                      </Button>
+                    )}
                   </div>
                   <div className="rounded-md border border-gray-200 bg-white overflow-hidden">
                     <div className="overflow-x-auto">
                       <Table>
                         <TableHeader className="bg-gray-100">
                           <TableRow className="divide-x divide-gray-200">
+                            <TableHead className="w-10">
+                              {pendingSavedItems.length > 0 && (
+                                <Checkbox
+                                  checked={
+                                    selectedSavedItemIds.size ===
+                                    pendingSavedItems.length
+                                  }
+                                  onCheckedChange={(checked) =>
+                                    setSelectedSavedItemIds(
+                                      checked
+                                        ? new Set(
+                                            pendingSavedItems.map(
+                                              (item) => item.id,
+                                            ),
+                                          )
+                                        : new Set(),
+                                    )
+                                  }
+                                  aria-label={t("select_all")}
+                                />
+                              )}
+                            </TableHead>
                             <TableHead className="min-w-[200px] text-xs font-semibold">
                               {t("drug")}
                             </TableHead>
@@ -669,13 +889,13 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                               {t("dispatched")}
                             </TableHead>
                             <TableHead className="text-xs font-semibold text-right">
-                              {t("received")}
-                            </TableHead>
-                            <TableHead className="text-xs font-semibold text-right">
                               {t("damaged")}
                             </TableHead>
                             <TableHead className="text-xs font-semibold text-right">
                               {t("short")}
+                            </TableHead>
+                            <TableHead className="text-xs font-semibold text-right">
+                              {t("received")}
                             </TableHead>
                             <TableHead className="text-xs font-semibold">
                               {t("status")}
@@ -693,6 +913,29 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                 key={item.id}
                                 className="divide-x divide-gray-200"
                               >
+                                <TableCell className="p-2">
+                                  {isPendingReceipt(item) && (
+                                    <Checkbox
+                                      checked={selectedSavedItemIds.has(
+                                        item.id,
+                                      )}
+                                      onCheckedChange={(checked) =>
+                                        setSelectedSavedItemIds((previous) => {
+                                          const next = new Set(previous);
+                                          if (checked) {
+                                            next.add(item.id);
+                                          } else {
+                                            next.delete(item.id);
+                                          }
+                                          return next;
+                                        })
+                                      }
+                                      aria-label={
+                                        item.inward_record_item.item_name
+                                      }
+                                    />
+                                  )}
+                                </TableCell>
                                 <TableCell className="p-2 text-sm text-gray-900">
                                   <div className="flex flex-col whitespace-normal">
                                     <span>
@@ -715,20 +958,28 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                   {item.quantity_dispatched ?? "—"}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-right tabular-nums">
-                                  {item.quantity_accepted ?? "—"}
-                                </TableCell>
-                                <TableCell className="p-2 text-sm text-right tabular-nums">
                                   {item.quantity_damaged ?? "—"}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-right tabular-nums">
                                   {item.quantity_short ?? "—"}
                                 </TableCell>
+                                <TableCell className="p-2 text-sm text-right tabular-nums">
+                                  {item.quantity_accepted ?? "—"}
+                                </TableCell>
                                 <TableCell className="p-2">
                                   <Badge
                                     className="rounded-sm"
-                                    variant="secondary"
+                                    variant={
+                                      RECORD_DELIVERY_ITEM_STATUS_VARIANTS[
+                                        item.status
+                                      ] ?? "secondary"
+                                    }
                                   >
-                                    {item.supply_delivery.status}
+                                    {t(
+                                      RECORD_DELIVERY_ITEM_STATUS_LABELS[
+                                        item.status
+                                      ] ?? item.status,
+                                    )}
                                   </Badge>
                                 </TableCell>
                               </TableRow>
@@ -738,6 +989,16 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                       </Table>
                     </div>
                   </div>
+
+                  <ReceiveStockDialog
+                    open={isReceiveStockOpen}
+                    onOpenChange={setIsReceiveStockOpen}
+                    selectedCount={selectedSavedItemIds.size}
+                    isPending={receiveStockMutation.isPending}
+                    onConfirm={(status, condition) =>
+                      receiveStockMutation.mutate({ status, condition })
+                    }
+                  />
                 </CardContent>
               </Card>
             )}
@@ -778,7 +1039,25 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-28 text-xs font-semibold"
+                                  className="w-24 text-xs font-semibold"
+                                >
+                                  {t("dispatched")}
+                                </TableHead>
+                                <TableHead
+                                  rowSpan={2}
+                                  className="w-24 text-xs font-semibold"
+                                >
+                                  {t("damaged")}
+                                </TableHead>
+                                <TableHead
+                                  rowSpan={2}
+                                  className="w-24 text-xs font-semibold"
+                                >
+                                  {t("short")}
+                                </TableHead>
+                                <TableHead
+                                  rowSpan={2}
+                                  className="w-24 text-xs font-semibold"
                                 >
                                   {t("received_qty")}
                                 </TableHead>

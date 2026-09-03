@@ -82,6 +82,29 @@ export interface RecordInwardPayload {
   outward_record: string;
 }
 
+export enum DvdmsSyncType {
+  save_indent = "save_indent",
+  track_indent = "track_indent",
+  fetch_issue = "fetch_issue",
+  acknowledge_issue = "acknowledge_issue",
+}
+
+export enum DvdmsSyncRequestStatus {
+  pending = "pending",
+  success = "success",
+  failure = "failure",
+}
+
+/** The outcome of the last DVDMS sync against an issue. */
+export interface RecordInwardSyncLog {
+  id: string;
+  sync_type: DvdmsSyncType;
+  request_status: DvdmsSyncRequestStatus;
+  http_status_code: number | null;
+  retry_count: number;
+  error_detail: string | null;
+}
+
 export interface RecordInward {
   id: string;
   eaushadhi_issue_no: string;
@@ -90,6 +113,7 @@ export interface RecordInward {
   outward_record: string;
   eaushadhi_indent_no: string | null;
   sync_log_id: string | null;
+  sync_log: RecordInwardSyncLog | null;
 }
 
 export interface RecordInwardItem {
@@ -169,6 +193,30 @@ export interface RecordDelivery {
   modified_date: string;
 }
 
+export enum RecordDeliveryItemStatus {
+  draft = "draft",
+  active = "ACTIVE",
+  reversed = "REVERSED",
+}
+
+export const RECORD_DELIVERY_ITEM_STATUS_VARIANTS: Record<
+  RecordDeliveryItemStatus,
+  RequestOrderBadgeVariant
+> = {
+  [RecordDeliveryItemStatus.draft]: "secondary",
+  [RecordDeliveryItemStatus.active]: "green",
+  [RecordDeliveryItemStatus.reversed]: "destructive",
+};
+
+export const RECORD_DELIVERY_ITEM_STATUS_LABELS: Record<
+  RecordDeliveryItemStatus,
+  string
+> = {
+  [RecordDeliveryItemStatus.draft]: "draft",
+  [RecordDeliveryItemStatus.active]: "active",
+  [RecordDeliveryItemStatus.reversed]: "reversed",
+};
+
 export interface RecordDeliveryItemInwardRecordItem {
   id: string;
   item_name: string;
@@ -234,7 +282,7 @@ export interface RecordDeliveryItem {
   quantity_accepted: string;
   quantity_damaged: string;
   quantity_short: string;
-  status: string;
+  status: RecordDeliveryItemStatus;
   deleted: boolean;
   created_by: RecordOrderUser | null;
   updated_by: RecordOrderUser | null;

@@ -44,6 +44,7 @@ import {
   RecordDeliveryDetail,
   RecordDeliveryItem,
   RecordDeliveryItemPayload,
+  RecordDeliveryItemUpdatePayload,
   RecordDeliveryPayload,
   RecordDeliveryUpdatePayload,
   RecordInward,
@@ -64,6 +65,7 @@ import {
   SUPPLY_DELIVERY_ITEM_TYPE,
   SupplyDeliveryCreatePayload,
   SupplyDeliveryRetrieve,
+  SupplyDeliveryUpsertPayload,
 } from "@/types/supplyDelivery";
 import { SupplyRequest } from "@/types/supplyRequest";
 import { TagConfig } from "@/types/tagConfig";
@@ -152,6 +154,12 @@ export const apis = {
         apis.supplyDeliveries.path,
         HttpMethod.POST,
         { supplied_item_type: SUPPLY_DELIVERY_ITEM_TYPE, ...payload },
+      ),
+    upsert: (datapoints: SupplyDeliveryUpsertPayload[]) =>
+      request<SupplyDeliveryRetrieve>(
+        `${apis.supplyDeliveries.path}upsert/`,
+        HttpMethod.POST,
+        { datapoints },
       ),
   },
   recordOrders: {
@@ -329,6 +337,18 @@ export const apis = {
       request<RecordDeliveryItem>(
         `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/items/`,
         HttpMethod.POST,
+        { ...payload },
+      ),
+    updateDeliveryItem: (
+      instituteId: string,
+      recordInwardId: string,
+      recordDeliveryId: string,
+      recordDeliveryItemId: string,
+      payload: RecordDeliveryItemUpdatePayload,
+    ) =>
+      request<RecordDeliveryItem>(
+        `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/items/${recordDeliveryItemId}/`,
+        HttpMethod.PATCH,
         { ...payload },
       ),
     retryDeliveryAcknowledgement: (

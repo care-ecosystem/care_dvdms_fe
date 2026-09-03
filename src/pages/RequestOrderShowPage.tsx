@@ -8,7 +8,7 @@ import {
   ChevronLeft,
   Edit,
   EllipsisVertical,
-  Package,
+  Inbox,
   Plus,
   Printer,
   RefreshCw,
@@ -19,7 +19,6 @@ import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import {
   chunk,
-  formatDate,
   formatLookupId,
   formatQuantity,
   parseLookupId,
@@ -35,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import Autocomplete from "@/components/ui/autocomplete";
 import { EmptyState } from "@/components/ui/empty-state";
+import { NavTabs } from "@/components/ui/nav-tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -47,6 +47,7 @@ import {
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import { TableSkeleton } from "@/components/SkeletonLoading";
 import BackButton from "@/components/BackButton";
+import DvdmsIssuesTable from "@/components/DvdmsIssuesTable";
 import {
   ShortcutProvider,
   useShortcutSubContext,
@@ -119,6 +120,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const queryClient = useQueryClient();
 
   const recordBasePath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/record/${recordOrderId}`;
+
+  const [currentTab, setCurrentTab] = useState<
+    "requested-items" | "dvdms-issues"
+  >("requested-items");
 
   const [tableItems, setTableItems] = useState<SupplyRequest[]>([]);
   const [selectedDrugs, setSelectedDrugs] = useState<
@@ -304,10 +309,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     !["draft", "pending", "cancelled"].includes(recordOrder.status) &&
     !!outward?.eaushadhi_indent_no;
 
-  const { deliveries: recordDeliveries, inwardRecord } =
-    useRecordInwardDeliveries(institute?.id, outward?.id);
-  const canCreateDelivery =
-    outward?.eaushadhi_indent_status === "Issued" && !inwardRecord;
+  const { inwardRecords: dvdmsIssues, isInwardLoading: isIssuesLoading } =
+    useRecordInwardDeliveries(institute?.id, outward?.id, {
+      indentStatus: outward?.eaushadhi_indent_status,
+    });
 
   const existingItemBySupplyRequestId = new Map(
     (recordItemOrdersData?.results ?? []).map((item) => [
@@ -596,6 +601,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
           recordOrder?.id,
         ],
       });
+      queryClient.invalidateQueries({ queryKey: ["dvdms_record_inwards"] });
       queryClient.invalidateQueries({
         queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
       });
@@ -701,9 +707,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
           <Button
             variant="outline"
-            onClick={() =>
-              navigate(`${recordBasePath}/print`)
-            }
+            onClick={() => navigate(`${recordBasePath}/print`)}
           >
             <Printer className="size-4" /> {t("print")}
             <ShortcutBadge actionId="print-button" />
@@ -728,61 +732,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               <RefreshCw className="size-4" /> {t("sync_dvdms_status")}
             </Button>
           )}
-          {canCreateDelivery && (
-            <Button
-              onClick={() =>
-                navigate(`${recordBasePath}/create-delivery`)
-              }
-              title={t("create_delivery")}
-              aria-label={t("create_delivery")}
-            >
-              <Plus className="size-4" />
-              <span className="hidden sm:inline">{t("create_delivery")}</span>
-            </Button>
-          )}
-          {recordDeliveries.length === 1 && (
-            <Button
-              variant="outline"
-              onClick={() =>
-                navigate(
-                  `${recordBasePath}/delivery/${recordDeliveries[0].delivery_order.id}`,
-                )
-              }
-            >
-              <Package className="size-4" /> {t("view_delivery")}
-            </Button>
-          )}
-          {recordDeliveries.length > 1 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline">
-                  <Package className="size-4" /> {t("view_deliveries")}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {recordDeliveries.map((delivery, index) => (
-                  <DropdownMenuItem
-                    key={delivery.id}
-                    onClick={() =>
-                      navigate(
-                        `${recordBasePath}/delivery/${delivery.delivery_order.id}`,
-                      )
-                    }
-                  >
-                    {delivery.delivery_order.name} —{" "}
-                    {formatDate(delivery.created_date)}
-                    {index === 0 ? ` (${t("latest")})` : ""}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
           {recordOrder?.status == "draft" && (
             <Button
               variant="outline"
-              onClick={() =>
-                navigate(`${recordBasePath}/edit`)
-              }
+              onClick={() => navigate(`${recordBasePath}/edit`)}
             >
               <Edit className="size-4" /> {t("edit")}
               <ShortcutBadge actionId="edit-order" />
@@ -926,437 +879,546 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         </CardContent>
       </Card>
 
-      <div className="mt-2 space-y-4">
-        <Card className="border-none rounded-lg">
-          <CardContent className="space-y-4 p-4">
-            <div>
-              <h3 className="text-base font-semibold text-gray-950">
-                {t("drug_list_mapping")}
-              </h3>
-              <p className="text-sm text-gray-500">
-                {t("drug_list_mapping_description")}
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              {tableItems.length > 0 ? (
-                <>
-                  <Table className="min-w-[56rem]">
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead rowSpan={2}>{t("product")}</TableHead>
-                        <TableHead rowSpan={2}>{t("category")}</TableHead>
-                        <TableHead rowSpan={2}>{t("qty")}</TableHead>
-                        <TableHead colSpan={3} className="text-center border-b">
-                          {t("eaushadhi_drug_details")}
-                        </TableHead>
-                        {/* <TableHead rowSpan={2}>{t("actions")}</TableHead> */}
-                      </TableRow>
-                      <TableRow>
-                        <TableHead className="w-72">{t("group_id")}</TableHead>
-                        <TableHead className="w-72">
-                          {t("sub_group_id")}
-                        </TableHead>
-                        <TableHead className="w-72">{t("drug_name")}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {tableItems.map((item) => {
-                        const selectedDrugId = selectedDrugs[item.id]?.id ?? "";
-                        const readOnlyDrug =
-                          existingItemBySupplyRequestId.get(item.id)?.drug ??
-                          selectedDrugs[item.id];
-
-                        const selectedGroupId =
-                          selectedGroupBySupplyRequestId[item.id];
-                        const selectedSubgroupId =
-                          selectedSubgroupBySupplyRequestId[item.id];
-                        const subgroupOptions =
-                          selectedGroupId !== undefined
-                            ? (subgroupsByGroupId[selectedGroupId] ?? [])
-                            : [];
-                        const isSubgroupsLoading =
-                          selectedGroupId !== undefined &&
-                          loadingSubgroupGroupIds.has(selectedGroupId);
-                        const drugsCacheKey =
-                          selectedGroupId !== undefined
-                            ? drugsKey(selectedGroupId, selectedSubgroupId)
-                            : undefined;
-                        const catalogDrugOptions =
-                          drugsCacheKey !== undefined
-                            ? (drugsByGroupAndSubgroup[drugsCacheKey] ?? [])
-                            : [];
-                        const isDrugsLoading =
-                          drugsCacheKey !== undefined &&
-                          loadingDrugKeys.has(drugsCacheKey);
-
-                        const groupAutocompleteOptions = (
-                          lookupGroupsData ?? []
-                        ).map((group) => ({
-                          label: group.hststrGroupName,
-                          value: String(group.hstnumGroupId),
-                        }));
-                        if (
-                          selectedGroupId !== undefined &&
-                          !groupAutocompleteOptions.some(
-                            (option) =>
-                              option.value === String(selectedGroupId),
-                          )
-                        ) {
-                          groupAutocompleteOptions.push({
-                            label: String(selectedGroupId),
-                            value: String(selectedGroupId),
-                          });
-                        }
-
-                        const subgroupAutocompleteOptions = subgroupOptions.map(
-                          (subgroup) => ({
-                            label: subgroup.hststrSubgroupName,
-                            value: String(subgroup.hstnumSubgroupId),
-                          }),
-                        );
-                        if (
-                          selectedSubgroupId !== undefined &&
-                          !subgroupAutocompleteOptions.some(
-                            (option) =>
-                              option.value === String(selectedSubgroupId),
-                          )
-                        ) {
-                          subgroupAutocompleteOptions.push({
-                            label: String(selectedSubgroupId),
-                            value: String(selectedSubgroupId),
-                          });
-                        }
-
-                        const drugAutocompleteOptions = catalogDrugOptions.map(
-                          (drug) => ({
-                            label: drug.hststr_item_name,
-                            value: String(drug.hstnum_item_id),
-                          }),
-                        );
-                        if (
-                          selectedDrugId &&
-                          !drugAutocompleteOptions.some(
-                            (option) => option.value === selectedDrugId,
-                          )
-                        ) {
-                          drugAutocompleteOptions.push({
-                            label:
-                              selectedDrugs[item.id]?.name ?? selectedDrugId,
-                            value: selectedDrugId,
-                          });
-                        }
-
-                        const handleGroupChange = (value: string) => {
-                          const groupId = value ? Number(value) : undefined;
-                          setSelectedGroupBySupplyRequestId((prev) => ({
-                            ...prev,
-                            [item.id]: groupId,
-                          }));
-                          setSelectedSubgroupBySupplyRequestId((prev) => ({
-                            ...prev,
-                            [item.id]: undefined,
-                          }));
-                          setSelectedDrugs((prev) => ({
-                            ...prev,
-                            [item.id]: undefined,
-                          }));
-                          if (groupId !== undefined)
-                            ensureSubgroupsLoaded(groupId);
-                        };
-
-                        const handleSubgroupChange = (value: string) => {
-                          if (selectedGroupId === undefined) return;
-                          const subgroupId = value ? Number(value) : undefined;
-                          setSelectedSubgroupBySupplyRequestId((prev) => ({
-                            ...prev,
-                            [item.id]: subgroupId,
-                          }));
-                          setSelectedDrugs((prev) => ({
-                            ...prev,
-                            [item.id]: undefined,
-                          }));
-                          ensureDrugsLoaded(selectedGroupId, subgroupId);
-                        };
-
-                        const handleCatalogDrugChange = (value: string) => {
-                          if (!value) {
-                            setSelectedDrugs((prev) => ({
-                              ...prev,
-                              [item.id]: undefined,
-                            }));
-                            return;
-                          }
-                          const drug = catalogDrugOptions.find(
-                            (option) => String(option.hstnum_item_id) === value,
-                          );
-                          if (!drug) return;
-                          setSelectedDrugs((prev) => ({
-                            ...prev,
-                            [item.id]: lookupDrugToPayload(drug),
-                          }));
-                        };
-
-                        return (
-                          <TableRow key={item.id}>
-                            <TableCell className="align-top">
-                              <div className="text-xs text-gray-500 mb-3">
-                                {" "}
-                              </div>
-                              {item.item.name}
-                              <div className="text-xs text-gray-500 mt-1">
-                                {" "}
-                              </div>
-                            </TableCell>
-                            <TableCell className="align-top">
-                              <div className="text-xs text-gray-500 mb-3">
-                                {" "}
-                              </div>
-                              {categoryByProductId.get(item.item.id) ?? "—"}
-                              <div className="text-xs text-gray-500 mt-1">
-                                {" "}
-                              </div>
-                            </TableCell>
-                            <TableCell className="align-top">
-                              <div className="text-xs text-gray-500 mb-3">
-                                {" "}
-                              </div>
-                              {formatQuantity(item.quantity)}{" "}
-                              {item.item.base_unit?.display}
-                              <div className="text-xs text-gray-500 mt-1">
-                                {" "}
-                              </div>
-                            </TableCell>
-                            {isViewOnlyStatus ? (
-                              <>
-                                <TableCell className="align-top">
-                                  <div className="text-xs text-gray-500 mb-3">
-                                    {" "}
-                                  </div>
-                                  {formatLookupId(readOnlyDrug?.group_id)}
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    {" "}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="align-top">
-                                  <div className="text-xs text-gray-500 mb-3">
-                                    {" "}
-                                  </div>
-                                  {formatLookupId(readOnlyDrug?.sub_group_id)}
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    {" "}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="align-top">
-                                  <div className="text-xs text-gray-500 mb-3">
-                                    {" "}
-                                  </div>
-                                  <div
-                                    className="w-72 whitespace-normal break-words"
-                                    title={readOnlyDrug?.name}
-                                  >
-                                    {readOnlyDrug?.name ?? "—"}
-                                  </div>
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    {readOnlyDrug
-                                      ? `${t("drug_id")}: ${readOnlyDrug.id}`
-                                      : " "}
-                                  </div>
-                                </TableCell>
-                              </>
-                            ) : (
-                              <>
-                                <TableCell className="align-top">
-                                  <div className="text-xs text-gray-500 mb-3">
-                                    {" "}
-                                  </div>
-                                  <div className="w-72">
-                                    <Autocomplete
-                                      className="h-8 w-full"
-                                      value={
-                                        selectedGroupId !== undefined
-                                          ? String(selectedGroupId)
-                                          : ""
-                                      }
-                                      onChange={handleGroupChange}
-                                      onOpenChange={(open) => {
-                                        if (open) ensureGroupsLoaded();
-                                      }}
-                                      isLoading={isLookupGroupsLoading}
-                                      disabled={!institute?.id}
-                                      placeholder="—"
-                                      inputPlaceholder={t("search_group")}
-                                      noOptionsMessage={t("no_groups_found")}
-                                      options={groupAutocompleteOptions}
-                                    />
-                                  </div>
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    {selectedGroupId !== undefined
-                                      ? `${t("group_id")}: ${selectedGroupId}`
-                                      : " "}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="align-top">
-                                  <div className="text-xs text-gray-500 mb-3">
-                                    {" "}
-                                  </div>
-                                  <div className="w-72">
-                                    <Autocomplete
-                                      className="h-8 w-full"
-                                      value={
-                                        selectedSubgroupId !== undefined
-                                          ? String(selectedSubgroupId)
-                                          : ""
-                                      }
-                                      onChange={handleSubgroupChange}
-                                      onOpenChange={(open) => {
-                                        if (
-                                          open &&
-                                          selectedGroupId !== undefined
-                                        )
-                                          ensureSubgroupsLoaded(
-                                            selectedGroupId,
-                                          );
-                                      }}
-                                      isLoading={isSubgroupsLoading}
-                                      disabled={selectedGroupId === undefined}
-                                      placeholder="—"
-                                      inputPlaceholder={t("search_subgroup")}
-                                      noOptionsMessage={t("no_subgroups_found")}
-                                      options={subgroupAutocompleteOptions}
-                                    />
-                                  </div>
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    {selectedSubgroupId !== undefined
-                                      ? `${t("sub_group_id")}: ${selectedSubgroupId}`
-                                      : " "}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="align-top">
-                                  <div className="text-xs text-gray-500 mb-3">
-                                    {" "}
-                                  </div>
-                                  <div className="w-72">
-                                    <Autocomplete
-                                      className="h-8 w-full"
-                                      value={selectedDrugId}
-                                      onChange={handleCatalogDrugChange}
-                                      onOpenChange={(open) => {
-                                        if (
-                                          open &&
-                                          selectedGroupId !== undefined
-                                        )
-                                          ensureDrugsLoaded(
-                                            selectedGroupId,
-                                            selectedSubgroupId,
-                                          );
-                                      }}
-                                      isLoading={isDrugsLoading}
-                                      disabled={selectedGroupId === undefined}
-                                      placeholder="—"
-                                      inputPlaceholder={t("search_drug")}
-                                      noOptionsMessage={t("no_drugs_found")}
-                                      options={drugAutocompleteOptions}
-                                    />
-                                  </div>
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    {selectedDrugId
-                                      ? `${t("drug_id")}: ${selectedDrugId}`
-                                      : " "}
-                                  </div>
-                                </TableCell>
-                              </>
-                            )}
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-
-                  {isDraftStatus && !hasSavedOnce && (
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        onClick={() => handleSupplyDeliveryAction("save")}
-                        disabled={
-                          saveItemsMutation.isPending || hasUnselectedDrug
-                        }
-                      >
-                        {t("save")}
-                        <ShortcutBadge actionId="submit-action" />
-                      </Button>
+      <div className="mt-2 pb-4">
+        <NavTabs
+          tabs={{
+            "requested-items": {
+              label: t("requested_items"),
+              component: (
+                <Card className="border-none rounded-lg">
+                  <CardContent className="space-y-4 p-4">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-950">
+                        {t("drug_list_mapping")}
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        {t("drug_list_mapping_description")}
+                      </p>
                     </div>
-                  )}
-                </>
-              ) : (
-                <EmptyState
-                  title={t("no_items_found")}
-                  icon={<Box className="text-primary size-6" />}
-                />
-              )}
 
-              {isApprovable && hasSavedOnce && hasMoreSupplyRequests && (
-                <div className="flex justify-center">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => loadBalanceSupplyRequestsMutation.mutate()}
-                    disabled={loadBalanceSupplyRequestsMutation.isPending}
-                  >
-                    {t("show_balance_products")}
-                  </Button>
-                </div>
-              )}
+                    <div className="space-y-4">
+                      {tableItems.length > 0 ? (
+                        <>
+                          <Table className="min-w-[56rem]">
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead rowSpan={2}>
+                                  {t("product")}
+                                </TableHead>
+                                <TableHead rowSpan={2}>
+                                  {t("category")}
+                                </TableHead>
+                                <TableHead rowSpan={2}>{t("qty")}</TableHead>
+                                <TableHead
+                                  colSpan={3}
+                                  className="text-center border-b"
+                                >
+                                  {t("eaushadhi_drug_details")}
+                                </TableHead>
+                                {/* <TableHead rowSpan={2}>{t("actions")}</TableHead> */}
+                              </TableRow>
+                              <TableRow>
+                                <TableHead className="w-72">
+                                  {t("group_id")}
+                                </TableHead>
+                                <TableHead className="w-72">
+                                  {t("sub_group_id")}
+                                </TableHead>
+                                <TableHead className="w-72">
+                                  {t("drug_name")}
+                                </TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {tableItems.map((item) => {
+                                const selectedDrugId =
+                                  selectedDrugs[item.id]?.id ?? "";
+                                const readOnlyDrug =
+                                  existingItemBySupplyRequestId.get(item.id)
+                                    ?.drug ?? selectedDrugs[item.id];
 
-              {isPendingStatus && (
-                <div className="flex flex-col sm:flex-row gap-3 justify-between bg-white p-4 sm:items-center border border-gray-200 rounded-md">
-                  <div className="flex flex-col gap-2">
-                    <p className="font-bold">
-                      {t("review_and_finalise_request")}
-                    </p>
-                    <span className="text-sm text-gray-500">
-                      {t("review_and_finalise_request_description")}
-                    </span>
-                  </div>
-                  <Button
-                    type="button"
-                    className="w-full sm:w-auto shrink-0"
-                    onClick={() => approveRecordOrderMutation.mutate()}
-                    disabled={
-                      !recordItemOrdersData ||
-                      !recordItemOrdersData?.results?.length ||
-                      approveRecordOrderMutation.isPending
-                    }
-                  >
-                    {t("mark_as_approved")}
-                    <ShortcutBadge actionId="mark-as" />
-                  </Button>
-                </div>
-              )}
+                                const selectedGroupId =
+                                  selectedGroupBySupplyRequestId[item.id];
+                                const selectedSubgroupId =
+                                  selectedSubgroupBySupplyRequestId[item.id];
+                                const subgroupOptions =
+                                  selectedGroupId !== undefined
+                                    ? (subgroupsByGroupId[selectedGroupId] ??
+                                      [])
+                                    : [];
+                                const isSubgroupsLoading =
+                                  selectedGroupId !== undefined &&
+                                  loadingSubgroupGroupIds.has(selectedGroupId);
+                                const drugsCacheKey =
+                                  selectedGroupId !== undefined
+                                    ? drugsKey(
+                                        selectedGroupId,
+                                        selectedSubgroupId,
+                                      )
+                                    : undefined;
+                                const catalogDrugOptions =
+                                  drugsCacheKey !== undefined
+                                    ? (drugsByGroupAndSubgroup[drugsCacheKey] ??
+                                      [])
+                                    : [];
+                                const isDrugsLoading =
+                                  drugsCacheKey !== undefined &&
+                                  loadingDrugKeys.has(drugsCacheKey);
 
-              {isFailedStatus && (
-                <div className="flex flex-col sm:flex-row gap-3 justify-between bg-white p-4 sm:items-center border border-gray-200 rounded-md">
-                  <div className="flex flex-col gap-2">
-                    <p className="font-bold">
-                      {t("record_order_failed_title")}
-                    </p>
-                    <span className="text-sm text-gray-500">
-                      {t("record_order_failed_description")}
-                    </span>
-                  </div>
-                  <Button
-                    type="button"
-                    className="w-full sm:w-auto shrink-0"
-                    onClick={() => retryRecordOrderMutation.mutate()}
-                    disabled={retryRecordOrderMutation.isPending}
-                  >
-                    {t("resend_to_dvdms")}
-                  </Button>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                                const groupAutocompleteOptions = (
+                                  lookupGroupsData ?? []
+                                ).map((group) => ({
+                                  label: group.hststrGroupName,
+                                  value: String(group.hstnumGroupId),
+                                }));
+                                if (
+                                  selectedGroupId !== undefined &&
+                                  !groupAutocompleteOptions.some(
+                                    (option) =>
+                                      option.value === String(selectedGroupId),
+                                  )
+                                ) {
+                                  groupAutocompleteOptions.push({
+                                    label: String(selectedGroupId),
+                                    value: String(selectedGroupId),
+                                  });
+                                }
+
+                                const subgroupAutocompleteOptions =
+                                  subgroupOptions.map((subgroup) => ({
+                                    label: subgroup.hststrSubgroupName,
+                                    value: String(subgroup.hstnumSubgroupId),
+                                  }));
+                                if (
+                                  selectedSubgroupId !== undefined &&
+                                  !subgroupAutocompleteOptions.some(
+                                    (option) =>
+                                      option.value ===
+                                      String(selectedSubgroupId),
+                                  )
+                                ) {
+                                  subgroupAutocompleteOptions.push({
+                                    label: String(selectedSubgroupId),
+                                    value: String(selectedSubgroupId),
+                                  });
+                                }
+
+                                const drugAutocompleteOptions =
+                                  catalogDrugOptions.map((drug) => ({
+                                    label: drug.hststr_item_name,
+                                    value: String(drug.hstnum_item_id),
+                                  }));
+                                if (
+                                  selectedDrugId &&
+                                  !drugAutocompleteOptions.some(
+                                    (option) => option.value === selectedDrugId,
+                                  )
+                                ) {
+                                  drugAutocompleteOptions.push({
+                                    label:
+                                      selectedDrugs[item.id]?.name ??
+                                      selectedDrugId,
+                                    value: selectedDrugId,
+                                  });
+                                }
+
+                                const handleGroupChange = (value: string) => {
+                                  const groupId = value
+                                    ? Number(value)
+                                    : undefined;
+                                  setSelectedGroupBySupplyRequestId((prev) => ({
+                                    ...prev,
+                                    [item.id]: groupId,
+                                  }));
+                                  setSelectedSubgroupBySupplyRequestId(
+                                    (prev) => ({
+                                      ...prev,
+                                      [item.id]: undefined,
+                                    }),
+                                  );
+                                  setSelectedDrugs((prev) => ({
+                                    ...prev,
+                                    [item.id]: undefined,
+                                  }));
+                                  if (groupId !== undefined)
+                                    ensureSubgroupsLoaded(groupId);
+                                };
+
+                                const handleSubgroupChange = (
+                                  value: string,
+                                ) => {
+                                  if (selectedGroupId === undefined) return;
+                                  const subgroupId = value
+                                    ? Number(value)
+                                    : undefined;
+                                  setSelectedSubgroupBySupplyRequestId(
+                                    (prev) => ({
+                                      ...prev,
+                                      [item.id]: subgroupId,
+                                    }),
+                                  );
+                                  setSelectedDrugs((prev) => ({
+                                    ...prev,
+                                    [item.id]: undefined,
+                                  }));
+                                  ensureDrugsLoaded(
+                                    selectedGroupId,
+                                    subgroupId,
+                                  );
+                                };
+
+                                const handleCatalogDrugChange = (
+                                  value: string,
+                                ) => {
+                                  if (!value) {
+                                    setSelectedDrugs((prev) => ({
+                                      ...prev,
+                                      [item.id]: undefined,
+                                    }));
+                                    return;
+                                  }
+                                  const drug = catalogDrugOptions.find(
+                                    (option) =>
+                                      String(option.hstnum_item_id) === value,
+                                  );
+                                  if (!drug) return;
+                                  setSelectedDrugs((prev) => ({
+                                    ...prev,
+                                    [item.id]: lookupDrugToPayload(drug),
+                                  }));
+                                };
+
+                                return (
+                                  <TableRow key={item.id}>
+                                    <TableCell className="align-top">
+                                      <div className="text-xs text-gray-500 mb-3">
+                                        {" "}
+                                      </div>
+                                      {item.item.name}
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        {" "}
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="align-top">
+                                      <div className="text-xs text-gray-500 mb-3">
+                                        {" "}
+                                      </div>
+                                      {categoryByProductId.get(item.item.id) ??
+                                        "—"}
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        {" "}
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="align-top">
+                                      <div className="text-xs text-gray-500 mb-3">
+                                        {" "}
+                                      </div>
+                                      {formatQuantity(item.quantity)}{" "}
+                                      {item.item.base_unit?.display}
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        {" "}
+                                      </div>
+                                    </TableCell>
+                                    {isViewOnlyStatus ? (
+                                      <>
+                                        <TableCell className="align-top">
+                                          <div className="text-xs text-gray-500 mb-3">
+                                            {" "}
+                                          </div>
+                                          {formatLookupId(
+                                            readOnlyDrug?.group_id,
+                                          )}
+                                          <div className="text-xs text-gray-500 mt-1">
+                                            {" "}
+                                          </div>
+                                        </TableCell>
+                                        <TableCell className="align-top">
+                                          <div className="text-xs text-gray-500 mb-3">
+                                            {" "}
+                                          </div>
+                                          {formatLookupId(
+                                            readOnlyDrug?.sub_group_id,
+                                          )}
+                                          <div className="text-xs text-gray-500 mt-1">
+                                            {" "}
+                                          </div>
+                                        </TableCell>
+                                        <TableCell className="align-top">
+                                          <div className="text-xs text-gray-500 mb-3">
+                                            {" "}
+                                          </div>
+                                          <div
+                                            className="w-72 whitespace-normal break-words"
+                                            title={readOnlyDrug?.name}
+                                          >
+                                            {readOnlyDrug?.name ?? "—"}
+                                          </div>
+                                          <div className="text-xs text-gray-500 mt-1">
+                                            {readOnlyDrug
+                                              ? `${t("drug_id")}: ${readOnlyDrug.id}`
+                                              : " "}
+                                          </div>
+                                        </TableCell>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <TableCell className="align-top">
+                                          <div className="text-xs text-gray-500 mb-3">
+                                            {" "}
+                                          </div>
+                                          <div className="w-72">
+                                            <Autocomplete
+                                              className="h-8 w-full"
+                                              value={
+                                                selectedGroupId !== undefined
+                                                  ? String(selectedGroupId)
+                                                  : ""
+                                              }
+                                              onChange={handleGroupChange}
+                                              onOpenChange={(open) => {
+                                                if (open) ensureGroupsLoaded();
+                                              }}
+                                              isLoading={isLookupGroupsLoading}
+                                              disabled={!institute?.id}
+                                              placeholder="—"
+                                              inputPlaceholder={t(
+                                                "search_group",
+                                              )}
+                                              noOptionsMessage={t(
+                                                "no_groups_found",
+                                              )}
+                                              options={groupAutocompleteOptions}
+                                            />
+                                          </div>
+                                          <div className="text-xs text-gray-500 mt-1">
+                                            {selectedGroupId !== undefined
+                                              ? `${t("group_id")}: ${selectedGroupId}`
+                                              : " "}
+                                          </div>
+                                        </TableCell>
+                                        <TableCell className="align-top">
+                                          <div className="text-xs text-gray-500 mb-3">
+                                            {" "}
+                                          </div>
+                                          <div className="w-72">
+                                            <Autocomplete
+                                              className="h-8 w-full"
+                                              value={
+                                                selectedSubgroupId !== undefined
+                                                  ? String(selectedSubgroupId)
+                                                  : ""
+                                              }
+                                              onChange={handleSubgroupChange}
+                                              onOpenChange={(open) => {
+                                                if (
+                                                  open &&
+                                                  selectedGroupId !== undefined
+                                                )
+                                                  ensureSubgroupsLoaded(
+                                                    selectedGroupId,
+                                                  );
+                                              }}
+                                              isLoading={isSubgroupsLoading}
+                                              disabled={
+                                                selectedGroupId === undefined
+                                              }
+                                              placeholder="—"
+                                              inputPlaceholder={t(
+                                                "search_subgroup",
+                                              )}
+                                              noOptionsMessage={t(
+                                                "no_subgroups_found",
+                                              )}
+                                              options={
+                                                subgroupAutocompleteOptions
+                                              }
+                                            />
+                                          </div>
+                                          <div className="text-xs text-gray-500 mt-1">
+                                            {selectedSubgroupId !== undefined
+                                              ? `${t("sub_group_id")}: ${selectedSubgroupId}`
+                                              : " "}
+                                          </div>
+                                        </TableCell>
+                                        <TableCell className="align-top">
+                                          <div className="text-xs text-gray-500 mb-3">
+                                            {" "}
+                                          </div>
+                                          <div className="w-72">
+                                            <Autocomplete
+                                              className="h-8 w-full"
+                                              value={selectedDrugId}
+                                              onChange={handleCatalogDrugChange}
+                                              onOpenChange={(open) => {
+                                                if (
+                                                  open &&
+                                                  selectedGroupId !== undefined
+                                                )
+                                                  ensureDrugsLoaded(
+                                                    selectedGroupId,
+                                                    selectedSubgroupId,
+                                                  );
+                                              }}
+                                              isLoading={isDrugsLoading}
+                                              disabled={
+                                                selectedGroupId === undefined
+                                              }
+                                              placeholder="—"
+                                              inputPlaceholder={t(
+                                                "search_drug",
+                                              )}
+                                              noOptionsMessage={t(
+                                                "no_drugs_found",
+                                              )}
+                                              options={drugAutocompleteOptions}
+                                            />
+                                          </div>
+                                          <div className="text-xs text-gray-500 mt-1">
+                                            {selectedDrugId
+                                              ? `${t("drug_id")}: ${selectedDrugId}`
+                                              : " "}
+                                          </div>
+                                        </TableCell>
+                                      </>
+                                    )}
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+
+                          {isDraftStatus && !hasSavedOnce && (
+                            <div className="flex justify-end">
+                              <Button
+                                type="button"
+                                onClick={() =>
+                                  handleSupplyDeliveryAction("save")
+                                }
+                                disabled={
+                                  saveItemsMutation.isPending ||
+                                  hasUnselectedDrug
+                                }
+                              >
+                                {t("save")}
+                                <ShortcutBadge actionId="submit-action" />
+                              </Button>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <EmptyState
+                          title={t("no_items_found")}
+                          icon={<Box className="text-primary size-6" />}
+                        />
+                      )}
+
+                      {isApprovable &&
+                        hasSavedOnce &&
+                        hasMoreSupplyRequests && (
+                          <div className="flex justify-center">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() =>
+                                loadBalanceSupplyRequestsMutation.mutate()
+                              }
+                              disabled={
+                                loadBalanceSupplyRequestsMutation.isPending
+                              }
+                            >
+                              {t("show_balance_products")}
+                            </Button>
+                          </div>
+                        )}
+
+                      {isPendingStatus && (
+                        <div className="flex flex-col sm:flex-row gap-3 justify-between bg-white p-4 sm:items-center border border-gray-200 rounded-md">
+                          <div className="flex flex-col gap-2">
+                            <p className="font-bold">
+                              {t("review_and_finalise_request")}
+                            </p>
+                            <span className="text-sm text-gray-500">
+                              {t("review_and_finalise_request_description")}
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            className="w-full sm:w-auto shrink-0"
+                            onClick={() => approveRecordOrderMutation.mutate()}
+                            disabled={
+                              !recordItemOrdersData ||
+                              !recordItemOrdersData?.results?.length ||
+                              approveRecordOrderMutation.isPending
+                            }
+                          >
+                            {t("mark_as_approved")}
+                            <ShortcutBadge actionId="mark-as" />
+                          </Button>
+                        </div>
+                      )}
+
+                      {isFailedStatus && (
+                        <div className="flex flex-col sm:flex-row gap-3 justify-between bg-white p-4 sm:items-center border border-gray-200 rounded-md">
+                          <div className="flex flex-col gap-2">
+                            <p className="font-bold">
+                              {t("record_order_failed_title")}
+                            </p>
+                            <span className="text-sm text-gray-500">
+                              {t("record_order_failed_description")}
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            className="w-full sm:w-auto shrink-0"
+                            onClick={() => retryRecordOrderMutation.mutate()}
+                            disabled={retryRecordOrderMutation.isPending}
+                          >
+                            {t("resend_to_dvdms")}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ),
+            },
+            "dvdms-issues": {
+              label: t("issues_from_eaushadhi"),
+              component: (
+                <Card className="border-none rounded-lg">
+                  <CardContent className="space-y-4 p-4">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-950">
+                        {t("issues_from_eaushadhi")}
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        {t("issues_from_eaushadhi_description")}
+                      </p>
+                    </div>
+
+                    {isIssuesLoading ? (
+                      <TableSkeleton count={3} />
+                    ) : dvdmsIssues.length > 0 ? (
+                      <DvdmsIssuesTable
+                        instituteId={institute?.id}
+                        issues={dvdmsIssues}
+                        recordBasePath={recordBasePath}
+                      />
+                    ) : (
+                      <EmptyState
+                        icon={<Inbox className="text-primary size-6" />}
+                        title={t("no_issues_found")}
+                        description={t("no_issues_found_description")}
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+              ),
+            },
+          }}
+          currentTab={currentTab}
+          onTabChange={setCurrentTab}
+        />
       </div>
     </div>
   );

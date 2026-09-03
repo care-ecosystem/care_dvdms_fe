@@ -139,7 +139,58 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
           </span>
         )}
       </TableCell>
-      
+
+      <TableCell className="align-top p-2">
+        <FormField
+          control={form.control}
+          name={`items.${index}.quantity_dispatched`}
+          rules={{ required: true, min: 0 }}
+          render={({ field }) => (
+            <>
+              <FormControl>
+                <Input {...field} type="number" min={0} className="h-9 w-24" />
+              </FormControl>
+              <FormMessage />
+            </>
+          )}
+        />
+      </TableCell>
+
+      {/* Damaged */}
+      <TableCell className="align-top p-2">
+        <FormField
+          control={form.control}
+          name={`items.${index}.quantity_damaged`}
+          rules={{ required: true, min: 0 }}
+          render={({ field }) => (
+            <>
+              <FormControl>
+                <Input {...field} type="number" min={0} className="h-9 w-24" />
+              </FormControl>
+              <FormMessage />
+            </>
+          )}
+        />
+      </TableCell>
+
+      {/* Short */}
+      <TableCell className="align-top p-2">
+        <FormField
+          control={form.control}
+          name={`items.${index}.quantity_short`}
+          rules={{ required: true, min: 0 }}
+          render={({ field }) => (
+            <>
+              <FormControl>
+                <Input {...field} type="number" min={0} className="h-9 w-24" />
+              </FormControl>
+              <FormMessage />
+            </>
+          )}
+        />
+      </TableCell>
+
+      {/* Received (accepted into CARE stock) */}
       <TableCell className="align-top p-2">
         <FormField
           control={form.control}
@@ -154,7 +205,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   min={1}
                   disabled={!canUpdateReceivedQuantity}
                   className={cn(
-                    "h-9 w-28",
+                    "h-9 w-24",
                     !canUpdateReceivedQuantity &&
                       "bg-gray-100 text-gray-600 disabled:opacity-100",
                   )}

@@ -1,39 +1,73 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 
 import { apis } from "@/apis";
-import { RecordInward } from "@/types/recordOrder";
+import { LIST_FETCH_LIMIT } from "@/lib/constants";
+import { RecordDelivery, RecordInward } from "@/types/recordOrder";
 
-/**
- * An inward_record is created once per outward/issue, but may have multiple
- * record_deliveries linked to it over time (partial imports, supplier
- * splits) — each backed by its own CARE delivery_order.
- */
+/** DVDMS raises issues against an indent only once it reaches this status. */
+const DVDMS_ISSUE_IN_PROCESS_STATUS = "Issue in Process";
+const DVDMS_ISSUE_POLL_INTERVAL_MS = 30_000;
+
+type UseRecordInwardDeliveriesOptions = {
+  indentStatus?: string | null;
+  
+  inwardRecordId?: string;
+};
+
 export default function useRecordInwardDeliveries(
   instituteId: string | undefined,
   outwardId: string | undefined,
+  { indentStatus, inwardRecordId }: UseRecordInwardDeliveriesOptions = {},
 ) {
   const { data: inwardRecordsData, isLoading: isInwardLoading } = useQuery({
     queryKey: ["dvdms_record_inwards", instituteId],
-    queryFn: () => apis.recordInwards.list(instituteId!, { limit: 100 }),
+    queryFn: () =>
+      apis.recordInwards.list(instituteId!, { limit: LIST_FETCH_LIMIT }),
     enabled: !!instituteId && !!outwardId,
+    refetchInterval:
+      indentStatus === DVDMS_ISSUE_IN_PROCESS_STATUS
+        ? DVDMS_ISSUE_POLL_INTERVAL_MS
+        : false,
+  });
+
+  const inwardRecords: RecordInward[] = (inwardRecordsData?.results ?? [])
+    .filter((item) => item.outward_record === outwardId)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+  const { deliveriesByInwardId, isDeliveriesLoading } = useQueries({
+    queries: inwardRecords.map((record) => ({
+      queryKey: ["dvdms_record_deliveries", instituteId, record.id],
+      queryFn: () =>
+        apis.recordInwards.listDeliveries(instituteId!, record.id, {
+          limit: LIST_FETCH_LIMIT,
+          ordering: "-created_date",
+        }),
+      enabled: !!instituteId,
+    })),
+    combine: (results) => ({
+      deliveriesByInwardId: new Map<string, RecordDelivery[]>(
+        inwardRecords.map((record, index) => [
+          record.id,
+          results[index]?.data?.results ?? [],
+        ]),
+      ),
+      isDeliveriesLoading: results.some((result) => result.isLoading),
+    }),
   });
 
   const inwardRecord: RecordInward | undefined =
-    inwardRecordsData?.results.find((item) => item.outward_record === outwardId);
-
-  const { data: deliveriesData, isLoading: isDeliveriesLoading } = useQuery({
-    queryKey: ["dvdms_record_deliveries", instituteId, inwardRecord?.id],
-    queryFn: () =>
-      apis.recordInwards.listDeliveries(instituteId!, inwardRecord!.id, {
-        limit: 100,
-        ordering: "-created_date",
-      }),
-    enabled: !!instituteId && !!inwardRecord?.id,
-  });
+    inwardRecords.find((record) => record.id === inwardRecordId) ??
+    inwardRecords[0];
 
   return {
-    isLoading: isInwardLoading || (!!inwardRecord?.id && isDeliveriesLoading),
+    isLoading:
+      isInwardLoading || (inwardRecords.length > 0 && isDeliveriesLoading),
+    isInwardLoading,
     inwardRecord,
-    deliveries: deliveriesData?.results ?? [],
+    inwardRecords,
+    deliveries: inwardRecord
+      ? (deliveriesByInwardId.get(inwardRecord.id) ?? [])
+      : [],
+    deliveriesByInwardId,
   };
 }

@@ -60,3 +60,16 @@ export interface RecordOrder {
   created_date: string;
   modified_date: string;
 }
+
+export interface RecordOrderOutward {
+  id: string;
+  record_order_id: string;
+  status: string;
+  eaushadhi_indent_no: string | null;
+  eaushadhi_indent_status: string | null;
+  sync_log_id: string | null;
+  created_by: RecordOrderUser | null;
+  updated_by: RecordOrderUser | null;
+  created_date: string;
+  modified_date: string;
+}

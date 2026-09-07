@@ -95,6 +95,24 @@ export enum DvdmsSyncRequestStatus {
   failure = "failure",
 }
 
+export const ACKNOWLEDGEMENT_STATUS_VARIANTS: Record<
+  DvdmsSyncRequestStatus,
+  RequestOrderBadgeVariant
+> = {
+  [DvdmsSyncRequestStatus.pending]: "yellow",
+  [DvdmsSyncRequestStatus.success]: "green",
+  [DvdmsSyncRequestStatus.failure]: "destructive",
+};
+
+export const ACKNOWLEDGEMENT_STATUS_LABELS: Record<
+  DvdmsSyncRequestStatus,
+  string
+> = {
+  [DvdmsSyncRequestStatus.pending]: "acknowledgement_pending",
+  [DvdmsSyncRequestStatus.success]: "acknowledgement_completed",
+  [DvdmsSyncRequestStatus.failure]: "acknowledgement_failed",
+};
+
 /** The outcome of the last DVDMS sync against an issue. */
 export interface RecordInwardSyncLog {
   id: string;

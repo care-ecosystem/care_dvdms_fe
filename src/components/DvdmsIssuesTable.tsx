@@ -18,6 +18,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  ACKNOWLEDGEMENT_STATUS_LABELS,
+  ACKNOWLEDGEMENT_STATUS_VARIANTS,
+  DvdmsSyncRequestStatus,
+  DvdmsSyncType,
   RecordDelivery,
   RecordDeliveryDetail,
   RecordDeliveryStatus,
@@ -122,6 +126,13 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
           const items = itemsByIssueId.get(issue.id) ?? [];
           const delivery = deliveriesByIssueId.get(issue.id)?.[0];
           const deliveryStatus = deliveryDetailByIssueId.get(issue.id)?.status;
+          const acknowledgement =
+            issue.sync_log?.sync_type === DvdmsSyncType.acknowledge_issue
+              ? issue.sync_log
+              : undefined;
+          const showAcknowledgement =
+            deliveryStatus === RecordDeliveryStatus.completed &&
+            !!acknowledgement;
 
           return (
             <TableRow key={issue.id}>
@@ -144,7 +155,35 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
                 )}
               </TableCell>
               <TableCell className="align-top">
-                {deliveryStatus ? (
+                {!deliveryStatus ? (
+                  "—"
+                ) : showAcknowledgement ? (
+                  <Badge
+                    className="rounded-sm"
+                    variant={
+                      ACKNOWLEDGEMENT_STATUS_VARIANTS[
+                        acknowledgement.request_status
+                      ] ?? "secondary"
+                    }
+                    title={
+                      acknowledgement.request_status ===
+                      DvdmsSyncRequestStatus.failure
+                        ? (acknowledgement.error_detail ??
+                          (acknowledgement.http_status_code
+                            ? t("acknowledgement_failed_with_status", {
+                                status: acknowledgement.http_status_code,
+                              })
+                            : undefined))
+                        : undefined
+                    }
+                  >
+                    {t(
+                      ACKNOWLEDGEMENT_STATUS_LABELS[
+                        acknowledgement.request_status
+                      ] ?? acknowledgement.request_status,
+                    )}
+                  </Badge>
+                ) : (
                   <Badge
                     className="rounded-sm"
                     variant={
@@ -156,8 +195,6 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
                       ? t("delivered")
                       : t(deliveryStatus)}
                   </Badge>
-                ) : (
-                  "—"
                 )}
               </TableCell>
               <TableCell className="align-top">

@@ -53,7 +53,11 @@ import {
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
 import { REQUEST_ORDER_STATUS_VARIANTS } from "@/types/requestOrder";
-import { RecordOrder, RecordOrderOutward } from "@/types/recordOrder";
+import {
+  RecordDeliveryStatus,
+  RecordOrder,
+  RecordOrderOutward,
+} from "@/types/recordOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
 import { RecordItemOrderDrug } from "@/types/recordOrderItem";
 import {
@@ -232,13 +236,19 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     const outwardRow = queryClient.getQueryData<
       PaginatedResponse<RecordOrderOutward>
     >(["dvdms_record_order_outward", institute?.id, order.id])?.results?.[0];
-    if (outwardRow?.eaushadhi_indent_no || outwardRow?.status === "submitted") {
+
+    // A failed outward never gets an indent status — retrying is a manual step.
+    if (outwardRow?.eaushadhi_indent_status || outwardRow?.status === "failed") {
       return false;
     }
-    const approvedAt = Date.parse(order.modified_date);
+
+    const changedAt = [order.modified_date, outwardRow?.modified_date]
+      .map((value) => (value ? Date.parse(value) : Number.NaN))
+      .filter((value) => Number.isFinite(value));
+    const lastChangedAt = Math.max(...changedAt);
     if (
-      !Number.isFinite(approvedAt) ||
-      Date.now() - approvedAt > DVDMS_SUBMISSION_POLL_WINDOW_MS
+      changedAt.length === 0 ||
+      Date.now() - lastChangedAt > DVDMS_SUBMISSION_POLL_WINDOW_MS
     ) {
       return false;
     }
@@ -309,9 +319,24 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     !["draft", "pending", "cancelled"].includes(recordOrder.status) &&
     !!outward?.eaushadhi_indent_no;
 
-  const { inwardRecords: dvdmsIssues, isInwardLoading: isIssuesLoading } =
-    useRecordInwardDeliveries(institute?.id, outward?.id, {
-      indentStatus: outward?.eaushadhi_indent_status,
+  const {
+    inwardRecords: dvdmsIssues,
+    deliveriesByInwardId,
+    isInwardLoading: isIssuesLoading,
+  } = useRecordInwardDeliveries(institute?.id, outward?.id, {
+    indentStatus: outward?.eaushadhi_indent_status,
+  });
+
+  const areAllIssuesDelivered =
+    dvdmsIssues.length > 0 &&
+    dvdmsIssues.every((issue) => {
+      const deliveries = deliveriesByInwardId.get(issue.id) ?? [];
+      return (
+        deliveries.length > 0 &&
+        deliveries.every(
+          (delivery) => delivery.status === RecordDeliveryStatus.completed,
+        )
+      );
     });
 
   const existingItemBySupplyRequestId = new Map(
@@ -585,6 +610,26 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     },
   });
 
+  const completeRecordOrderMutation = useMutation({
+    mutationFn: () => {
+      if (!institute?.id || !recordOrder?.id) {
+        throw new Error("Missing institute or record order");
+      }
+      return apis.recordOrders.update(institute.id, recordOrder.id, {
+        status: "completed",
+      });
+    },
+    onSuccess: () => {
+      toast.success(t("record_order_completed"));
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+      });
+    },
+    onError: () => {
+      toast.error(t("record_order_complete_failed"));
+    },
+  });
+
   const fetchInwardsMutation = useMutation({
     mutationFn: () => {
       if (!institute?.id || !recordOrder?.id) {
@@ -679,6 +724,11 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const isFailedStatus = displayStatus === "failed";
   const isCancelledStatus = recordOrderStatus === "cancelled";
 
+  const canMarkAsCompleted =
+    areAllIssuesDelivered &&
+    !!recordOrderStatus &&
+    !["draft", "pending", "completed", "cancelled"].includes(recordOrderStatus);
+
   return (
     <div className="md:px-6 py-0 space-y-4 min-w-0">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -730,6 +780,17 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               disabled={fetchInwardsMutation.isPending}
             >
               <RefreshCw className="size-4" /> {t("sync_dvdms_status")}
+            </Button>
+          )}
+          {canMarkAsCompleted && (
+            <Button
+              onClick={() => completeRecordOrderMutation.mutate()}
+              disabled={completeRecordOrderMutation.isPending}
+            >
+              {completeRecordOrderMutation.isPending
+                ? t("saving")
+                : t("mark_as_completed")}
+              <ShortcutBadge actionId="mark-as" />
             </Button>
           )}
           {recordOrder?.status == "draft" && (

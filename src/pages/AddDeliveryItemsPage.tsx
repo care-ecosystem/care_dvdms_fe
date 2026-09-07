@@ -51,6 +51,8 @@ import {
 } from "@/types/inventory";
 import { ProductKnowledge } from "@/types/productKnowledge";
 import {
+  ACKNOWLEDGEMENT_STATUS_LABELS,
+  ACKNOWLEDGEMENT_STATUS_VARIANTS,
   RECORD_DELIVERY_ITEM_STATUS_LABELS,
   RECORD_DELIVERY_ITEM_STATUS_VARIANTS,
   RECORD_DELIVERY_STATUS_VARIANTS,
@@ -654,15 +656,24 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     },
   });
 
+  /** The issue's last sync, only when it was an acknowledgement attempt. */
+  const acknowledgement =
+    inwardRecord?.sync_log?.sync_type === DvdmsSyncType.acknowledge_issue
+      ? inwardRecord.sync_log
+      : undefined;
 
   const failedAcknowledgement =
-    inwardRecord?.sync_log?.sync_type === DvdmsSyncType.acknowledge_issue &&
-    inwardRecord.sync_log.request_status === DvdmsSyncRequestStatus.failure
-      ? inwardRecord.sync_log
+    acknowledgement?.request_status === DvdmsSyncRequestStatus.failure
+      ? acknowledgement
       : undefined;
 
   const hasFailedAcknowledgement =
     !!recordDelivery?.id && !!failedAcknowledgement;
+
+  // Once submitted, the acknowledgement outcome is the meaningful status.
+  const showAcknowledgementStatus =
+    recordDeliveryStatus === RecordDeliveryStatus.completed &&
+    !!acknowledgement;
 
   const canApproveDelivery =
     !!recordDelivery?.id &&
@@ -770,7 +781,37 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                       {t("status")}
                     </label>
                     <div>
-                      {recordDeliveryStatus ? (
+                      {!recordDeliveryStatus ? (
+                        <div className="text-lg font-semibold text-gray-950">
+                          —
+                        </div>
+                      ) : showAcknowledgementStatus ? (
+                        <Badge
+                          className="rounded-sm"
+                          variant={
+                            ACKNOWLEDGEMENT_STATUS_VARIANTS[
+                              acknowledgement.request_status
+                            ] ?? "secondary"
+                          }
+                          title={
+                            failedAcknowledgement
+                              ? (failedAcknowledgement.error_detail ??
+                                (failedAcknowledgement.http_status_code
+                                  ? t("acknowledgement_failed_with_status", {
+                                      status:
+                                        failedAcknowledgement.http_status_code,
+                                    })
+                                  : undefined))
+                              : undefined
+                          }
+                        >
+                          {t(
+                            ACKNOWLEDGEMENT_STATUS_LABELS[
+                              acknowledgement.request_status
+                            ] ?? acknowledgement.request_status,
+                          )}
+                        </Badge>
+                      ) : (
                         <Badge
                           className="rounded-sm"
                           variant={
@@ -781,10 +822,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                         >
                           {t(recordDeliveryStatus)}
                         </Badge>
-                      ) : (
-                        <div className="text-lg font-semibold text-gray-950">
-                          —
-                        </div>
                       )}
                     </div>
                   </div>
@@ -854,8 +891,8 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                       <Table>
                         <TableHeader className="bg-gray-100">
                           <TableRow className="divide-x divide-gray-200">
-                            <TableHead className="w-10">
-                              {pendingSavedItems.length > 0 && (
+                            {hasUnreceivedItems && (
+                              <TableHead className="w-10">
                                 <Checkbox
                                   checked={
                                     selectedSavedItemIds.size ===
@@ -874,8 +911,8 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                   }
                                   aria-label={t("select_all")}
                                 />
-                              )}
-                            </TableHead>
+                              </TableHead>
+                            )}
                             <TableHead className="min-w-[200px] text-xs font-semibold">
                               {t("drug")}
                             </TableHead>
@@ -913,29 +950,33 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                 key={item.id}
                                 className="divide-x divide-gray-200"
                               >
-                                <TableCell className="p-2">
-                                  {isPendingReceipt(item) && (
-                                    <Checkbox
-                                      checked={selectedSavedItemIds.has(
-                                        item.id,
-                                      )}
-                                      onCheckedChange={(checked) =>
-                                        setSelectedSavedItemIds((previous) => {
-                                          const next = new Set(previous);
-                                          if (checked) {
-                                            next.add(item.id);
-                                          } else {
-                                            next.delete(item.id);
-                                          }
-                                          return next;
-                                        })
-                                      }
-                                      aria-label={
-                                        item.inward_record_item.item_name
-                                      }
-                                    />
-                                  )}
-                                </TableCell>
+                                {hasUnreceivedItems && (
+                                  <TableCell className="p-2">
+                                    {isPendingReceipt(item) && (
+                                      <Checkbox
+                                        checked={selectedSavedItemIds.has(
+                                          item.id,
+                                        )}
+                                        onCheckedChange={(checked) =>
+                                          setSelectedSavedItemIds(
+                                            (previous) => {
+                                              const next = new Set(previous);
+                                              if (checked) {
+                                                next.add(item.id);
+                                              } else {
+                                                next.delete(item.id);
+                                              }
+                                              return next;
+                                            },
+                                          )
+                                        }
+                                        aria-label={
+                                          item.inward_record_item.item_name
+                                        }
+                                      />
+                                    )}
+                                  </TableCell>
+                                )}
                                 <TableCell className="p-2 text-sm text-gray-900">
                                   <div className="flex flex-col whitespace-normal">
                                     <span>

@@ -4,8 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, FileWarning, Printer } from "lucide-react";
 
 import { apis } from "@/apis";
-import { I18N_NAMESPACE } from "@/lib/constants";
-import { formatDate, formatQuantity } from "@/lib/utils";
+import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
+import { formatDate, formatLookupId, formatQuantity } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import BackButton from "@/components/BackButton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -22,6 +22,7 @@ type PrintRequestOrderPageProps = {
   facilityId: string;
   locationId: string;
   requestOrderId: string;
+  recordOrderId: string;
 };
 
 type DetailRowProps = {
@@ -40,6 +41,7 @@ const DetailRow: FC<DetailRowProps> = ({ label, value }) => (
 const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
   facilityId,
   requestOrderId,
+  recordOrderId,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
@@ -58,17 +60,18 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
     queryFn: () => apis.institutes.get(facilityId),
   });
 
-  const { data: recordOrdersData, isLoading: isRecordOrderLoading } =
-    useQuery({
-      queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
-      queryFn: () =>
-        apis.recordOrders.list(institute!.id, {
-          order: requestOrderId,
-          limit: 1,
-        }),
-      enabled: !!institute?.id,
-    });
-  const recordOrder = recordOrdersData?.results?.[0];
+  const { data: recordOrdersData, isLoading: isRecordOrderLoading } = useQuery({
+    queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+    queryFn: () =>
+      apis.recordOrders.list(institute!.id, {
+        order: requestOrderId,
+        limit: LIST_FETCH_LIMIT,
+      }),
+    enabled: !!institute?.id,
+  });
+  const recordOrder = recordOrdersData?.results?.find(
+    (item) => item.id === recordOrderId,
+  );
   const isPrintable = !!recordOrder && recordOrder.status !== "draft";
 
   const { data: supplyRequestsData, isLoading: isSupplyRequestsLoading } =
@@ -220,8 +223,8 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
                 <DetailRow
                   label={t("warehouse")}
                   value={
-                    recordOrder.institute_supplier
-                      ?.eaushadhi_warehouse_name ?? "—"
+                    recordOrder.institute_supplier?.eaushadhi_warehouse_name ??
+                    "—"
                   }
                 />
               </div>
@@ -262,20 +265,20 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
             )}
 
             <div className="mt-4">
-              <Table>
+              <Table className="[&_td]:whitespace-normal [&_th]:whitespace-normal">
                 <TableHeader>
                   <TableRow>
                     <TableHead rowSpan={2}>{t("product")}</TableHead>
                     <TableHead rowSpan={2}>{t("category")}</TableHead>
                     <TableHead rowSpan={2}>{t("qty")}</TableHead>
                     <TableHead colSpan={3} className="text-center border-b">
-                      {t("eaushadhi_drug_details")}
+                      {t("dvdms_drug_details")}
                     </TableHead>
                   </TableRow>
                   <TableRow>
                     <TableHead>{t("group_id")}</TableHead>
                     <TableHead>{t("sub_group_id")}</TableHead>
-                    <TableHead>{t("drug_name")}</TableHead>
+                    <TableHead className="w-1/3">{t("drug_name")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -291,9 +294,11 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
                           {formatQuantity(item.quantity)}{" "}
                           {item.item.base_unit?.display}
                         </TableCell>
-                        <TableCell>{drug?.group_id ?? "—"}</TableCell>
-                        <TableCell>{drug?.sub_group_id ?? "—"}</TableCell>
+                        <TableCell>{formatLookupId(drug?.group_id)}</TableCell>
                         <TableCell>
+                          {formatLookupId(drug?.sub_group_id)}
+                        </TableCell>
+                        <TableCell className="align-top break-words">
                           {drug?.name ?? "—"}
                           {drug && (
                             <div className="text-xs text-gray-500 mt-1">

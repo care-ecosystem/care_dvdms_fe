@@ -1,12 +1,14 @@
 import { FC } from "react";
 import { useTranslation } from "react-i18next";
-import { useQueries } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { navigate } from "raviger";
 import { Eye, Plus } from "lucide-react";
 
 import { apis } from "@/apis";
+import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
+import { TableSkeleton } from "@/components/SkeletonLoading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,8 +28,11 @@ import {
   RecordDeliveryDetail,
   RecordDeliveryStatus,
   RecordInward,
+  RecordInwardDetail,
   RecordInwardItem,
   RECORD_DELIVERY_STATUS_VARIANTS,
+  RECORD_INWARD_STATUS_LABELS,
+  RECORD_INWARD_STATUS_VARIANTS,
 } from "@/types/recordOrder";
 
 type DvdmsIssuesTableProps = {
@@ -43,39 +48,54 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
-  const itemsByIssueId = useQueries({
-    queries: issues.map((issue) => ({
-      queryKey: ["dvdms_record_inward_detail", instituteId, issue.id],
-      queryFn: () => apis.recordInwards.retrieve(instituteId!, issue.id),
-      enabled: !!instituteId,
-    })),
-    combine: (results) =>
-      new Map<string, RecordInwardItem[]>(
-        issues.map((issue, index) => [
-          issue.id,
-          results[index]?.data?.items ?? [],
-        ]),
-      ),
+  const issueIds = issues.map((issue) => issue.id);
+
+  const { data: issueDetailResults, isPending: isIssueDetailsPending } =
+    useQuery({
+      queryKey: ["dvdms_record_inward_detail", instituteId, issueIds],
+      queryFn: async () => {
+        const response = await apis.batchRequests.createChunked({
+          requests: issues.map((issue) => ({
+            url: apis.recordInwards.path(instituteId!, issue.id),
+            method: HttpMethod.GET,
+            reference_id: issue.id,
+          })),
+        });
+        return response.results;
+      },
+      enabled: !!instituteId && issues.length > 0,
+    });
+
+  const itemsByIssueId = new Map<string, RecordInwardItem[]>(
+    issueDetailResults?.map((result) => [
+      result.reference_id,
+      (result.data as RecordInwardDetail | undefined)?.items ?? [],
+    ]) ?? [],
+  );
+
+  const { data: deliveryResults, isPending: isDeliveriesPending } = useQuery({
+    queryKey: ["dvdms_record_deliveries", instituteId, issueIds],
+    queryFn: async () => {
+      const response = await apis.batchRequests.createChunked({
+        requests: issues.map((issue) => ({
+          url: apis.recordInwards.deliveriesPath(instituteId!, issue.id),
+          method: HttpMethod.GET,
+          body: { limit: LIST_FETCH_LIMIT, ordering: "-created_date" },
+          reference_id: issue.id,
+        })),
+      });
+      return response.results;
+    },
+    enabled: !!instituteId && issues.length > 0,
   });
 
-  const deliveriesByIssueId = useQueries({
-    queries: issues.map((issue) => ({
-      queryKey: ["dvdms_record_deliveries", instituteId, issue.id],
-      queryFn: () =>
-        apis.recordInwards.listDeliveries(instituteId!, issue.id, {
-          limit: LIST_FETCH_LIMIT,
-          ordering: "-created_date",
-        }),
-      enabled: !!instituteId,
-    })),
-    combine: (results) =>
-      new Map<string, RecordDelivery[]>(
-        issues.map((issue, index) => [
-          issue.id,
-          results[index]?.data?.results ?? [],
-        ]),
-      ),
-  });
+  const deliveriesByIssueId = new Map<string, RecordDelivery[]>(
+    deliveryResults?.map((result) => [
+      result.reference_id,
+      (result.data as PaginatedResponse<RecordDelivery> | undefined)?.results ??
+        [],
+    ]) ?? [],
+  );
 
   /** Issues that already have a delivery — its status comes from the detail read. */
   const issueDeliveryRefs = issues
@@ -88,26 +108,51 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
         !!ref.delivery,
     );
 
-  const deliveryDetailByIssueId = useQueries({
-    queries: issueDeliveryRefs.map(({ issueId, delivery }) => ({
+  const hasIssueDeliveries = issueDeliveryRefs.length > 0;
+
+  const { data: deliveryDetailResults, isPending: isDeliveryDetailsPending } =
+    useQuery({
       queryKey: [
         "dvdms_record_delivery_detail",
         instituteId,
-        issueId,
-        delivery.id,
+        issueDeliveryRefs.map(({ delivery }) => delivery.id),
       ],
-      queryFn: () =>
-        apis.recordInwards.retrieveDelivery(instituteId!, issueId, delivery.id),
-      enabled: !!instituteId,
-    })),
-    combine: (results) =>
-      new Map<string, RecordDeliveryDetail | undefined>(
-        issueDeliveryRefs.map(({ issueId }, index) => [
-          issueId,
-          results[index]?.data,
-        ]),
-      ),
-  });
+      queryFn: async () => {
+        const response = await apis.batchRequests.createChunked({
+          requests: issueDeliveryRefs.map(({ issueId, delivery }) => ({
+            url: apis.recordInwards.deliveryPath(
+              instituteId!,
+              issueId,
+              delivery.id,
+            ),
+            method: HttpMethod.GET,
+            reference_id: issueId,
+          })),
+        });
+        return response.results;
+      },
+      enabled: !!instituteId && hasIssueDeliveries,
+    });
+
+  const deliveryDetailByIssueId = new Map<
+    string,
+    RecordDeliveryDetail | undefined
+  >(
+    deliveryDetailResults?.map((result) => [
+      result.reference_id,
+      result.data as RecordDeliveryDetail | undefined,
+    ]) ?? [],
+  );
+
+  const isLoadingIssueDetails =
+    !!instituteId &&
+    (isIssueDetailsPending ||
+      isDeliveriesPending ||
+      (hasIssueDeliveries && isDeliveryDetailsPending));
+
+  if (isLoadingIssueDetails) {
+    return <TableSkeleton count={issues.length} />;
+  }
 
   return (
     <Table className="min-w-[48rem]">
@@ -116,7 +161,7 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
           <TableHead>{t("issue_no")}</TableHead>
           <TableHead>{t("issue_date")}</TableHead>
           <TableHead>{t("items")}</TableHead>
-          <TableHead>{t("eaushadhi_status")}</TableHead>
+          <TableHead>{t("dvdms_status")}</TableHead>
           <TableHead>{t("delivery_status")}</TableHead>
           <TableHead>{t("actions")}</TableHead>
         </TableRow>
@@ -147,8 +192,19 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
               </TableCell>
               <TableCell className="align-top">
                 {issue.eaushadhi_issue_status ? (
-                  <Badge className="rounded-sm" variant="green">
-                    {issue.eaushadhi_issue_status}
+                  <Badge
+                    className="rounded-sm"
+                    variant={
+                      RECORD_INWARD_STATUS_VARIANTS[
+                        issue.eaushadhi_issue_status
+                      ] ?? "secondary"
+                    }
+                  >
+                    {t(
+                      RECORD_INWARD_STATUS_LABELS[
+                        issue.eaushadhi_issue_status
+                      ] ?? issue.eaushadhi_issue_status,
+                    )}
                   </Badge>
                 ) : (
                   "—"

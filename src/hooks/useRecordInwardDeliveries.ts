@@ -1,11 +1,12 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import { apis } from "@/apis";
+import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { LIST_FETCH_LIMIT } from "@/lib/constants";
 import { RecordDelivery, RecordInward } from "@/types/recordOrder";
 
-/** DVDMS raises issues against an indent only once it reaches this status. */
-const DVDMS_ISSUE_IN_PROCESS_STATUS = "Issue in Process";
+/** DVDMS raises issues against an indent only once it reaches this indent status. */
+const DVDMS_INDENT_ISSUED_STATUS = "Issued";
 const DVDMS_ISSUE_POLL_INTERVAL_MS = 30_000;
 
 type UseRecordInwardDeliveriesOptions = {
@@ -25,7 +26,7 @@ export default function useRecordInwardDeliveries(
       apis.recordInwards.list(instituteId!, { limit: LIST_FETCH_LIMIT }),
     enabled: !!instituteId && !!outwardId,
     refetchInterval:
-      indentStatus === DVDMS_ISSUE_IN_PROCESS_STATUS
+      indentStatus === DVDMS_INDENT_ISSUED_STATUS
         ? DVDMS_ISSUE_POLL_INTERVAL_MS
         : false,
   });
@@ -34,26 +35,31 @@ export default function useRecordInwardDeliveries(
     .filter((item) => item.outward_record === outwardId)
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
-  const { deliveriesByInwardId, isDeliveriesLoading } = useQueries({
-    queries: inwardRecords.map((record) => ({
-      queryKey: ["dvdms_record_deliveries", instituteId, record.id],
-      queryFn: () =>
-        apis.recordInwards.listDeliveries(instituteId!, record.id, {
-          limit: LIST_FETCH_LIMIT,
-          ordering: "-created_date",
-        }),
-      enabled: !!instituteId,
-    })),
-    combine: (results) => ({
-      deliveriesByInwardId: new Map<string, RecordDelivery[]>(
-        inwardRecords.map((record, index) => [
-          record.id,
-          results[index]?.data?.results ?? [],
-        ]),
-      ),
-      isDeliveriesLoading: results.some((result) => result.isLoading),
-    }),
+  const inwardRecordIds = inwardRecords.map((record) => record.id);
+
+  const { data: deliveryResults, isLoading: isDeliveriesLoading } = useQuery({
+    queryKey: ["dvdms_record_deliveries", instituteId, inwardRecordIds],
+    queryFn: async () => {
+      const response = await apis.batchRequests.createChunked({
+        requests: inwardRecords.map((record) => ({
+          url: apis.recordInwards.deliveriesPath(instituteId!, record.id),
+          method: HttpMethod.GET,
+          body: { limit: LIST_FETCH_LIMIT, ordering: "-created_date" },
+          reference_id: record.id,
+        })),
+      });
+      return response.results;
+    },
+    enabled: !!instituteId && inwardRecords.length > 0,
   });
+
+  const deliveriesByInwardId = new Map<string, RecordDelivery[]>(
+    deliveryResults?.map((result) => [
+      result.reference_id,
+      (result.data as PaginatedResponse<RecordDelivery> | undefined)?.results ??
+        [],
+    ]) ?? [],
+  );
 
   const inwardRecord: RecordInward | undefined =
     inwardRecords.find((record) => record.id === inwardRecordId) ??

@@ -1,4 +1,4 @@
-import { FC, useEffect, useState } from "react";
+import { FC, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
@@ -82,6 +82,9 @@ const MAX_ITEMS_PER_BATCH = 50;
 
 const DVDMS_SUBMISSION_POLL_INTERVAL_MS = 5_000;
 const DVDMS_SUBMISSION_POLL_WINDOW_MS = 2 * 60 * 1_000;
+
+const DVDMS_INDENT_STATUS_POLL_INTERVAL_MS = 15_000;
+const DVDMS_INDENT_STATUS_POLL_MAX_FAILURES = 2;
 
 const drugsKey = (groupId: number, subgroupId?: number) =>
   `${groupId}:${subgroupId ?? ""}`;
@@ -215,7 +218,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     ]),
   );
 
-  const { data: institute } = useQuery({
+  const { data: institute, isPending: isInstitutePending } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
     queryFn: () => apis.institutes.get(facilityId),
   });
@@ -237,8 +240,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       PaginatedResponse<RecordOrderOutward>
     >(["dvdms_record_order_outward", institute?.id, order.id])?.results?.[0];
 
-    // A failed outward never gets an indent status — retrying is a manual step.
-    if (outwardRow?.eaushadhi_indent_status || outwardRow?.status === "failed") {
+    const hasIndentDetails =
+      !!outwardRow?.eaushadhi_indent_no &&
+      !!outwardRow?.eaushadhi_indent_status;
+    if (hasIndentDetails || outwardRow?.status === "failed") {
       return false;
     }
 
@@ -255,7 +260,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     return DVDMS_SUBMISSION_POLL_INTERVAL_MS;
   };
 
-  const { data: recordOrdersData } = useQuery({
+  const isRecordOrderEnabled = !!institute?.id;
+
+  const { data: recordOrdersData, isPending: isRecordOrderPending } = useQuery({
     queryKey: recordOrderStatusQueryKey,
     queryFn: () =>
       apis.recordOrders.list(institute!.id, {
@@ -263,7 +270,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         limit: LIST_FETCH_LIMIT,
         ordering: "-created_date",
       }),
-    enabled: !!institute?.id,
+    enabled: isRecordOrderEnabled,
     refetchInterval: dvdmsSubmissionPollInterval,
   });
   const recordOrder = recordOrdersData?.results?.find(
@@ -297,13 +304,16 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const showCareIndentNo =
     !!recordOrder?.status && recordOrder.status !== "draft";
 
-  const { data: outwardData } = useQuery({
+  const isOutwardEnabled =
+    !!institute?.id && !!recordOrder?.id && isOutwardStatus;
+
+  const { data: outwardData, isPending: isOutwardPending } = useQuery({
     queryKey: ["dvdms_record_order_outward", institute?.id, recordOrder?.id],
     queryFn: () =>
       apis.recordOrderOutward.list(institute!.id, recordOrder!.id, {
         limit: 1,
       }),
-    enabled: !!institute?.id && !!recordOrder?.id && isOutwardStatus,
+    enabled: isOutwardEnabled,
     refetchInterval: dvdmsSubmissionPollInterval,
   });
   const outward = outwardData?.results?.[0];
@@ -322,10 +332,16 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const {
     inwardRecords: dvdmsIssues,
     deliveriesByInwardId,
-    isInwardLoading: isIssuesLoading,
+    isLoading: isInwardsLoading,
   } = useRecordInwardDeliveries(institute?.id, outward?.id, {
     indentStatus: outward?.eaushadhi_indent_status,
   });
+
+  const isIssuesLoading =
+    isInstitutePending ||
+    (isRecordOrderEnabled && isRecordOrderPending) ||
+    (isOutwardEnabled && isOutwardPending) ||
+    isInwardsLoading;
 
   const areAllIssuesDelivered =
     dvdmsIssues.length > 0 &&
@@ -630,6 +646,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     },
   });
 
+  const [indentStatusPollFailures, setIndentStatusPollFailures] = useState(0);
+  const isFetchingInwardsRef = useRef(false);
+
   const fetchInwardsMutation = useMutation({
     mutationFn: () => {
       if (!institute?.id || !recordOrder?.id) {
@@ -637,8 +656,14 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       }
       return apis.recordOrderOutward.fetchInwards(institute.id, recordOrder.id);
     },
+    onMutate: () => {
+      isFetchingInwardsRef.current = true;
+    },
+    onSettled: () => {
+      isFetchingInwardsRef.current = false;
+    },
     onSuccess: () => {
-      toast.success(t("eaushadhi_status_synced"));
+      setIndentStatusPollFailures(0);
       queryClient.invalidateQueries({
         queryKey: [
           "dvdms_record_order_outward",
@@ -652,9 +677,31 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       });
     },
     onError: () => {
-      toast.error(t("eaushadhi_status_sync_failed"));
+      setIndentStatusPollFailures((previous) => previous + 1);
     },
   });
+  const isAwaitingIndentStatus =
+    !!outward?.eaushadhi_indent_no &&
+    !outward.eaushadhi_indent_status &&
+    outward.status !== "failed" &&
+    !!recordOrder?.status &&
+    !["cancelled", "completed"].includes(recordOrder.status) &&
+    indentStatusPollFailures < DVDMS_INDENT_STATUS_POLL_MAX_FAILURES;
+
+  const { mutate: fetchInwards } = fetchInwardsMutation;
+
+  useEffect(() => {
+    if (!isAwaitingIndentStatus) return;
+
+    const pull = () => {
+      if (isFetchingInwardsRef.current) return;
+      fetchInwards();
+    };
+
+    pull();
+    const timer = setInterval(pull, DVDMS_INDENT_STATUS_POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [isAwaitingIndentStatus, fetchInwards]);
 
   const handleSupplyDeliveryAction = (action: string) => {
     if (action === "save") {
@@ -776,7 +823,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
           {canSyncDvdmsStatus && (
             <Button
               variant="outline"
-              onClick={() => fetchInwardsMutation.mutate()}
+              onClick={() =>
+                fetchInwardsMutation.mutate(undefined, {
+                  onSuccess: () => toast.success(t("eaushadhi_status_synced")),
+                  onError: () => toast.error(t("eaushadhi_status_sync_failed")),
+                })
+              }
               disabled={fetchInwardsMutation.isPending}
             >
               <RefreshCw className="size-4" /> {t("sync_dvdms_status")}
@@ -974,7 +1026,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   colSpan={3}
                                   className="text-center border-b"
                                 >
-                                  {t("eaushadhi_drug_details")}
+                                  {t("dvdms_drug_details")}
                                 </TableHead>
                                 {/* <TableHead rowSpan={2}>{t("actions")}</TableHead> */}
                               </TableRow>
@@ -1396,10 +1448,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                         <div className="flex flex-col sm:flex-row gap-3 justify-between bg-white p-4 sm:items-center border border-gray-200 rounded-md">
                           <div className="flex flex-col gap-2">
                             <p className="font-bold">
-                              {t("review_and_finalise_request")}
+                              {t("confirm_and_send_to_dvdms")}
                             </p>
                             <span className="text-sm text-gray-500">
-                              {t("review_and_finalise_request_description")}
+                              {t("confirm_and_send_to_dvdms_description")}
                             </span>
                           </div>
                           <Button
@@ -1412,7 +1464,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                               approveRecordOrderMutation.isPending
                             }
                           >
-                            {t("mark_as_approved")}
+                            {t("send_order_to_dvdms")}
                             <ShortcutBadge actionId="mark-as" />
                           </Button>
                         </div>

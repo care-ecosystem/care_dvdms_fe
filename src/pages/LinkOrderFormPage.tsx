@@ -567,13 +567,13 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
             </BackButton>
             <div className="min-w-0">
               <h1 className="text-lg sm:text-xl font-semibold text-gray-900 flex items-center gap-2 wrap-break-word">
-                {t("send_order_to_eaushadhi")}
+                {t("send_order_to_dvdms")}
                 {/* <Badge variant="secondary">{t("draft")}</Badge> */}
               </h1>
               <p className="text-sm text-gray-500 mt-1 wrap-break-word">
                 {selectedOrderId
                   ? t("confirm_supplier_and_store_description")
-                  : t("send_order_to_eaushadhi_description")}
+                  : t("send_order_to_dvdms_description")}
               </p>
             </div>
           </div>

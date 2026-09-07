@@ -42,6 +42,10 @@ export function formatDate(dateStr: string | null | undefined): string {
   });
 }
 
+export function toQuantity(value: string | number | undefined): number {
+  return Math.max(0, Math.round(Number(value) || 0));
+}
+
 export function formatQuantity(quantity: string | number): string {
   const value = Number(quantity);
   return Number.isFinite(value) ? value.toFixed(2) : String(quantity);

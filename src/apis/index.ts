@@ -271,9 +271,11 @@ export const apis = {
         HttpMethod.GET,
         params,
       ),
+    path: (instituteId: string, recordInwardId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/`,
     retrieve: (instituteId: string, recordInwardId: string) =>
       request<RecordInwardDetail>(
-        `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/`,
+        apis.recordInwards.path(instituteId, recordInwardId),
         HttpMethod.GET,
       ),
     create: (instituteId: string, payload: RecordInwardPayload) =>
@@ -282,13 +284,15 @@ export const apis = {
         HttpMethod.POST,
         { ...payload },
       ),
+    deliveriesPath: (instituteId: string, recordInwardId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/`,
     createDelivery: (
       instituteId: string,
       recordInwardId: string,
       payload: RecordDeliveryPayload,
     ) =>
       request<RecordDelivery>(
-        `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/`,
+        apis.recordInwards.deliveriesPath(instituteId, recordInwardId),
         HttpMethod.POST,
         { ...payload },
       ),
@@ -304,17 +308,27 @@ export const apis = {
       } = {},
     ) =>
       request<PaginatedResponse<RecordDelivery>>(
-        `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/`,
+        apis.recordInwards.deliveriesPath(instituteId, recordInwardId),
         HttpMethod.GET,
         params,
       ),
+    deliveryPath: (
+      instituteId: string,
+      recordInwardId: string,
+      recordDeliveryId: string,
+    ) =>
+      `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/`,
     retrieveDelivery: (
       instituteId: string,
       recordInwardId: string,
       recordDeliveryId: string,
     ) =>
       request<RecordDeliveryDetail>(
-        `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/`,
+        apis.recordInwards.deliveryPath(
+          instituteId,
+          recordInwardId,
+          recordDeliveryId,
+        ),
         HttpMethod.GET,
       ),
     updateDelivery: (
@@ -324,10 +338,20 @@ export const apis = {
       payload: RecordDeliveryUpdatePayload,
     ) =>
       request<RecordDelivery>(
-        `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/`,
+        apis.recordInwards.deliveryPath(
+          instituteId,
+          recordInwardId,
+          recordDeliveryId,
+        ),
         HttpMethod.PATCH,
         { ...payload },
       ),
+    deliveryItemsPath: (
+      instituteId: string,
+      recordInwardId: string,
+      recordDeliveryId: string,
+    ) =>
+      `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/items/`,
     createDeliveryItem: (
       instituteId: string,
       recordInwardId: string,
@@ -335,7 +359,11 @@ export const apis = {
       payload: RecordDeliveryItemPayload,
     ) =>
       request<RecordDeliveryItem>(
-        `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/items/`,
+        apis.recordInwards.deliveryItemsPath(
+          instituteId,
+          recordInwardId,
+          recordDeliveryId,
+        ),
         HttpMethod.POST,
         { ...payload },
       ),

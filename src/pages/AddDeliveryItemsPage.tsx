@@ -7,14 +7,19 @@ import { ChevronLeftIcon, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
-import { BatchError, performBatchRequest } from "@/apis/query";
+import {
+  BatchError,
+  performBatchRequest,
+  performSuperBatchRequest,
+} from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import {
   I18N_NAMESPACE,
   LIST_FETCH_LIMIT,
   MAX_REQUESTS_PER_BATCH,
+  MAX_REQUESTS_PER_SUPER_BATCH,
 } from "@/lib/constants";
-import { chunk } from "@/lib/utils";
+import { chunk, toQuantity } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -56,6 +61,8 @@ import {
   RECORD_DELIVERY_ITEM_STATUS_LABELS,
   RECORD_DELIVERY_ITEM_STATUS_VARIANTS,
   RECORD_DELIVERY_STATUS_VARIANTS,
+  RECORD_INWARD_STATUS_LABELS,
+  RECORD_INWARD_STATUS_VARIANTS,
   DvdmsSyncRequestStatus,
   DvdmsSyncType,
   RecordDeliveryItem,
@@ -63,14 +70,15 @@ import {
   RecordDeliveryStatus,
   RecordInwardItem,
 } from "@/types/recordOrder";
+import { SuperBatchRequestItem } from "@/types/superBatch";
 import {
+  SUPPLY_DELIVERY_ITEM_TYPE,
   SupplyDeliveryCondition,
   SupplyDeliveryStatus,
 } from "@/types/supplyDelivery";
 import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
-const toQuantity = (value: string | undefined) =>
-  Math.max(0, Math.round(Number(value) || 0));
+const MAX_ROWS_PER_SUPER_BATCH = Math.floor(MAX_REQUESTS_PER_SUPER_BATCH / 2);
 
 const hasQuantity = (value: string | undefined) =>
   !!value?.trim() && Number(value) >= 1;
@@ -348,9 +356,13 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
         toQuantity(item.received_quantity) +
         toQuantity(item.quantity_damaged) +
         toQuantity(item.quantity_short);
-      if (dispatched > 0 && accountedFor > dispatched) {
+      if (dispatched > 0 && accountedFor !== dispatched) {
         toast.error(
-          t("quantities_exceed_dispatched_at_row", { row, dispatched }),
+          t("quantities_must_match_dispatched_at_row", {
+            row,
+            dispatched,
+            accountedFor,
+          }),
         );
         return false;
       }
@@ -359,10 +371,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     return true;
   };
 
-  const processRowItem = async (
+  const resolveRowProductId = async (
     item: DeliveryItemFormValues,
     index: number,
-    recordDeliveryId: string,
   ) => {
     let productId = item.supplied_item?.id;
     let chargeItemSlug = item.charge_item_definition?.slug;
@@ -419,41 +430,81 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       }
     }
 
+    return productId!;
+  };
+
+  /**
+   * The supply delivery and the record delivery item that points at it, as one
+   * dependent pair for the super batch endpoint.
+   */
+  const buildRowRequests = (
+    item: DeliveryItemFormValues,
+    index: number,
+    productId: string,
+    recordDeliveryId: string,
+  ): SuperBatchRequestItem[] => {
     const quantity = toQuantity(item.received_quantity);
-    const supplyDelivery = await apis.supplyDeliveries.create({
-      status: SupplyDeliveryStatus.in_progress,
-      supplied_item_condition: SupplyDeliveryCondition.normal,
-      supplied_item_quantity: quantity,
-      supplied_item: productId!,
-      supplied_item_pack_quantity: 1,
-      supplied_item_pack_size: quantity,
-      total_purchase_price: item.purchase_price
-        ? toPrice(parseFloat(item.purchase_price) * quantity)
-        : undefined,
-      supply_request: supplyRequestByRecordItemId.get(
-        inwardItemById.get(item.inward_record_item)?.record_order_item ?? "",
-      ),
-      destination: locationId,
-      order: deliveryOrderId,
-      extensions: {},
-    });
+    const supplyDeliveryRef = `supply-delivery-${index}`;
+
+    const requests: SuperBatchRequestItem[] = [
+      {
+        reference_id: supplyDeliveryRef,
+        url: apis.supplyDeliveries.path,
+        method: HttpMethod.POST,
+        body: {
+          supplied_item_type: SUPPLY_DELIVERY_ITEM_TYPE,
+          status: SupplyDeliveryStatus.in_progress,
+          supplied_item_condition: SupplyDeliveryCondition.normal,
+          supplied_item_quantity: quantity,
+          supplied_item: productId,
+          supplied_item_pack_quantity: 1,
+          supplied_item_pack_size: quantity,
+          total_purchase_price: item.purchase_price
+            ? toPrice(parseFloat(item.purchase_price) * quantity)
+            : undefined,
+          supply_request: supplyRequestByRecordItemId.get(
+            inwardItemById.get(item.inward_record_item)?.record_order_item ??
+              "",
+          ),
+          destination: locationId,
+          order: deliveryOrderId,
+          extensions: {},
+        },
+      },
+    ];
 
     // Rows added by hand have no eAushadhi item to record against.
-    if (!item.inward_record_item) return;
+    if (!item.inward_record_item) return requests;
 
-    await apis.recordInwards.createDeliveryItem(
-      institute!.id,
-      inwardRecord!.id,
-      recordDeliveryId,
-      {
+    const deliveryItemRef = `delivery-item-${index}`;
+    requests.push({
+      reference_id: deliveryItemRef,
+      url: apis.recordInwards.deliveryItemsPath(
+        institute!.id,
+        inwardRecord!.id,
+        recordDeliveryId,
+      ),
+      method: HttpMethod.POST,
+      body: {
         inward_record_item: item.inward_record_item,
-        supply_delivery: supplyDelivery.id,
+        supply_delivery: "",
         quantity_dispatched: toQuantity(item.quantity_dispatched),
         quantity_accepted: quantity,
         quantity_damaged: toQuantity(item.quantity_damaged),
         quantity_short: toQuantity(item.quantity_short),
       },
-    );
+      replacements: [
+        {
+          source_path: { reference_id: supplyDeliveryRef, path: "id" },
+          value_path: {
+            reference_id: deliveryItemRef,
+            path: "supply_delivery",
+          },
+        },
+      ],
+    });
+
+    return requests;
   };
 
   const onSubmit = form.handleSubmit(async (data) => {
@@ -479,16 +530,48 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           )
         ).id;
 
-      const results = await Promise.allSettled(
-        data.items.map((item, index) =>
-          processRowItem(item, index, recordDeliveryId).then(() => index),
+      // Products have to exist before the batch can reference them.
+      const preparedRows = await Promise.allSettled(
+        data.items.map(async (item, index) => ({
+          index,
+          requests: buildRowRequests(
+            item,
+            index,
+            await resolveRowProductId(item, index),
+            recordDeliveryId,
+          ),
+        })),
+      );
+
+      const rows = preparedRows.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      let failedCount = preparedRows.length - rows.length;
+
+      // A batch is one transaction, so chunk by row to keep each supply
+      // delivery together with the item that references it.
+      const rowChunks = chunk(rows, MAX_ROWS_PER_SUPER_BATCH);
+      const chunkResults = await Promise.allSettled(
+        rowChunks.map((rowChunk) =>
+          performSuperBatchRequest({
+            requests: rowChunk.flatMap((row) => row.requests),
+          }),
         ),
       );
 
-      const savedIndices = results
-        .map((result) => (result.status === "fulfilled" ? result.value : null))
-        .filter((index): index is number => index !== null);
-      const failedCount = results.length - savedIndices.length;
+      const savedIndices: number[] = [];
+      const failureMessages: string[] = [];
+      chunkResults.forEach((result, chunkIndex) => {
+        const rowChunk = rowChunks[chunkIndex];
+        if (result.status === "fulfilled") {
+          savedIndices.push(...rowChunk.map((row) => row.index));
+          return;
+        }
+        failedCount += rowChunk.length;
+        if (result.reason instanceof BatchError) {
+          failureMessages.push(...result.reason.errorMessages);
+        }
+      });
 
       if (savedIndices.length > 0) {
         toast.success(
@@ -513,7 +596,10 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           .forEach((index) => remove(index));
       }
       if (failedCount > 0) {
-        toast.error(t("delivery_items_save_failed", { count: failedCount }));
+        toast.error(
+          failureMessages[0] ||
+            t("delivery_items_save_failed", { count: failedCount }),
+        );
       }
     } catch (error) {
       toast.error(
@@ -667,13 +753,13 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       ? acknowledgement
       : undefined;
 
-  const hasFailedAcknowledgement =
-    !!recordDelivery?.id && !!failedAcknowledgement;
-
   // Once submitted, the acknowledgement outcome is the meaningful status.
   const showAcknowledgementStatus =
     recordDeliveryStatus === RecordDeliveryStatus.completed &&
     !!acknowledgement;
+
+  const hasFailedAcknowledgement =
+    showAcknowledgementStatus && !!failedAcknowledgement;
 
   const canApproveDelivery =
     !!recordDelivery?.id &&
@@ -857,6 +943,33 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     </label>
                     <div className="text-lg font-semibold text-gray-950">
                       {inwardRecord?.eaushadhi_issue_no ?? "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("dvdms_status")}
+                    </label>
+                    <div>
+                      {inwardRecord?.eaushadhi_issue_status ? (
+                        <Badge
+                          className="rounded-sm"
+                          variant={
+                            RECORD_INWARD_STATUS_VARIANTS[
+                              inwardRecord.eaushadhi_issue_status
+                            ] ?? "secondary"
+                          }
+                        >
+                          {t(
+                            RECORD_INWARD_STATUS_LABELS[
+                              inwardRecord.eaushadhi_issue_status
+                            ] ?? inwardRecord.eaushadhi_issue_status,
+                          )}
+                        </Badge>
+                      ) : (
+                        <div className="text-lg font-semibold text-gray-950">
+                          —
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

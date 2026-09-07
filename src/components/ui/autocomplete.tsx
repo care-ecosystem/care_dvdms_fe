@@ -68,6 +68,14 @@ export default function Autocomplete({
 
   const selectedOption = options.find((option) => option.value === value);
 
+  const orderedOptions = React.useMemo(() => {
+    if (!selectedOption) return options;
+    return [
+      selectedOption,
+      ...options.filter((option) => option.value !== selectedOption.value),
+    ];
+  }, [options, selectedOption]);
+
   React.useEffect(() => {
     const selected = options.find((option) => option.value === value);
     setInputValue(value ? (selected ? selected.label : value) : "");
@@ -137,8 +145,12 @@ export default function Autocomplete({
         </PopoverTrigger>
         <PopoverContent
           align={align}
+          style={{
+            minWidth: "var(--radix-popover-trigger-width)",
+            maxWidth: "min(28rem, calc(100vw - 2rem))",
+          }}
           className={cn(
-            "p-0 pointer-events-auto w-auto min-w-[var(--radix-popover-trigger-width)] max-w-[min(28rem,calc(100vw-2rem))]",
+            "p-0 pointer-events-auto w-auto",
             popoverContentClassName,
           )}
         >
@@ -158,7 +170,7 @@ export default function Autocomplete({
                 <CommandEmpty>{noOptionsMessage}</CommandEmpty>
               )}
               <CommandGroup>
-                {options.map((option) => (
+                {orderedOptions.map((option) => (
                   <CommandItem
                     key={option.value}
                     value={`${option.label} - ${option.value}`}
@@ -183,7 +195,12 @@ export default function Autocomplete({
                       )}
                     />
                     <span
-                      className="min-w-0 flex-1 truncate"
+                      className="min-w-0 flex-1"
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        overflowWrap: "anywhere",
+                      }}
                       title={option.label}
                     >
                       {option.label}

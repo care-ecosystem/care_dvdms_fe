@@ -166,7 +166,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
             }
           >
             <Link2Icon />
-            {t("send_order_to_eaushadhi")}
+            {t("send_order_to_dvdms")}
             <ShortcutBadge actionId="link-order-eaushadhi" />
           </Button>
         </div>

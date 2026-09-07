@@ -1,5 +1,6 @@
 import { apis } from "@/apis/index";
 import { BatchRequestBody, BatchResponse, BatchResult, HttpMethod, RequestOptions } from "@/apis/types";
+import { SuperBatchRequestPayload, SuperBatchResponse } from "@/types/superBatch";
 
 const CARE_ACCESS_TOKEN_KEY = "care_access_token";
 
@@ -157,6 +158,32 @@ export async function performBatchRequest(
   const failed = results.filter((r) => r.status_code > 299);
   if (failed.length) {
     throw new BatchError("Batch rolled back", { results, failed });
+  }
+  return results;
+}
+
+export async function performSuperBatchRequest(
+  payload: SuperBatchRequestPayload,
+): Promise<BatchResult[]> {
+  let response: SuperBatchResponse;
+  try {
+    response = await apis.superBatch.create(payload);
+  } catch (err) {
+    const results = extractResultsFromError(err);
+    if (results.length) {
+      throw new BatchError("Super batch rolled back", {
+        results,
+        failed: results.filter((r) => r.status_code > 299),
+        status: (err as { status?: number })?.status,
+      });
+    }
+    throw err;
+  }
+
+  const results = response.results ?? [];
+  const failed = results.filter((r) => r.status_code > 299);
+  if (failed.length) {
+    throw new BatchError("Super batch rolled back", { results, failed });
   }
   return results;
 }

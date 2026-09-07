@@ -113,6 +113,36 @@ export const ACKNOWLEDGEMENT_STATUS_LABELS: Record<
   [DvdmsSyncRequestStatus.failure]: "acknowledgement_failed",
 };
 
+export enum RecordInwardStatus {
+  draft = "draft",
+  pending = "pending",
+  received = "received",
+  partially_received = "partially_received",
+  completed = "completed",
+  cancelled = "cancelled",
+}
+
+export const RECORD_INWARD_STATUS_VARIANTS: Record<
+  RecordInwardStatus,
+  RequestOrderBadgeVariant
+> = {
+  [RecordInwardStatus.draft]: "secondary",
+  [RecordInwardStatus.pending]: "yellow",
+  [RecordInwardStatus.received]: "indigo",
+  [RecordInwardStatus.partially_received]: "indigo",
+  [RecordInwardStatus.completed]: "green",
+  [RecordInwardStatus.cancelled]: "destructive",
+};
+
+export const RECORD_INWARD_STATUS_LABELS: Record<RecordInwardStatus, string> = {
+  [RecordInwardStatus.draft]: "draft",
+  [RecordInwardStatus.pending]: "pending",
+  [RecordInwardStatus.received]: "received",
+  [RecordInwardStatus.partially_received]: "partially_received",
+  [RecordInwardStatus.completed]: "completed",
+  [RecordInwardStatus.cancelled]: "cancelled",
+};
+
 /** The outcome of the last DVDMS sync against an issue. */
 export interface RecordInwardSyncLog {
   id: string;
@@ -127,7 +157,7 @@ export interface RecordInward {
   id: string;
   eaushadhi_issue_no: string;
   created_at: string;
-  eaushadhi_issue_status: string;
+  eaushadhi_issue_status: RecordInwardStatus | null;
   outward_record: string;
   eaushadhi_indent_no: string | null;
   sync_log_id: string | null;

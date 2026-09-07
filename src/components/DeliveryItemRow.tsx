@@ -3,14 +3,17 @@ import { useTranslation } from "react-i18next";
 import { UseFormReturn } from "react-hook-form";
 
 import { I18N_NAMESPACE } from "@/lib/constants";
-import { cn } from "@/lib/utils";
+import { cn, toQuantity } from "@/lib/utils";
 import { FormControl, FormField, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { TableCell, TableRow } from "@/components/ui/table";
 import ProductKnowledgeSelect from "@/components/ProductKnowledgeSelect";
 import ResourceCategoryPicker from "@/components/ResourceCategoryPicker";
 import { useDeliveryRowItem } from "@/hooks/useDeliveryRowItem";
-import { DeliveryItemsFormValues } from "@/types/deliveryItemForm";
+import {
+  DeliveryItemFormValues,
+  DeliveryItemsFormValues,
+} from "@/types/deliveryItemForm";
 import { ResourceCategoryType } from "@/types/productKnowledge";
 
 type DeliveryItemRowProps = {
@@ -39,6 +42,34 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
   } = useDeliveryRowItem({ form, index, facilityId });
 
   const row = form.getValues(`items.${index}`);
+
+  const readQuantity = (field: keyof DeliveryItemFormValues) =>
+    toQuantity(form.getValues(`items.${index}.${field}`) as string);
+
+  const dispatched = readQuantity("quantity_dispatched");
+  const damagedLimit = Math.max(0, dispatched - readQuantity("quantity_short"));
+  const receivedLimit = Math.max(
+    0,
+    dispatched - readQuantity("quantity_damaged"),
+  );
+
+  const applyDamaged = (value: string) => {
+    const total = readQuantity("quantity_dispatched");
+    const short = readQuantity("quantity_short");
+    const damaged = Math.min(toQuantity(value), Math.max(0, total - short));
+    setField("quantity_damaged", String(damaged));
+    setField("received_quantity", String(total - damaged - short));
+  };
+
+  const applyReceived = (value: string) => {
+    const total = readQuantity("quantity_dispatched");
+    const damaged = readQuantity("quantity_damaged");
+    const received = Math.min(toQuantity(value), Math.max(0, total - damaged));
+    setField("received_quantity", String(received));
+    setField("quantity_short", String(total - damaged - received));
+  };
+
+  const readOnlyQuantityClass = "bg-gray-100 text-gray-600 disabled:opacity-100";
 
   return (
     <TableRow className="divide-x divide-gray-200 hover:bg-gray-50/50">
@@ -148,7 +179,13 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
           render={({ field }) => (
             <>
               <FormControl>
-                <Input {...field} type="number" min={0} className="h-9 w-24" />
+                <Input
+                  {...field}
+                  type="number"
+                  min={0}
+                  disabled
+                  className={cn("h-9 w-24", readOnlyQuantityClass)}
+                />
               </FormControl>
               <FormMessage />
             </>
@@ -165,7 +202,17 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
           render={({ field }) => (
             <>
               <FormControl>
-                <Input {...field} type="number" min={0} className="h-9 w-24" />
+                <Input
+                  {...field}
+                  type="number"
+                  min={0}
+                  max={damagedLimit}
+                  onChange={(event) => {
+                    field.onChange(event);
+                    applyDamaged(event.target.value);
+                  }}
+                  className="h-9 w-24"
+                />
               </FormControl>
               <FormMessage />
             </>
@@ -173,7 +220,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         />
       </TableCell>
 
-      {/* Short */}
+      {/* Short — the dispatched balance left over once damaged and received are known */}
       <TableCell className="align-top p-2">
         <FormField
           control={form.control}
@@ -182,7 +229,13 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
           render={({ field }) => (
             <>
               <FormControl>
-                <Input {...field} type="number" min={0} className="h-9 w-24" />
+                <Input
+                  {...field}
+                  type="number"
+                  min={0}
+                  disabled
+                  className={cn("h-9 w-24", readOnlyQuantityClass)}
+                />
               </FormControl>
               <FormMessage />
             </>
@@ -203,11 +256,15 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   {...field}
                   type="number"
                   min={1}
+                  max={receivedLimit}
+                  onChange={(event) => {
+                    field.onChange(event);
+                    applyReceived(event.target.value);
+                  }}
                   disabled={!canUpdateReceivedQuantity}
                   className={cn(
                     "h-9 w-24",
-                    !canUpdateReceivedQuantity &&
-                      "bg-gray-100 text-gray-600 disabled:opacity-100",
+                    !canUpdateReceivedQuantity && readOnlyQuantityClass,
                   )}
                 />
               </FormControl>

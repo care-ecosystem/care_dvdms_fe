@@ -9,6 +9,47 @@ import { RecordDelivery, RecordInward } from "@/types/recordOrder";
 const DVDMS_INDENT_ISSUED_STATUS = "Issued";
 const DVDMS_ISSUE_POLL_INTERVAL_MS = 30_000;
 
+/**
+ * The issue list can't be filtered by outward record server side, so every page
+ * is needed before filtering here. The first page reports the total count; the
+ * remaining pages are fetched together in a batch request.
+ */
+const listAllRecordInwards = async (instituteId: string) => {
+  const firstPage = await apis.recordInwards.list(instituteId, {
+    limit: LIST_FETCH_LIMIT,
+  });
+
+  const remainingOffsets: number[] = [];
+  for (
+    let offset = LIST_FETCH_LIMIT;
+    offset < firstPage.count;
+    offset += LIST_FETCH_LIMIT
+  ) {
+    remainingOffsets.push(offset);
+  }
+  if (remainingOffsets.length === 0) return firstPage.results;
+
+  const response = await apis.batchRequests.createChunked({
+    requests: remainingOffsets.map((offset) => ({
+      url: apis.recordInwards.listPath(instituteId),
+      method: HttpMethod.GET,
+      body: { limit: LIST_FETCH_LIMIT, offset },
+      reference_id: `record_inwards_${offset}`,
+    })),
+  });
+
+  const records = [
+    ...firstPage.results,
+    ...response.results.flatMap(
+      (result) =>
+        (result.data as PaginatedResponse<RecordInward> | undefined)?.results ??
+        [],
+    ),
+  ];
+  /** Pages can overlap when issues are created while they are being fetched. */
+  return [...new Map(records.map((record) => [record.id, record])).values()];
+};
+
 type UseRecordInwardDeliveriesOptions = {
   indentStatus?: string | null;
   
@@ -20,10 +61,9 @@ export default function useRecordInwardDeliveries(
   outwardId: string | undefined,
   { indentStatus, inwardRecordId }: UseRecordInwardDeliveriesOptions = {},
 ) {
-  const { data: inwardRecordsData, isLoading: isInwardLoading } = useQuery({
+  const { data: allInwardRecords, isLoading: isInwardLoading } = useQuery({
     queryKey: ["dvdms_record_inwards", instituteId],
-    queryFn: () =>
-      apis.recordInwards.list(instituteId!, { limit: LIST_FETCH_LIMIT }),
+    queryFn: () => listAllRecordInwards(instituteId!),
     enabled: !!instituteId && !!outwardId,
     refetchInterval:
       indentStatus === DVDMS_INDENT_ISSUED_STATUS
@@ -31,7 +71,7 @@ export default function useRecordInwardDeliveries(
         : false,
   });
 
-  const inwardRecords: RecordInward[] = (inwardRecordsData?.results ?? [])
+  const inwardRecords: RecordInward[] = (allInwardRecords ?? [])
     .filter((item) => item.outward_record === outwardId)
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 

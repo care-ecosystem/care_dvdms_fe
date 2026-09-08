@@ -258,6 +258,8 @@ export const apis = {
       ),
   },
   recordInwards: {
+    listPath: (instituteId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/record_inwards/`,
     list: (
       instituteId: string,
       params: {
@@ -267,7 +269,7 @@ export const apis = {
       } = {},
     ) =>
       request<PaginatedResponse<RecordInward>>(
-        `/api/care_dvdms/institute/${instituteId}/record_inwards/`,
+        apis.recordInwards.listPath(instituteId),
         HttpMethod.GET,
         params,
       ),
@@ -280,7 +282,7 @@ export const apis = {
       ),
     create: (instituteId: string, payload: RecordInwardPayload) =>
       request<RecordInward>(
-        `/api/care_dvdms/institute/${instituteId}/record_inwards/`,
+        apis.recordInwards.listPath(instituteId),
         HttpMethod.POST,
         { ...payload },
       ),

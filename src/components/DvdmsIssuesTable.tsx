@@ -22,6 +22,7 @@ import {
 import {
   ACKNOWLEDGEMENT_STATUS_LABELS,
   ACKNOWLEDGEMENT_STATUS_VARIANTS,
+  DELIVERABLE_RECORD_INWARD_STATUSES,
   DvdmsSyncRequestStatus,
   DvdmsSyncType,
   RecordDelivery,
@@ -178,6 +179,11 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
           const showAcknowledgement =
             deliveryStatus === RecordDeliveryStatus.completed &&
             !!acknowledgement;
+          const canCreateDelivery =
+            !!issue.eaushadhi_issue_status &&
+            DELIVERABLE_RECORD_INWARD_STATUSES.includes(
+              issue.eaushadhi_issue_status,
+            );
 
           return (
             <TableRow key={issue.id}>
@@ -266,7 +272,7 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
                   >
                     <Eye className="size-4" /> {t("view_delivery")}
                   </Button>
-                ) : (
+                ) : canCreateDelivery ? (
                   <Button
                     size="sm"
                     onClick={() =>
@@ -277,6 +283,8 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
                   >
                     <Plus className="size-4" /> {t("create_delivery")}
                   </Button>
+                ) : (
+                  "—"
                 )}
               </TableCell>
             </TableRow>

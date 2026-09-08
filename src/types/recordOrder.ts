@@ -143,6 +143,11 @@ export const RECORD_INWARD_STATUS_LABELS: Record<RecordInwardStatus, string> = {
   [RecordInwardStatus.cancelled]: "cancelled",
 };
 
+export const DELIVERABLE_RECORD_INWARD_STATUSES: RecordInwardStatus[] = [
+  RecordInwardStatus.received,
+  RecordInwardStatus.partially_received,
+];
+
 /** The outcome of the last DVDMS sync against an issue. */
 export interface RecordInwardSyncLog {
   id: string;

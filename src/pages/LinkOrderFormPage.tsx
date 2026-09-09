@@ -545,13 +545,13 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
 
         {!selectedOrderId ? (
           <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <SupplierSelect
                 value={supplierFilter}
                 onChange={handleSupplierFilterChange}
-                className="sm:min-w-0 sm:max-w-sm"
+                className="sm:min-w-0 sm:max-w-lg"
               />
-              <div className="sm:ml-auto">
+              <div className="shrink-0 sm:ml-auto">
                 <OrderFilters
                   status={statusFilter}
                   priority={priorityFilter}

@@ -16,6 +16,14 @@ export interface DeliveryOrderCreatePayload {
   extensions: Record<string, unknown>;
 }
 
+export interface DeliveryOrderUpdatePayload {
+  id: string;
+  status: DeliveryOrderStatus;
+  name: string;
+  destination: string;
+  supplier: string;
+}
+
 export interface DeliveryOrderRetrieve {
   id: string;
   status: DeliveryOrderStatus;

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { apis } from "@/apis";
+import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import {
@@ -666,11 +667,34 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
 
   const completeRecordOrderMutation = useMutation({
     mutationFn: () => {
-      if (!institute?.id || !recordOrder?.id) {
-        throw new Error("Missing institute or record order");
+      if (!institute?.id || !recordOrder?.id || !order) {
+        throw new Error("Missing institute, record order or request order");
       }
-      return apis.recordOrders.update(institute.id, recordOrder.id, {
-        status: "completed",
+
+      return performSuperBatchRequest({
+        requests: [
+          {
+            reference_id: "record-order",
+            url: apis.recordOrders.path(institute.id, recordOrder.id),
+            method: HttpMethod.PATCH,
+            body: { status: "completed" },
+          },
+          {
+            reference_id: "request-order",
+            url: apis.requestOrders.path(facilityId, order.id),
+            method: HttpMethod.PATCH,
+            body: {
+              id: order.id,
+              status: "completed",
+              name: order.name,
+              note: order.note ?? "",
+              intent: order.intent,
+              category: order.category,
+              priority: order.priority,
+              reason: order.reason,
+            },
+          },
+        ],
       });
     },
     onSuccess: () => {
@@ -678,9 +702,14 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       queryClient.invalidateQueries({
         queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_request_order", facilityId, requestOrderId],
+      });
     },
-    onError: () => {
-      toast.error(t("record_order_complete_failed"));
+    onError: (error: unknown) => {
+      const message =
+        error instanceof BatchError ? error.errorMessages[0] : undefined;
+      toast.error(message || t("record_order_complete_failed"));
     },
   });
 

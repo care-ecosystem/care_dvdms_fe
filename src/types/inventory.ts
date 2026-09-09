@@ -63,7 +63,8 @@ export type ProductCreatePayload = {
   batch: ProductBatch;
   expiration_date: string;
   product_knowledge: string;
-  charge_item_definition?: string;
+  charge_item_definition?: string | null;
+  standard_pack_size?: number;
   purchase_price?: string;
   extensions: Record<string, unknown>;
 };

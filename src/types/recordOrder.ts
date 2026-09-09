@@ -114,8 +114,6 @@ export const ACKNOWLEDGEMENT_STATUS_LABELS: Record<
 };
 
 export enum RecordInwardStatus {
-  draft = "draft",
-  pending = "pending",
   received = "received",
   partially_received = "partially_received",
   completed = "completed",
@@ -126,8 +124,6 @@ export const RECORD_INWARD_STATUS_VARIANTS: Record<
   RecordInwardStatus,
   RequestOrderBadgeVariant
 > = {
-  [RecordInwardStatus.draft]: "secondary",
-  [RecordInwardStatus.pending]: "yellow",
   [RecordInwardStatus.received]: "indigo",
   [RecordInwardStatus.partially_received]: "indigo",
   [RecordInwardStatus.completed]: "green",
@@ -135,8 +131,6 @@ export const RECORD_INWARD_STATUS_VARIANTS: Record<
 };
 
 export const RECORD_INWARD_STATUS_LABELS: Record<RecordInwardStatus, string> = {
-  [RecordInwardStatus.draft]: "draft",
-  [RecordInwardStatus.pending]: "pending",
   [RecordInwardStatus.received]: "received",
   [RecordInwardStatus.partially_received]: "partially_received",
   [RecordInwardStatus.completed]: "completed",

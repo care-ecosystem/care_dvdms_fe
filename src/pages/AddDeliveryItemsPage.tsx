@@ -19,7 +19,7 @@ import {
   MAX_REQUESTS_PER_BATCH,
   MAX_REQUESTS_PER_SUPER_BATCH,
 } from "@/lib/constants";
-import { chunk, toDateInputValue, toQuantity } from "@/lib/utils";
+import { chunk, formatDate, toDateInputValue, toQuantity } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -45,13 +45,9 @@ import {
   DeliveryItemsFormValues,
   createEmptyDeliveryItem,
 } from "@/types/deliveryItemForm";
+import { DeliveryOrderStatus } from "@/types/deliveryOrder";
 import { DvdmsProductMapping } from "@/types/dvdms_config";
-import {
-  BASE_PRICE_COMPONENT,
-  ChargeItemDefinitionStatus,
-  Product,
-  ProductStatus,
-} from "@/types/inventory";
+import { ProductStatus } from "@/types/inventory";
 import { ProductKnowledge } from "@/types/productKnowledge";
 import { RecordItemOrder } from "@/types/recordOrderItem";
 import {
@@ -412,15 +408,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
         toast.error(t("select_product_at_row", { row }));
         return false;
       }
-      if (!item.supplied_item || item.is_manually_edited) {
-        if (!item.expiry_date) {
-          toast.error(t("expiry_date_required_at_row", { row }));
-          return false;
-        }
-        if (!item.charge_item_category) {
-          toast.error(t("category_required_at_row", { row }));
-          return false;
-        }
+      if (!item.expiry_date) {
+        toast.error(t("expiry_date_required_at_row", { row }));
+        return false;
       }
       if (!hasQuantity(item.received_quantity)) {
         toast.error(t("received_qty_required_at_row", { row }));
@@ -448,66 +438,19 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     return true;
   };
 
-  const resolveRowProductId = async (
-    item: DeliveryItemFormValues,
-    index: number,
-  ) => {
-    let productId = item.supplied_item?.id;
-    let chargeItemSlug = item.charge_item_definition?.slug;
 
-    if (!productId || item.is_manually_edited) {
-      if (item.is_manually_edited) {
-        productId = undefined;
-        chargeItemSlug = undefined;
-      }
-
-      if (!chargeItemSlug) {
-        const chargeItemDefinition = await apis.chargeItemDefinitions.create(
-          facilityId,
-          {
-            slug_value: crypto.randomUUID(),
-            category: item.charge_item_category!,
-            title: `${item.product_knowledge!.name}${
-              item.eaushadhi_batch ? ` - ${item.eaushadhi_batch}` : ""
-            }`,
-            status: ChargeItemDefinitionStatus.active,
-            can_edit_charge_item: false,
-            price_components: [
-              {
-                monetary_component_type: BASE_PRICE_COMPONENT,
-                amount: item.unit_price || "0",
-              },
-            ],
-            discount_configuration: null,
-          },
-        );
-        chargeItemSlug = chargeItemDefinition.slug;
-        form.setValue(`items.${index}.charge_item_definition`, {
-          slug: chargeItemSlug,
-        });
-        form.setValue(`items.${index}.is_manually_edited`, false);
-      }
-
-      if (!productId) {
-        const product = await apis.products.create(facilityId, {
-          status: ProductStatus.active,
-          batch: item.eaushadhi_batch
-            ? { lot_number: item.eaushadhi_batch }
-            : {},
-          expiration_date: item.expiry_date,
-          product_knowledge: item.product_knowledge!.slug,
-          charge_item_definition: chargeItemSlug,
-          purchase_price: item.purchase_price,
-          extensions: {},
-        });
-        productId = product.id;
-        form.setValue(`items.${index}.supplied_item`, {
-          id: productId,
-        } as Product);
-      }
-    }
-
-    return productId!;
+  const createRowProduct = async (item: DeliveryItemFormValues) => {
+    const product = await apis.products.create(facilityId, {
+      status: ProductStatus.active,
+      batch: item.eaushadhi_batch ? { lot_number: item.eaushadhi_batch } : {},
+      expiration_date: item.expiry_date,
+      product_knowledge: item.product_knowledge!.slug,
+      charge_item_definition: null,
+      standard_pack_size: toQuantity(item.received_quantity),
+      purchase_price: item.purchase_price,
+      extensions: {},
+    });
+    return product.id;
   };
 
   /**
@@ -612,7 +555,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           requests: buildRowRequests(
             item,
             index,
-            await resolveRowProductId(item, index),
+            await createRowProduct(item),
             recordDeliveryId,
           ),
         })),
@@ -763,12 +706,34 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       if (!institute?.id || !inwardRecord?.id || !recordDelivery?.id) {
         throw new Error("Missing institute, inward record or record delivery");
       }
-      return apis.recordInwards.updateDelivery(
-        institute.id,
-        inwardRecord.id,
-        recordDelivery.id,
-        { status: RecordDeliveryStatus.completed },
-      );
+      const deliveryOrder = recordDelivery.delivery_order;
+
+      return performSuperBatchRequest({
+        requests: [
+          {
+            reference_id: "record-delivery",
+            url: apis.recordInwards.deliveryPath(
+              institute.id,
+              inwardRecord.id,
+              recordDelivery.id,
+            ),
+            method: HttpMethod.PATCH,
+            body: { status: RecordDeliveryStatus.completed },
+          },
+          {
+            reference_id: "delivery-order",
+            url: apis.deliveryOrders.path(facilityId, deliveryOrder.id),
+            method: HttpMethod.PATCH,
+            body: {
+              id: deliveryOrder.id,
+              status: DeliveryOrderStatus.completed,
+              name: deliveryOrder.name,
+              destination: deliveryOrder.destination,
+              supplier: deliveryOrder.supplier,
+            },
+          },
+        ],
+      });
     },
     onSuccess: () => {
       toast.success(t("record_delivery_approved"));
@@ -777,8 +742,12 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
         queryKey: ["dvdms_record_delivery_detail"],
       });
     },
-    onError: (error: { message?: string }) => {
-      toast.error(error?.message || t("record_delivery_approve_failed"));
+    onError: (error: unknown) => {
+      const message =
+        error instanceof BatchError
+          ? error.errorMessages[0]
+          : (error as { message?: string })?.message;
+      toast.error(message || t("record_delivery_approve_failed"));
     },
   });
 
@@ -900,7 +869,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           )}
         </div>
 
-        {isLoadingContext || isLoadingItems || isProcessing ? (
+        {isLoadingContext || isLoadingItems ? (
           <div className="space-y-4">
             <Skeleton className="h-24 w-full" />
             <Skeleton className="h-64 w-full" />
@@ -1087,9 +1056,11 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                         </TableHeader>
                         <TableBody>
                           {savedItems.map((item) => {
-                            const drugId = inwardItemById.get(
+                            // A saved item carries the batch but not the
+                            // expiry, so the issue's own item supplies it.
+                            const inwardItem = inwardItemById.get(
                               item.inward_record_item.id,
-                            )?.drug_id;
+                            );
 
                             return (
                               <TableRow
@@ -1101,15 +1072,18 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                     <span>
                                       {item.inward_record_item.item_name || "—"}
                                     </span>
-                                    {drugId && (
+                                    {inwardItem?.drug_id && (
                                       <span className="text-xs text-gray-500">
-                                        {t("drug_id")}: {drugId}
+                                        {t("drug_id")}: {inwardItem.drug_id}
                                       </span>
                                     )}
                                   </div>
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-gray-900">
                                   {item.inward_record_item.batch_number || "—"}
+                                </TableCell>
+                                <TableCell className="p-2 text-sm text-gray-900">
+                                  {formatDate(inwardItem?.expiry_date)}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-gray-900">
                                   {item.product_knowledge?.name || "—"}

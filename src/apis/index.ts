@@ -13,6 +13,7 @@ import { LocationRead } from "@/types/location";
 import {
   DeliveryOrderCreatePayload,
   DeliveryOrderRetrieve,
+  DeliveryOrderUpdatePayload,
 } from "@/types/deliveryOrder";
 import { ProductKnowledge, ResourceCategory } from "@/types/productKnowledge";
 import {
@@ -115,9 +116,11 @@ export const apis = {
         HttpMethod.GET,
         params,
       ),
+    path: (facilityId: string, requestOrderId: string) =>
+      `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/`,
     retrieve: (facilityId: string, requestOrderId: string) =>
       request<RequestOrder>(
-        `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/`,
+        apis.requestOrders.path(facilityId, requestOrderId),
         HttpMethod.GET,
       ),
     setTags: (facilityId: string, requestOrderId: string, tags: string[]) =>
@@ -185,13 +188,15 @@ export const apis = {
         HttpMethod.POST,
         { ...payload },
       ),
+    path: (instituteId: string, recordOrderId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/`,
     update: (
       instituteId: string,
       recordOrderId: string,
       payload: RecordOrderUpdatePayload,
     ) =>
       request<RecordOrder>(
-        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/`,
+        apis.recordOrders.path(instituteId, recordOrderId),
         HttpMethod.PATCH,
         { ...payload },
       ),
@@ -639,6 +644,7 @@ export const apis = {
       ),
   },
   products: {
+    path: (facilityId: string) => `/api/v1/facility/${facilityId}/product/`,
     list: (
       facilityId: string,
       params: {
@@ -650,16 +656,14 @@ export const apis = {
       },
     ) =>
       request<PaginatedResponse<Product>>(
-        `/api/v1/facility/${facilityId}/product/`,
+        apis.products.path(facilityId),
         HttpMethod.GET,
         params,
       ),
     create: (facilityId: string, payload: ProductCreatePayload) =>
-      request<Product>(
-        `/api/v1/facility/${facilityId}/product/`,
-        HttpMethod.POST,
-        { ...payload },
-      ),
+      request<Product>(apis.products.path(facilityId), HttpMethod.POST, {
+        ...payload,
+      }),
   },
   chargeItemDefinitions: {
     create: (facilityId: string, payload: ChargeItemDefinitionCreatePayload) =>
@@ -696,10 +700,24 @@ export const apis = {
     },
   },
   deliveryOrders: {
+    listPath: (facilityId: string) =>
+      `/api/v1/facility/${facilityId}/order/delivery/`,
+    path: (facilityId: string, deliveryOrderId: string) =>
+      `/api/v1/facility/${facilityId}/order/delivery/${deliveryOrderId}/`,
     create: (facilityId: string, payload: DeliveryOrderCreatePayload) =>
       request<DeliveryOrderRetrieve>(
-        `/api/v1/facility/${facilityId}/order/delivery/`,
+        apis.deliveryOrders.listPath(facilityId),
         HttpMethod.POST,
+        { ...payload },
+      ),
+    update: (
+      facilityId: string,
+      deliveryOrderId: string,
+      payload: DeliveryOrderUpdatePayload,
+    ) =>
+      request<DeliveryOrderRetrieve>(
+        apis.deliveryOrders.path(facilityId, deliveryOrderId),
+        HttpMethod.PATCH,
         { ...payload },
       ),
   },

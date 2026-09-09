@@ -21,9 +21,9 @@
   ],
   "facility:inventory": [
     {
-      "key": "l",
+      "key": "s",
       "action": "link-order-eaushadhi",
-      "description": "Link Order to DVDMS",
+      "description": "Send Order to DVDMS",
       "when": "always"
     },
     {

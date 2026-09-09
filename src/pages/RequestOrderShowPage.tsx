@@ -359,9 +359,11 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const hasStaleOutwardFailure =
     outward?.status === "failed" && recordOrder?.status !== "failed";
   const displayStatus =
-    hasStaleOutwardFailure || !outward?.status
-      ? recordOrder?.status
-      : outward.status;
+    recordOrder?.status === "approved" &&
+    !!outward?.status &&
+    !hasStaleOutwardFailure
+      ? outward.status
+      : recordOrder?.status;
 
   const canSyncDvdmsStatus =
     !!recordOrder?.status &&

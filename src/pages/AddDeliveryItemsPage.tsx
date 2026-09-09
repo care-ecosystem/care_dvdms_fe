@@ -74,7 +74,7 @@ import {
 } from "@/types/supplyDelivery";
 import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
-const MAX_ROWS_PER_SUPER_BATCH = Math.floor(MAX_REQUESTS_PER_SUPER_BATCH / 2);
+const MAX_ROWS_PER_SUPER_BATCH = Math.floor(MAX_REQUESTS_PER_SUPER_BATCH / 3);
 
 const MAX_ITEMS_PER_APPROVAL_BATCH = MAX_REQUESTS_PER_SUPER_BATCH - 1;
 
@@ -438,35 +438,33 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     return true;
   };
 
-
-  const createRowProduct = async (item: DeliveryItemFormValues) => {
-    const product = await apis.products.create(facilityId, {
-      status: ProductStatus.active,
-      batch: item.eaushadhi_batch ? { lot_number: item.eaushadhi_batch } : {},
-      expiration_date: item.expiry_date,
-      product_knowledge: item.product_knowledge!.slug,
-      charge_item_definition: null,
-      standard_pack_size: toQuantity(item.received_quantity),
-      purchase_price: item.purchase_price,
-      extensions: {},
-    });
-    return product.id;
-  };
-
-  /**
-   * The supply delivery and the record delivery item that points at it, as one
-   * dependent pair for the super batch endpoint.
-   */
   const buildRowRequests = (
     item: DeliveryItemFormValues,
     index: number,
-    productId: string,
     recordDeliveryId: string,
   ): SuperBatchRequestItem[] => {
     const quantity = toQuantity(item.received_quantity);
+    const productRef = `product-${index}`;
     const supplyDeliveryRef = `supply-delivery-${index}`;
 
     const requests: SuperBatchRequestItem[] = [
+      {
+        reference_id: productRef,
+        url: apis.products.path(facilityId),
+        method: HttpMethod.POST,
+        body: {
+          status: ProductStatus.active,
+          batch: item.eaushadhi_batch
+            ? { lot_number: item.eaushadhi_batch }
+            : {},
+          expiration_date: item.expiry_date,
+          product_knowledge: item.product_knowledge!.slug,
+          charge_item_definition: null,
+          standard_pack_size: quantity,
+          purchase_price: 0,
+          extensions: {},
+        },
+      },
       {
         reference_id: supplyDeliveryRef,
         url: apis.supplyDeliveries.path,
@@ -476,7 +474,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           status: SupplyDeliveryStatus.in_progress,
           supplied_item_condition: SupplyDeliveryCondition.normal,
           supplied_item_quantity: quantity,
-          supplied_item: productId,
+          supplied_item: "",
           supplied_item_pack_quantity: 1,
           supplied_item_pack_size: quantity,
           total_purchase_price: 0,
@@ -488,6 +486,15 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           order: deliveryOrderId,
           extensions: {},
         },
+        replacements: [
+          {
+            source_path: { reference_id: productRef, path: "id" },
+            value_path: {
+              reference_id: supplyDeliveryRef,
+              path: "supplied_item",
+            },
+          },
+        ],
       },
     ];
 
@@ -548,26 +555,14 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           )
         ).id;
 
-      // Products have to exist before the batch can reference them.
-      const preparedRows = await Promise.allSettled(
-        data.items.map(async (item, index) => ({
-          index,
-          requests: buildRowRequests(
-            item,
-            index,
-            await createRowProduct(item),
-            recordDeliveryId,
-          ),
-        })),
-      );
+      const rows = data.items.map((item, index) => ({
+        index,
+        requests: buildRowRequests(item, index, recordDeliveryId),
+      }));
+      let failedCount = 0;
 
-      const rows = preparedRows.flatMap((result) =>
-        result.status === "fulfilled" ? [result.value] : [],
-      );
-      let failedCount = preparedRows.length - rows.length;
-
-      // A batch is one transaction, so chunk by row to keep each supply
-      // delivery together with the item that references it.
+      // A batch is one transaction, so chunk by row to keep each product and
+      // supply delivery together with the item that references them.
       const rowChunks = chunk(rows, MAX_ROWS_PER_SUPER_BATCH);
       const chunkResults = await Promise.allSettled(
         rowChunks.map((rowChunk) =>

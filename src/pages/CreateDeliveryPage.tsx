@@ -7,6 +7,8 @@ import { XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
+import { BatchError, performSuperBatchRequest } from "@/apis/query";
+import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +33,10 @@ import { Organization } from "@/types/organization";
 import { DeliveryOrderStatus } from "@/types/deliveryOrder";
 import { RecordDeliveryStatus } from "@/types/recordOrder";
 import { REQUEST_ORDER_STATUS_VARIANTS } from "@/types/requestOrder";
+import {
+  SuperBatchReplacement,
+  SuperBatchRequestItem,
+} from "@/types/superBatch";
 import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
 type CreateDeliveryPageProps = {
@@ -39,6 +45,12 @@ type CreateDeliveryPageProps = {
   requestOrderId: string;
   recordOrderId: string;
 };
+
+const INWARD_RECORD_REF = "inward-record";
+const DELIVERY_ORDER_REF = "delivery-order";
+const RECORD_DELIVERY_REF = "record-delivery";
+/** Placeholder the super batch swaps for the inward record it just created. */
+const INWARD_RECORD_URL_TOKEN = "inward_record";
 
 type DeliveryFormValues = {
   name: string;
@@ -151,41 +163,98 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
       ) {
         throw new Error("Missing DVDMS indent number for this outward record");
       }
+      const instituteId = institute.id;
 
-      const inward =
-        inwardRecord ??
-        (await apis.recordInwards.create(institute.id, {
-          eaushadhi_issue_no: outward.eaushadhi_indent_no,
-          outward_record: outward.id,
-        }));
+      const requests: SuperBatchRequestItem[] = [];
+      const replacements: SuperBatchReplacement[] = [];
 
-      const deliveryOrder = await apis.deliveryOrders.create(facilityId, {
-        status: DeliveryOrderStatus.draft,
-        name: form.getValues("name"),
-        note: form.getValues("note") || undefined,
-        supplier: form.getValues("supplier")?.id,
-        destination: locationId,
-        extensions: {},
+      if (!inwardRecord) {
+        requests.push({
+          reference_id: INWARD_RECORD_REF,
+          url: apis.recordInwards.listPath(instituteId),
+          method: HttpMethod.POST,
+          body: {
+            eaushadhi_issue_no: outward.eaushadhi_indent_no,
+            outward_record: outward.id,
+          },
+        });
+        replacements.push({
+          source_path: { reference_id: INWARD_RECORD_REF, path: "id" },
+          value_path: {
+            reference_id: RECORD_DELIVERY_REF,
+            path: INWARD_RECORD_URL_TOKEN,
+            type: "url",
+          },
+        });
+      }
+
+      requests.push({
+        reference_id: DELIVERY_ORDER_REF,
+        url: apis.deliveryOrders.listPath(facilityId),
+        method: HttpMethod.POST,
+        body: {
+          status: DeliveryOrderStatus.draft,
+          name: form.getValues("name"),
+          note: form.getValues("note") || undefined,
+          supplier: form.getValues("supplier")?.id,
+          destination: locationId,
+          extensions: {},
+        },
+      });
+      replacements.push({
+        source_path: { reference_id: DELIVERY_ORDER_REF, path: "id" },
+        value_path: {
+          reference_id: RECORD_DELIVERY_REF,
+          path: "delivery_order",
+        },
       });
 
-      await apis.recordInwards.createDelivery(institute.id, inward.id, {
-        delivery_order: deliveryOrder.id,
-        record_order: recordOrder.id,
-        status: RecordDeliveryStatus.pending,
+      requests.push({
+        reference_id: RECORD_DELIVERY_REF,
+        url: apis.recordInwards.deliveriesPath(
+          instituteId,
+          inwardRecord?.id ?? `{${INWARD_RECORD_URL_TOKEN}}`,
+        ),
+        method: HttpMethod.POST,
+        body: {
+          delivery_order: "",
+          record_order: recordOrder.id,
+          status: RecordDeliveryStatus.pending,
+        },
+        replacements,
       });
 
-      return { deliveryOrder, inwardRecordId: inward.id };
+      const results = await performSuperBatchRequest({ requests });
+      const dataByRef = new Map(
+        results.map((result) => [result.reference_id, result.data]),
+      );
+      const deliveryOrderId = (
+        dataByRef.get(DELIVERY_ORDER_REF) as { id?: string } | undefined
+      )?.id;
+      const inwardRecordId =
+        inwardRecord?.id ??
+        (dataByRef.get(INWARD_RECORD_REF) as { id?: string } | undefined)?.id;
+
+      if (!deliveryOrderId || !inwardRecordId) {
+        throw new Error("Super batch did not return the created records");
+      }
+
+      return { deliveryOrderId, inwardRecordId };
     },
-    onSuccess: ({ deliveryOrder, inwardRecordId }) => {
+    onSuccess: ({ deliveryOrderId, inwardRecordId }) => {
       toast.success(t("delivery_order_created_successfully"));
       queryClient.invalidateQueries({ queryKey: ["dvdms_record_inwards"] });
       queryClient.invalidateQueries({ queryKey: ["dvdms_record_deliveries"] });
       navigate(
-        `${returnPath}/delivery/${deliveryOrder.id}?issue=${inwardRecordId}`,
+        `${returnPath}/delivery/${deliveryOrderId}?issue=${inwardRecordId}`,
         { replace: true },
       );
     },
-    onError: () => toast.error(t("failed_to_create_delivery_order")),
+    onError: (error: unknown) => {
+      const message =
+        error instanceof BatchError ? error.errorMessages[0] : undefined;
+      toast.error(message || t("failed_to_create_delivery_order"));
+    },
   });
 
   const onSubmit = form.handleSubmit(() => createDeliveryOrder());

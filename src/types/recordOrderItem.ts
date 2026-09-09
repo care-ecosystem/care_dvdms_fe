@@ -1,3 +1,4 @@
+import { ProductKnowledge } from "@/types/productKnowledge";
 import { RecordOrderUser } from "@/types/recordOrder";
 
 export interface RecordItemOrderDrug {
@@ -16,11 +17,8 @@ export interface RecordItemOrderPayload {
   drug: RecordItemOrderDrug;
 }
 
-export interface RecordItemOrderSupplyRequestItem {
-  id: string;
-  alternate_identifier: string | null;
-  status: string;
-}
+
+export type RecordItemOrderSupplyRequestItem = ProductKnowledge;
 
 export interface RecordItemOrderSupplyRequestOrder {
   id: string;

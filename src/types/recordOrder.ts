@@ -177,6 +177,7 @@ export interface RecordInwardItem {
   brand_id: string;
   batch: string;
   manufacturer: string;
+  expiry_date: string | null;
   received_quantity: string;
   status: string;
   created_by: RecordOrderUser | null;

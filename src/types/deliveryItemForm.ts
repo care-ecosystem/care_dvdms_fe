@@ -7,6 +7,7 @@ export type DeliveryItemFormValues = {
   drug_id: string;
   drug_name: string;
   eaushadhi_batch: string;
+  eaushadhi_expiry: string;
   received_quantity: string;
   quantity_dispatched: string;
   quantity_damaged: string;
@@ -32,6 +33,7 @@ export const createEmptyDeliveryItem = (): DeliveryItemFormValues => ({
   drug_id: "",
   drug_name: "",
   eaushadhi_batch: "",
+  eaushadhi_expiry: "",
   received_quantity: "",
   quantity_dispatched: "",
   quantity_damaged: "0",

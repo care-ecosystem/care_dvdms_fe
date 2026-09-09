@@ -4,6 +4,7 @@ import { UseFormReturn, useWatch } from "react-hook-form";
 
 import { apis } from "@/apis";
 import { LIST_FETCH_LIMIT } from "@/lib/constants";
+import { toDateInputValue } from "@/lib/utils";
 import {
   DeliveryItemFormValues,
   DeliveryItemsFormValues,
@@ -17,9 +18,6 @@ type UseDeliveryRowItemProps = {
   index: number;
   facilityId: string;
 };
-
-const toDateInputValue = (value: string) => value.slice(0, 10);
-
 
 export function useDeliveryRowItem({
   form,
@@ -35,6 +33,7 @@ export function useDeliveryRowItem({
     supplied_item: suppliedItem,
     charge_item_category: chargeItemCategory,
     is_manually_edited: isManuallyEdited,
+    eaushadhi_expiry: eaushadhiExpiry,
   } = item || {};
 
   const setField = useCallback(
@@ -50,7 +49,7 @@ export function useDeliveryRowItem({
   const resetFields = useCallback(() => {
     const fieldsToReset: Partial<DeliveryItemFormValues> = {
       supplied_item: undefined,
-      expiry_date: "",
+      expiry_date: eaushadhiExpiry ?? "",
       charge_item_definition: undefined,
       unit_price: "0",
       purchase_price: undefined,
@@ -65,7 +64,7 @@ export function useDeliveryRowItem({
       );
     });
     setIsCreatingNew(false);
-  }, [setField]);
+  }, [setField, eaushadhiExpiry]);
 
   const markAsEdited = useCallback(() => {
     setField("is_manually_edited", true);
@@ -91,7 +90,7 @@ export function useDeliveryRowItem({
       resetFields();
 
       setField("supplied_item", product);
-      if (product.expiration_date) {
+      if (!eaushadhiExpiry && product.expiration_date) {
         setField("expiry_date", toDateInputValue(product.expiration_date));
       }
       if (product.purchase_price != null) {
@@ -113,7 +112,7 @@ export function useDeliveryRowItem({
         setField("unit_price", base.amount);
       }
     },
-    [resetFields, setField],
+    [resetFields, setField, eaushadhiExpiry],
   );
 
 

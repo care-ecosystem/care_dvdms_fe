@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { UseFormReturn } from "react-hook-form";
 
 import { I18N_NAMESPACE } from "@/lib/constants";
-import { cn, toQuantity } from "@/lib/utils";
+import { cn, formatDate, toQuantity } from "@/lib/utils";
 import { FormControl, FormField, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { TableCell, TableRow } from "@/components/ui/table";
@@ -92,6 +92,39 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         {row.eaushadhi_batch || "—"}
       </TableCell>
 
+      {/*
+        eAushadhi expiry of the issued batch. It is only editable when eAushadhi
+        did not send one, since a product still needs an expiry to be created.
+      */}
+      <TableCell className="align-top p-2 text-sm text-gray-900">
+        {row.eaushadhi_expiry ? (
+          formatDate(row.eaushadhi_expiry)
+        ) : (
+          <FormField
+            control={form.control}
+            name={`items.${index}.expiry_date`}
+            rules={{ required: true }}
+            render={({ field }) => (
+              <>
+                <FormControl>
+                  <Input
+                    {...field}
+                    type="date"
+                    onChange={(event) => {
+                      field.onChange(event);
+                      markAsEdited();
+                    }}
+                    disabled={!productKnowledge}
+                    className="h-9 w-full min-w-[10rem]"
+                  />
+                </FormControl>
+                <FormMessage />
+              </>
+            )}
+          />
+        )}
+      </TableCell>
+
       {/* CARE product knowledge — its slug is shown once one is picked */}
       <TableCell className="align-top p-2">
         <FormField
@@ -118,32 +151,6 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   {t("slug")}: {productKnowledge.slug}
                 </span>
               )}
-              <FormMessage />
-            </>
-          )}
-        />
-      </TableCell>
-
-      {/* Expiry */}
-      <TableCell className="align-top p-2">
-        <FormField
-          control={form.control}
-          name={`items.${index}.expiry_date`}
-          rules={{ required: true }}
-          render={({ field }) => (
-            <>
-              <FormControl>
-                <Input
-                  {...field}
-                  type="date"
-                  onChange={(event) => {
-                    field.onChange(event);
-                    markAsEdited();
-                  }}
-                  disabled={!productKnowledge}
-                  className="h-9 w-full min-w-[10rem]"
-                />
-              </FormControl>
               <FormMessage />
             </>
           )}
@@ -220,29 +227,6 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         />
       </TableCell>
 
-      {/* Short — the dispatched balance left over once damaged and received are known */}
-      <TableCell className="align-top p-2">
-        <FormField
-          control={form.control}
-          name={`items.${index}.quantity_short`}
-          rules={{ required: true, min: 0 }}
-          render={({ field }) => (
-            <>
-              <FormControl>
-                <Input
-                  {...field}
-                  type="number"
-                  min={0}
-                  disabled
-                  className={cn("h-9 w-24", readOnlyQuantityClass)}
-                />
-              </FormControl>
-              <FormMessage />
-            </>
-          )}
-        />
-      </TableCell>
-
       {/* Received (accepted into CARE stock) */}
       <TableCell className="align-top p-2">
         <FormField
@@ -266,6 +250,29 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                     "h-9 w-24",
                     !canUpdateReceivedQuantity && readOnlyQuantityClass,
                   )}
+                />
+              </FormControl>
+              <FormMessage />
+            </>
+          )}
+        />
+      </TableCell>
+
+      {/* Short — the dispatched balance left over once damaged and received are known */}
+      <TableCell className="align-top p-2">
+        <FormField
+          control={form.control}
+          name={`items.${index}.quantity_short`}
+          rules={{ required: true, min: 0 }}
+          render={({ field }) => (
+            <>
+              <FormControl>
+                <Input
+                  {...field}
+                  type="number"
+                  min={0}
+                  disabled
+                  className={cn("h-9 w-24", readOnlyQuantityClass)}
                 />
               </FormControl>
               <FormMessage />

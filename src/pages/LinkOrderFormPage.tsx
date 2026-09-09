@@ -1,4 +1,4 @@
-import { FC, useEffect, useMemo, useState } from "react";
+import { FC, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate, useQueryParams } from "raviger";
@@ -405,55 +405,10 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
 
   const instituteSuppliers = supplierMappingsResponse?.results ?? [];
   const instituteStores = instituteStoresResponse?.results ?? [];
-
-  const { data: lookupStoresResponse } = useQuery({
-    queryKey: ["dvdms_lookup_stores", institute?.id],
-    queryFn: () => apis.institutes.lookupStores(institute!.id),
-    enabled: !!institute?.id,
-  });
-  const lookupStores = lookupStoresResponse ?? [];
-
-  const warehouseLookupOptions = useMemo(() => {
-    const byId = new Map<number, string>();
-    lookupStores.forEach((store) => {
-      if (!byId.has(store.hstnumParentStoreId)) {
-        byId.set(store.hstnumParentStoreId, store.hststrParentStoreName);
-      }
-    });
-    return Array.from(byId, ([id, name]) => ({ id, name }));
-  }, [lookupStores]);
-
   const selectedWarehouseId = form.watch("eaushadhiWarehouseId");
   const selectedStoreId = form.watch("eaushadhiStoreId");
-
-  const storeLookupOptions = useMemo(
-    () =>
-      lookupStores.filter(
-        (store) => String(store.hstnumParentStoreId) === selectedWarehouseId,
-      ),
-    [lookupStores, selectedWarehouseId],
-  );
-
-  const handleWarehouseSelect = (value: string) => {
-    form.setValue("eaushadhiWarehouseId", value);
-    form.setValue(
-      "eaushadhiWarehouseName",
-      warehouseLookupOptions.find((option) => String(option.id) === value)
-        ?.name ?? "",
-    );
-    form.setValue("eaushadhiStoreId", "");
-    form.setValue("eaushadhiStoreName", "");
-  };
-
-  const handleStoreSelect = (value: string) => {
-    form.setValue("eaushadhiStoreId", value);
-    form.setValue(
-      "eaushadhiStoreName",
-      storeLookupOptions.find(
-        (option) => String(option.hstnumStoreId) === value,
-      )?.hststrStoreName ?? "",
-    );
-  };
+  const selectedWarehouseName = form.watch("eaushadhiWarehouseName");
+  const selectedStoreName = form.watch("eaushadhiStoreName");
 
   useEffect(() => {
     form.setValue("name", selectedOrder?.name ?? "");
@@ -713,26 +668,20 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                           <FormLabel aria-required>
                             {t("eaushadhi_supplier")}
                           </FormLabel>
-                          <Select
-                            onValueChange={handleWarehouseSelect}
-                            value={field.value}
-                          >
+                          <Select value={field.value} disabled>
                             <FormControl>
-                              <SelectTrigger className="w-full h-9">
+                              <SelectTrigger className="w-full h-9 bg-gray-50 cursor-default disabled:opacity-100 disabled:text-gray-950">
                                 <SelectValue
                                   placeholder={t("select_eaushadhi_supplier")}
                                 />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {warehouseLookupOptions.map((option) => (
-                                <SelectItem
-                                  key={option.id}
-                                  value={String(option.id)}
-                                >
-                                  {option.name}
+                              {field.value && (
+                                <SelectItem value={field.value}>
+                                  {selectedWarehouseName}
                                 </SelectItem>
-                              ))}
+                              )}
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -757,27 +706,20 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                           <FormLabel aria-required>
                             {t("eaushadhi_from_store")}
                           </FormLabel>
-                          <Select
-                            onValueChange={handleStoreSelect}
-                            value={field.value}
-                            disabled={!selectedWarehouseId}
-                          >
+                          <Select value={field.value} disabled>
                             <FormControl>
-                              <SelectTrigger className="w-full h-9">
+                              <SelectTrigger className="w-full h-9 bg-gray-50 cursor-default disabled:opacity-100 disabled:text-gray-950">
                                 <SelectValue
                                   placeholder={t("select_eaushadhi_store")}
                                 />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {storeLookupOptions.map((store) => (
-                                <SelectItem
-                                  key={store.hstnumStoreId}
-                                  value={String(store.hstnumStoreId)}
-                                >
-                                  {store.hststrStoreName}
+                              {field.value && (
+                                <SelectItem value={field.value}>
+                                  {selectedStoreName}
                                 </SelectItem>
-                              ))}
+                              )}
                             </SelectContent>
                           </Select>
                           <p className="text-xs text-gray-500">

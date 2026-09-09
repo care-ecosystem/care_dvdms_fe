@@ -19,11 +19,10 @@ import {
   MAX_REQUESTS_PER_BATCH,
   MAX_REQUESTS_PER_SUPER_BATCH,
 } from "@/lib/constants";
-import { chunk, toQuantity } from "@/lib/utils";
+import { chunk, toDateInputValue, toQuantity } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Form } from "@/components/ui/form";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -37,7 +36,6 @@ import {
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import BackButton from "@/components/BackButton";
 import DeliveryItemRow from "@/components/DeliveryItemRow";
-import ReceiveStockDialog from "@/components/ReceiveStockDialog";
 import {
   ShortcutProvider,
   useShortcutSubContext,
@@ -55,6 +53,7 @@ import {
   ProductStatus,
 } from "@/types/inventory";
 import { ProductKnowledge } from "@/types/productKnowledge";
+import { RecordItemOrder } from "@/types/recordOrderItem";
 import {
   ACKNOWLEDGEMENT_STATUS_LABELS,
   ACKNOWLEDGEMENT_STATUS_VARIANTS,
@@ -75,15 +74,53 @@ import {
   SUPPLY_DELIVERY_ITEM_TYPE,
   SupplyDeliveryCondition,
   SupplyDeliveryStatus,
+  SupplyDeliveryUpsertPayload,
 } from "@/types/supplyDelivery";
 import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
 const MAX_ROWS_PER_SUPER_BATCH = Math.floor(MAX_REQUESTS_PER_SUPER_BATCH / 2);
 
+const MAX_ITEMS_PER_APPROVAL_BATCH = MAX_REQUESTS_PER_SUPER_BATCH - 1;
+
 const hasQuantity = (value: string | undefined) =>
   !!value?.trim() && Number(value) >= 1;
 
-const toPrice = (value: number) => Number(value.toFixed(6));
+const listAllRecordOrderItems = async (
+  instituteId: string,
+  recordOrderId: string,
+) => {
+  const firstPage = await apis.item.list(instituteId, recordOrderId, {
+    limit: LIST_FETCH_LIMIT,
+  });
+
+  const remainingOffsets: number[] = [];
+  for (
+    let offset = LIST_FETCH_LIMIT;
+    offset < firstPage.count;
+    offset += LIST_FETCH_LIMIT
+  ) {
+    remainingOffsets.push(offset);
+  }
+  if (remainingOffsets.length === 0) return firstPage.results;
+
+  const response = await apis.batchRequests.createChunked({
+    requests: remainingOffsets.map((offset) => ({
+      url: apis.item.path(instituteId, recordOrderId),
+      method: HttpMethod.GET,
+      body: { limit: LIST_FETCH_LIMIT, offset },
+      reference_id: `record_order_items_${offset}`,
+    })),
+  });
+
+  return [
+    ...firstPage.results,
+    ...response.results.flatMap(
+      (result) =>
+        (result.data as PaginatedResponse<RecordItemOrder> | undefined)
+          ?.results ?? [],
+    ),
+  ];
+};
 
 const isPendingReceipt = (item: RecordDeliveryItem) =>
   item.status === RecordDeliveryItemStatus.draft &&
@@ -114,10 +151,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [selectedSavedItemIds, setSelectedSavedItemIds] = useState<Set<string>>(
-    new Set(),
-  );
-  const [isReceiveStockOpen, setIsReceiveStockOpen] = useState(false);
 
   const [{ issue: issueId }] = useQueryParams<{ issue?: string }>();
 
@@ -214,11 +247,38 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     [apiItems],
   );
 
-  const { data: mappingsByDrugId, isLoading: isMappingsLoading } = useQuery({
-    queryKey: ["dvdms_product_mappings_by_drug", institute?.id, drugIds],
+  const { data: recordOrderItems, isLoading: isRecordOrderItemsLoading } =
+    useQuery({
+      queryKey: ["dvdms_record_order_items", institute?.id, recordOrderId],
+      queryFn: () => listAllRecordOrderItems(institute!.id, recordOrderId),
+      enabled: !!institute?.id,
+    });
+
+  const orderProductKnowledgeByDrugId = useMemo(() => {
+    const byDrugId = new Map<string, ProductKnowledge>();
+    for (const recordItem of recordOrderItems ?? []) {
+      if (recordItem.drug?.id && recordItem.supply_request?.item) {
+        byDrugId.set(recordItem.drug.id, recordItem.supply_request.item);
+      }
+    }
+    return byDrugId;
+  }, [recordOrderItems]);
+
+  const unmappedDrugIds = useMemo(
+    () =>
+      drugIds.filter((drugId) => !orderProductKnowledgeByDrugId.has(drugId)),
+    [drugIds, orderProductKnowledgeByDrugId],
+  );
+
+  const { data: mappingsByDrugId, isError: isMappingsError } = useQuery({
+    queryKey: [
+      "dvdms_product_mappings_by_drug",
+      institute?.id,
+      unmappedDrugIds,
+    ],
     queryFn: async () => {
       const resultsPerChunk = await Promise.all(
-        chunk(drugIds, MAX_REQUESTS_PER_BATCH).map((drugIdChunk) =>
+        chunk(unmappedDrugIds, MAX_REQUESTS_PER_BATCH).map((drugIdChunk) =>
           performBatchRequest({
             requests: drugIdChunk.map((drugId) => ({
               reference_id: drugId,
@@ -241,35 +301,34 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       }
       return byDrugId;
     },
-    enabled: !!institute?.id && drugIds.length > 0,
+    enabled:
+      !!institute?.id &&
+      !isRecordOrderItemsLoading &&
+      unmappedDrugIds.length > 0,
   });
 
+  /** The record order first, then whatever the mapping lookup filled in. */
   const productKnowledgeByDrugId = useMemo(() => {
-    const byDrugId = new Map<string, ProductKnowledge>();
+    const byDrugId = new Map<string, ProductKnowledge>(
+      orderProductKnowledgeByDrugId,
+    );
     for (const [drugId, mapping] of mappingsByDrugId ?? []) {
-      if (mapping?.product_knowledge) {
+      if (mapping?.product_knowledge && !byDrugId.has(drugId)) {
         byDrugId.set(drugId, mapping.product_knowledge);
       }
     }
     return byDrugId;
-  }, [mappingsByDrugId]);
-
-  const { data: recordItemOrdersData } = useQuery({
-    queryKey: ["dvdms_record_order_items", institute?.id, recordOrderId],
-    queryFn: () =>
-      apis.item.list(institute!.id, recordOrderId, { limit: LIST_FETCH_LIMIT }),
-    enabled: !!institute?.id,
-  });
+  }, [orderProductKnowledgeByDrugId, mappingsByDrugId]);
 
   const supplyRequestByRecordItemId = useMemo(() => {
     const byRecordItemId = new Map<string, string>();
-    for (const recordItem of recordItemOrdersData?.results ?? []) {
+    for (const recordItem of recordOrderItems ?? []) {
       if (recordItem.supply_request?.id) {
         byRecordItemId.set(recordItem.id, recordItem.supply_request.id);
       }
     }
     return byRecordItemId;
-  }, [recordItemOrdersData]);
+  }, [recordOrderItems]);
 
   const inwardItemById = useMemo(
     () => new Map(apiItems.map((item) => [item.id, item])),
@@ -288,8 +347,15 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     name: "items",
   });
 
+  const isDrugLookupPending =
+    unmappedDrugIds.length > 0 && !mappingsByDrugId && !isMappingsError;
+
   const isLoadingItems =
-    isLoadingApiItems || isMappingsLoading || isLoadingSavedItems;
+    isLoadingApiItems ||
+    isRecordInwardsLoading ||
+    isRecordOrderItemsLoading ||
+    isDrugLookupPending ||
+    isLoadingSavedItems;
 
   const balanceItems = useMemo(
     () => apiItems.filter((item) => !savedInwardItemIds.has(item.id)),
@@ -307,6 +373,8 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
         drug_id: item.drug_id,
         drug_name: item.drug_name,
         eaushadhi_batch: item.batch,
+        eaushadhi_expiry: toDateInputValue(item.expiry_date),
+        expiry_date: toDateInputValue(item.expiry_date),
         received_quantity: item.received_quantity,
         quantity_dispatched: item.received_quantity,
         quantity_damaged: "0",
@@ -321,6 +389,15 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     fields.length,
     replace,
   ]);
+
+  useEffect(() => {
+    if (savedInwardItemIds.size === 0) return;
+    const savedRowIndices = fields
+      .map((field, index) => ({ field, index }))
+      .filter(({ field }) => savedInwardItemIds.has(field.inward_record_item))
+      .map(({ index }) => index);
+    if (savedRowIndices.length > 0) remove(savedRowIndices);
+  }, [savedInwardItemIds, fields, remove]);
 
   const validateItems = (items: DeliveryItemFormValues[]) => {
     if (items.length === 0) {
@@ -459,9 +536,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           supplied_item: productId,
           supplied_item_pack_quantity: 1,
           supplied_item_pack_size: quantity,
-          total_purchase_price: item.purchase_price
-            ? toPrice(parseFloat(item.purchase_price) * quantity)
-            : undefined,
+          total_purchase_price: 0,
           supply_request: supplyRequestByRecordItemId.get(
             inwardItemById.get(item.inward_record_item)?.record_order_item ??
               "",
@@ -616,74 +691,63 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     [savedItems],
   );
 
-  useEffect(() => {
-    const pendingIds = new Set(pendingSavedItems.map((item) => item.id));
-    setSelectedSavedItemIds((previous) => {
-      const next = new Set([...previous].filter((id) => pendingIds.has(id)));
-      return next.size === previous.size ? previous : next;
-    });
-  }, [pendingSavedItems]);
-
-  const selectedSavedItems = pendingSavedItems.filter((item) =>
-    selectedSavedItemIds.has(item.id),
-  );
-
-  const receiveStockMutation = useMutation({
-    mutationFn: async ({
-      status,
-      condition,
-    }: {
-      status: SupplyDeliveryStatus;
-      condition: SupplyDeliveryCondition;
-    }) => {
-      await apis.supplyDeliveries.upsert(
-        selectedSavedItems.map((item) => ({
-          id: item.supply_delivery.id,
-          status,
-          supplied_item_condition: condition,
-        })),
-      );
-
-      if (
-        status !== SupplyDeliveryStatus.completed ||
-        condition !== SupplyDeliveryCondition.normal ||
-        !institute?.id ||
-        !inwardRecord?.id ||
-        !recordDelivery?.id
-      ) {
-        return;
+  const approveItemsMutation = useMutation({
+    mutationFn: async () => {
+      if (!institute?.id || !inwardRecord?.id || !recordDelivery?.id) {
+        throw new Error("Missing institute, inward record or record delivery");
       }
+      const instituteId = institute.id;
+      const inwardRecordId = inwardRecord.id;
+      const recordDeliveryId = recordDelivery.id;
 
-      const results = await Promise.allSettled(
-        selectedSavedItems.map((item) =>
-          apis.recordInwards.updateDeliveryItem(
-            institute.id,
-            inwardRecord.id,
-            recordDelivery.id,
-            item.id,
-            { status: RecordDeliveryItemStatus.active },
-          ),
+      const chunks = chunk(pendingSavedItems, MAX_ITEMS_PER_APPROVAL_BATCH);
+
+      await Promise.all(
+        chunks.map((itemChunk) =>
+          performSuperBatchRequest({
+            requests: [
+              {
+                reference_id: "supply-delivery-upsert",
+                url: apis.supplyDeliveries.upsertPath,
+                method: HttpMethod.POST,
+                body: {
+                  datapoints: itemChunk.map(
+                    (item): SupplyDeliveryUpsertPayload => ({
+                      id: item.supply_delivery.id,
+                      status: SupplyDeliveryStatus.completed,
+                      supplied_item_condition: SupplyDeliveryCondition.normal,
+                    }),
+                  ),
+                },
+              },
+              ...itemChunk.map((item) => ({
+                reference_id: `delivery-item-${item.id}`,
+                url: apis.recordInwards.deliveryItemPath(
+                  instituteId,
+                  inwardRecordId,
+                  recordDeliveryId,
+                  item.id,
+                ),
+                method: HttpMethod.PATCH,
+                body: { status: RecordDeliveryItemStatus.active },
+              })),
+            ],
+          }),
         ),
       );
-
-      const failedCount = results.filter(
-        (result) => result.status === "rejected",
-      ).length;
-      if (failedCount > 0) {
-        throw new Error(
-          t("delivery_items_activate_failed", { count: failedCount }),
-        );
-      }
     },
     onSuccess: () => {
-      toast.success(t("stock_updated"));
-      setIsReceiveStockOpen(false);
-      setSelectedSavedItemIds(new Set());
+      toast.success(
+        t("delivery_items_approved", { count: pendingSavedItems.length }),
+      );
     },
-    onError: (error: { message?: string }) => {
-      toast.error(error?.message || t("stock_update_failed"));
+    onError: (error: unknown) => {
+      const message =
+        error instanceof BatchError
+          ? error.errorMessages[0]
+          : (error as { message?: string })?.message;
+      toast.error(message || t("delivery_items_approve_failed"));
     },
-
     onSettled: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
@@ -830,7 +894,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
             >
               {approveDeliveryMutation.isPending
                 ? t("saving")
-                : t("mark_as_approved")}
+                : t("mark_as_completed")}
               <ShortcutBadge actionId="mark-as" />
             </Button>
           )}
@@ -979,58 +1043,27 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
             {savedItems.length > 0 && (
               <Card className="mb-4 py-4 rounded-md">
                 <CardContent className="space-y-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <h2 className="text-base font-semibold text-gray-900">
-                        {t("items_already_added")}
-                      </h2>
-                      <p className="text-sm text-gray-500">
-                        {t("items_already_added_description")}
-                      </p>
-                    </div>
-                    {pendingSavedItems.length > 0 && (
-                      <Button
-                        type="button"
-                        className="shrink-0"
-                        onClick={() => setIsReceiveStockOpen(true)}
-                        disabled={selectedSavedItemIds.size === 0}
-                      >
-                        {t("receive_update_stock")}
-                      </Button>
-                    )}
+                  <div>
+                    <h2 className="text-base font-semibold text-gray-900">
+                      {t("items_already_added")}
+                    </h2>
+                    <p className="text-sm text-gray-500">
+                      {t("items_already_added_description")}
+                    </p>
                   </div>
                   <div className="rounded-md border border-gray-200 bg-white overflow-hidden">
                     <div className="overflow-x-auto">
                       <Table>
                         <TableHeader className="bg-gray-100">
                           <TableRow className="divide-x divide-gray-200">
-                            {hasUnreceivedItems && (
-                              <TableHead className="w-10">
-                                <Checkbox
-                                  checked={
-                                    selectedSavedItemIds.size ===
-                                    pendingSavedItems.length
-                                  }
-                                  onCheckedChange={(checked) =>
-                                    setSelectedSavedItemIds(
-                                      checked
-                                        ? new Set(
-                                            pendingSavedItems.map(
-                                              (item) => item.id,
-                                            ),
-                                          )
-                                        : new Set(),
-                                    )
-                                  }
-                                  aria-label={t("select_all")}
-                                />
-                              </TableHead>
-                            )}
                             <TableHead className="min-w-[200px] text-xs font-semibold">
                               {t("drug")}
                             </TableHead>
                             <TableHead className="min-w-[120px] text-xs font-semibold">
                               {t("batch")}
+                            </TableHead>
+                            <TableHead className="min-w-[130px] text-xs font-semibold">
+                              {t("expiry")}
                             </TableHead>
                             <TableHead className="min-w-[200px] text-xs font-semibold">
                               {t("product_knowledge")}
@@ -1042,10 +1075,10 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                               {t("damaged")}
                             </TableHead>
                             <TableHead className="text-xs font-semibold text-right">
-                              {t("short")}
+                              {t("received")}
                             </TableHead>
                             <TableHead className="text-xs font-semibold text-right">
-                              {t("received")}
+                              {t("short")}
                             </TableHead>
                             <TableHead className="text-xs font-semibold">
                               {t("status")}
@@ -1063,33 +1096,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                 key={item.id}
                                 className="divide-x divide-gray-200"
                               >
-                                {hasUnreceivedItems && (
-                                  <TableCell className="p-2">
-                                    {isPendingReceipt(item) && (
-                                      <Checkbox
-                                        checked={selectedSavedItemIds.has(
-                                          item.id,
-                                        )}
-                                        onCheckedChange={(checked) =>
-                                          setSelectedSavedItemIds(
-                                            (previous) => {
-                                              const next = new Set(previous);
-                                              if (checked) {
-                                                next.add(item.id);
-                                              } else {
-                                                next.delete(item.id);
-                                              }
-                                              return next;
-                                            },
-                                          )
-                                        }
-                                        aria-label={
-                                          item.inward_record_item.item_name
-                                        }
-                                      />
-                                    )}
-                                  </TableCell>
-                                )}
                                 <TableCell className="p-2 text-sm text-gray-900">
                                   <div className="flex flex-col whitespace-normal">
                                     <span>
@@ -1115,10 +1121,10 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                   {item.quantity_damaged ?? "—"}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-right tabular-nums">
-                                  {item.quantity_short ?? "—"}
+                                  {item.quantity_accepted ?? "—"}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-right tabular-nums">
-                                  {item.quantity_accepted ?? "—"}
+                                  {item.quantity_short ?? "—"}
                                 </TableCell>
                                 <TableCell className="p-2">
                                   <Badge
@@ -1143,16 +1149,30 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                       </Table>
                     </div>
                   </div>
-
-                  <ReceiveStockDialog
-                    open={isReceiveStockOpen}
-                    onOpenChange={setIsReceiveStockOpen}
-                    selectedCount={selectedSavedItemIds.size}
-                    isPending={receiveStockMutation.isPending}
-                    onConfirm={(status, condition) =>
-                      receiveStockMutation.mutate({ status, condition })
-                    }
-                  />
+                  {pendingSavedItems.length > 0 && (
+                    <div className="flex flex-col gap-3 border-t border-gray-200 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">
+                          {t("approve_delivery_items")}
+                        </h3>
+                        <p className="text-sm text-gray-500">
+                          {t("approve_delivery_items_description", {
+                            count: pendingSavedItems.length,
+                          })}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        className="shrink-0"
+                        onClick={() => approveItemsMutation.mutate()}
+                        disabled={approveItemsMutation.isPending}
+                      >
+                        {approveItemsMutation.isPending
+                          ? t("approving")
+                          : t("mark_items_as_approved")}
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -1168,7 +1188,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                             <TableHeader className="bg-gray-100">
                               <TableRow className="divide-x divide-gray-200">
                                 <TableHead
-                                  colSpan={2}
+                                  colSpan={3}
                                   className="text-xs font-semibold text-center border-b"
                                 >
                                   {t("eaushadhi")}
@@ -1178,12 +1198,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                   className="min-w-[200px] text-xs font-semibold"
                                 >
                                   {t("product_knowledge")}
-                                </TableHead>
-                                <TableHead
-                                  rowSpan={2}
-                                  className="min-w-[130px] text-xs font-semibold"
-                                >
-                                  {t("expiry")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
@@ -1207,21 +1221,24 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                   rowSpan={2}
                                   className="w-24 text-xs font-semibold"
                                 >
-                                  {t("short")}
+                                  {t("received_qty")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
                                   className="w-24 text-xs font-semibold"
                                 >
-                                  {t("received_qty")}
+                                  {t("short")}
                                 </TableHead>
                               </TableRow>
                               <TableRow className="divide-x divide-gray-200">
                                 <TableHead className="min-w-[200px] text-xs font-semibold">
                                   {t("drug")}
                                 </TableHead>
-                                <TableHead className="min-w-[120px] text-xs font-semibold border-r">
+                                <TableHead className="min-w-[120px] text-xs font-semibold">
                                   {t("batch")}
+                                </TableHead>
+                                <TableHead className="min-w-[130px] text-xs font-semibold border-r">
+                                  {t("expiry")}
                                 </TableHead>
                               </TableRow>
                             </TableHeader>

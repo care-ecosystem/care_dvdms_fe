@@ -59,6 +59,7 @@ import {
   RecordOrderOutward,
 } from "@/types/recordOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
+import { RecordOrderProductMapping } from "@/types/productMapping";
 import { RecordItemOrderDrug } from "@/types/recordOrderItem";
 import {
   SuperBatchRequestItem,
@@ -98,6 +99,45 @@ const toDrugPayload = (drug: RecordItemOrderDrug): RecordItemOrderDrug => {
   return sub_group_id !== undefined && sub_group_id !== ""
     ? { ...withBrand, sub_group_id }
     : withBrand;
+};
+
+const listAllRecordOrderProductMappings = async (
+  instituteId: string,
+  recordOrderId: string,
+) => {
+  const firstPage = await apis.recordOrderProductMappings.list(
+    instituteId,
+    recordOrderId,
+    { limit: LIST_FETCH_LIMIT },
+  );
+
+  const remainingOffsets: number[] = [];
+  for (
+    let offset = LIST_FETCH_LIMIT;
+    offset < firstPage.count;
+    offset += LIST_FETCH_LIMIT
+  ) {
+    remainingOffsets.push(offset);
+  }
+  if (remainingOffsets.length === 0) return firstPage.results;
+
+  const response = await apis.batchRequests.createChunked({
+    requests: remainingOffsets.map((offset) => ({
+      url: apis.recordOrderProductMappings.path(instituteId, recordOrderId),
+      method: HttpMethod.GET,
+      body: { limit: LIST_FETCH_LIMIT, offset },
+      reference_id: `product_mappings_${offset}`,
+    })),
+  });
+
+  return [
+    ...firstPage.results,
+    ...response.results.flatMap(
+      (result) =>
+        (result.data as PaginatedResponse<RecordOrderProductMapping> | undefined)
+          ?.results ?? [],
+    ),
+  ];
 };
 
 const lookupDrugToPayload = (drug: DvdmsLookupDrug): RecordItemOrderDrug => ({
@@ -290,12 +330,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     enabled: !!institute?.id && !!recordOrder?.id,
   });
 
-  const { data: productMappingsData } = useQuery({
+  const { data: productMappings } = useQuery({
     queryKey: ["dvdms_product_mappings", institute?.id, recordOrder?.id],
     queryFn: () =>
-      apis.recordOrderProductMappings.list(institute!.id, recordOrder!.id, {
-        limit: 100,
-      }),
+      listAllRecordOrderProductMappings(institute!.id, recordOrder!.id),
     enabled: !!institute?.id && !!recordOrder?.id,
   });
 
@@ -363,7 +401,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   );
 
   const suggestedDrugBySupplyRequestId = new Map(
-    (productMappingsData?.results ?? [])
+    (productMappings ?? [])
       .filter((mapping) => mapping.product_mapping)
       .map((mapping) => [
         mapping.supply_request.id,
@@ -499,7 +537,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       return changed ? next : prev;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableItems, recordItemOrdersData, productMappingsData]);
+  }, [tableItems, recordItemOrdersData, productMappings]);
 
   const saveItemsMutation = useMutation({
     mutationFn: async () => {

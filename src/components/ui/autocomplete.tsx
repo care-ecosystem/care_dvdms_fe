@@ -68,6 +68,14 @@ export default function Autocomplete({
 
   const selectedOption = options.find((option) => option.value === value);
 
+  const orderedOptions = React.useMemo(() => {
+    if (!selectedOption) return options;
+    return [
+      selectedOption,
+      ...options.filter((option) => option.value !== selectedOption.value),
+    ];
+  }, [options, selectedOption]);
+
   React.useEffect(() => {
     const selected = options.find((option) => option.value === value);
     setInputValue(value ? (selected ? selected.label : value) : "");
@@ -118,7 +126,7 @@ export default function Autocomplete({
             role="combobox"
             aria-expanded={open}
             className={cn(
-              "w-full justify-between pr-8",
+              "w-full min-w-0 justify-between pr-8",
               className,
               selectedOption && showClearButton && "rounded-r-none",
             )}
@@ -137,14 +145,14 @@ export default function Autocomplete({
         </PopoverTrigger>
         <PopoverContent
           align={align}
+          style={{
+            minWidth: "var(--radix-popover-trigger-width)",
+            maxWidth: "min(28rem, calc(100vw - 2rem))",
+          }}
           className={cn(
-            "p-0 pointer-events-auto w-[var(--radix-popover-trigger-width)]",
+            "p-0 pointer-events-auto w-auto",
             popoverContentClassName,
           )}
-          style={{
-            width: "var(--radix-popover-trigger-width)",
-            maxWidth: "var(--radix-popover-trigger-width)",
-          }}
         >
           <Command>
             <CommandInput
@@ -162,7 +170,7 @@ export default function Autocomplete({
                 <CommandEmpty>{noOptionsMessage}</CommandEmpty>
               )}
               <CommandGroup>
-                {options.map((option) => (
+                {orderedOptions.map((option) => (
                   <CommandItem
                     key={option.value}
                     value={`${option.label} - ${option.value}`}
@@ -186,7 +194,15 @@ export default function Autocomplete({
                         value === option.value ? "opacity-100" : "opacity-0",
                       )}
                     />
-                    <span className="min-w-0 flex-1 truncate">
+                    <span
+                      className="min-w-0 flex-1"
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        overflowWrap: "anywhere",
+                      }}
+                      title={option.label}
+                    >
                       {option.label}
                     </span>
                   </CommandItem>
@@ -201,7 +217,7 @@ export default function Autocomplete({
           type="button"
           variant="outline"
           size="icon"
-          className="rounded-l-none border-l-0 text-gray-400 h-auto"
+          className="rounded-l-none border-l-0 text-gray-400 h-auto shrink-0"
           onClick={handleClear}
           title={clearLabel}
           hidden={disabled}

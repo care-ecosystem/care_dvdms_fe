@@ -7,7 +7,7 @@ import { XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
-import { I18N_NAMESPACE } from "@/lib/constants";
+import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -47,6 +47,7 @@ type RequestOrderEditPageProps = {
   facilityId: string;
   locationId: string;
   requestOrderId: string;
+  recordOrderId: string;
 };
 
 const RequestOrderEditPage: FC<RequestOrderEditPageProps> = (props) => (
@@ -59,12 +60,13 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
   facilityId,
   locationId,
   requestOrderId,
+  recordOrderId,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
 
-  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}`;
+  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/record/${recordOrderId}`;
 
   const { data: linkedOrder, isLoading: isLoadingLinkedOrder } = useQuery({
     queryKey: ["dvdms_request_order", facilityId, requestOrderId],
@@ -82,11 +84,13 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
       queryFn: () =>
         apis.recordOrders.list(institute!.id, {
           order: requestOrderId,
-          limit: 1,
+          limit: LIST_FETCH_LIMIT,
         }),
       enabled: !!institute?.id,
     });
-  const recordOrder = recordOrdersResponse?.results[0];
+  const recordOrder = recordOrdersResponse?.results.find(
+    (item) => item.id === recordOrderId,
+  );
 
   const { data: pendingOrdersResponse, isLoading: isPendingOrdersLoading } =
     useQuery({
@@ -160,7 +164,7 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
         throw new Error("Select an order first.");
       }
       if (!institute) {
-        throw new Error("No eAushadhi institute configured for this facility.");
+        throw new Error("No DVDMS institute configured for this facility.");
       }
       const [suppliersResponse, storesResponse] = await Promise.all([
         apis.supplierMappings.list(institute.id),
@@ -170,13 +174,13 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
         (item) => item.supplier?.id === selectedOrder.supplier!.id,
       );
       if (!supplier) {
-        throw new Error("No matching eAushadhi supplier found.");
+        throw new Error("No matching DVDMS supplier found.");
       }
       const store = storesResponse.results.find(
         (item) => item.store.id === selectedOrder.destination!.id,
       );
       if (!store) {
-        throw new Error("No matching eAushadhi store found.");
+        throw new Error("No matching DVDMS store found.");
       }
       return { supplier, store };
     },

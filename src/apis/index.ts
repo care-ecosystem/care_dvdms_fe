@@ -1,9 +1,27 @@
-import { BatchRequestBody, BatchResponse, HttpMethod, PaginatedResponse } from "@/apis/types";
+import {
+  BatchRequestBody,
+  BatchResponse,
+  HttpMethod,
+  PaginatedResponse,
+} from "@/apis/types";
 import { request } from "@/apis/query";
+import { MAX_REQUESTS_PER_BATCH } from "@/lib/constants";
+import { chunk } from "@/lib/utils";
 import { Organization } from "@/types/organization";
 import { Facility } from "@/types/facility";
 import { LocationRead } from "@/types/location";
+import {
+  DeliveryOrderCreatePayload,
+  DeliveryOrderRetrieve,
+  DeliveryOrderUpdatePayload,
+} from "@/types/deliveryOrder";
 import { ProductKnowledge, ResourceCategory } from "@/types/productKnowledge";
+import {
+  ChargeItemDefinition,
+  ChargeItemDefinitionCreatePayload,
+  Product,
+  ProductCreatePayload,
+} from "@/types/inventory";
 import {
   DvdmsInstitute,
   DvdmsInstitutePayload,
@@ -21,9 +39,18 @@ import {
   DvdmsSupplierOrgMappingPayload,
   DvdmsSupplierOrgMappingUpdatePayload,
   DvdmsInstituteStore,
-  DvdmsInstituteStorePayload,
 } from "@/types/dvdms_config";
 import {
+  RecordDelivery,
+  RecordDeliveryDetail,
+  RecordDeliveryItem,
+  RecordDeliveryItemPayload,
+  RecordDeliveryItemUpdatePayload,
+  RecordDeliveryPayload,
+  RecordDeliveryUpdatePayload,
+  RecordInward,
+  RecordInwardDetail,
+  RecordInwardPayload,
   RecordOrder,
   RecordOrderOutward,
   RecordOrderPayload,
@@ -35,19 +62,30 @@ import {
 } from "@/types/recordOrderItem";
 import { RecordOrderProductMapping } from "@/types/productMapping";
 import { RequestOrder } from "@/types/requestOrder";
+import {
+  SUPPLY_DELIVERY_ITEM_TYPE,
+  SupplyDeliveryCreatePayload,
+  SupplyDeliveryRetrieve,
+  SupplyDeliveryUpsertPayload,
+} from "@/types/supplyDelivery";
 import { SupplyRequest } from "@/types/supplyRequest";
 import { TagConfig } from "@/types/tagConfig";
 import {
   SuperBatchRequestPayload,
   SuperBatchResponse,
 } from "@/types/superBatch";
-import { BatchRequestPayload, BatchResponse } from "@/types/batchRequest";
+import {
+  BatchRequestPayload,
+  BatchResponse as BatchRequestsResponse,
+} from "@/types/batchRequest";
 
 export const BATCH_REQUEST_PATH = "/api/v1/batch_requests/";
 
 export const apis = {
   batchRequest: (payload: BatchRequestBody) =>
-    request<BatchResponse>(BATCH_REQUEST_PATH, HttpMethod.POST, payload),
+    request<BatchResponse>(BATCH_REQUEST_PATH, HttpMethod.POST, {
+      ...payload,
+    }),
   organizations: {
     list: (params: { org_type: string; limit?: number; name?: string }) =>
       request<PaginatedResponse<Organization>>(
@@ -78,9 +116,11 @@ export const apis = {
         HttpMethod.GET,
         params,
       ),
+    path: (facilityId: string, requestOrderId: string) =>
+      `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/`,
     retrieve: (facilityId: string, requestOrderId: string) =>
       request<RequestOrder>(
-        `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/`,
+        apis.requestOrders.path(facilityId, requestOrderId),
         HttpMethod.GET,
       ),
     setTags: (facilityId: string, requestOrderId: string, tags: string[]) =>
@@ -110,6 +150,22 @@ export const apis = {
         params,
       ),
   },
+  supplyDeliveries: {
+    path: "/api/v1/supply_delivery/",
+    create: (payload: SupplyDeliveryCreatePayload) =>
+      request<SupplyDeliveryRetrieve>(
+        apis.supplyDeliveries.path,
+        HttpMethod.POST,
+        { supplied_item_type: SUPPLY_DELIVERY_ITEM_TYPE, ...payload },
+      ),
+    upsertPath: "/api/v1/supply_delivery/upsert/",
+    upsert: (datapoints: SupplyDeliveryUpsertPayload[]) =>
+      request<SupplyDeliveryRetrieve>(
+        apis.supplyDeliveries.upsertPath,
+        HttpMethod.POST,
+        { datapoints },
+      ),
+  },
   recordOrders: {
     list: (
       instituteId: string,
@@ -132,18 +188,22 @@ export const apis = {
         HttpMethod.POST,
         { ...payload },
       ),
+    path: (instituteId: string, recordOrderId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/`,
     update: (
       instituteId: string,
       recordOrderId: string,
       payload: RecordOrderUpdatePayload,
     ) =>
       request<RecordOrder>(
-        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/`,
+        apis.recordOrders.path(instituteId, recordOrderId),
         HttpMethod.PATCH,
         { ...payload },
       ),
   },
   item: {
+    path: (instituteId: string, recordOrderId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
     list: (
       instituteId: string,
       recordOrderId: string,
@@ -156,7 +216,7 @@ export const apis = {
       } = {},
     ) =>
       request<PaginatedResponse<RecordItemOrder>>(
-        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
+        apis.item.path(instituteId, recordOrderId),
         HttpMethod.GET,
         params,
       ),
@@ -166,7 +226,7 @@ export const apis = {
       payload: RecordItemOrderPayload,
     ) =>
       request<RecordItemOrder>(
-        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
+        apis.item.path(instituteId, recordOrderId),
         HttpMethod.POST,
         { ...payload },
       ),
@@ -183,6 +243,8 @@ export const apis = {
       ),
   },
   recordOrderOutward: {
+    path: (instituteId: string, recordOrderId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/outward/`,
     list: (
       instituteId: string,
       recordOrderId: string,
@@ -193,7 +255,7 @@ export const apis = {
       } = {},
     ) =>
       request<PaginatedResponse<RecordOrderOutward>>(
-        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/outward/`,
+        apis.recordOrderOutward.path(instituteId, recordOrderId),
         HttpMethod.GET,
         params,
       ),
@@ -203,7 +265,155 @@ export const apis = {
         HttpMethod.POST,
       ),
   },
+  recordInwards: {
+    listPath: (instituteId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/record_inwards/`,
+    list: (
+      instituteId: string,
+      params: {
+        limit?: number;
+        offset?: number;
+        ordering?: string;
+      } = {},
+    ) =>
+      request<PaginatedResponse<RecordInward>>(
+        apis.recordInwards.listPath(instituteId),
+        HttpMethod.GET,
+        params,
+      ),
+    path: (instituteId: string, recordInwardId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/`,
+    retrieve: (instituteId: string, recordInwardId: string) =>
+      request<RecordInwardDetail>(
+        apis.recordInwards.path(instituteId, recordInwardId),
+        HttpMethod.GET,
+      ),
+    create: (instituteId: string, payload: RecordInwardPayload) =>
+      request<RecordInward>(
+        apis.recordInwards.listPath(instituteId),
+        HttpMethod.POST,
+        { ...payload },
+      ),
+    deliveriesPath: (instituteId: string, recordInwardId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/`,
+    createDelivery: (
+      instituteId: string,
+      recordInwardId: string,
+      payload: RecordDeliveryPayload,
+    ) =>
+      request<RecordDelivery>(
+        apis.recordInwards.deliveriesPath(instituteId, recordInwardId),
+        HttpMethod.POST,
+        { ...payload },
+      ),
+    listDeliveries: (
+      instituteId: string,
+      recordInwardId: string,
+      params: {
+        delivery_order?: string;
+        facility_id?: string;
+        limit?: number;
+        offset?: number;
+        ordering?: string;
+      } = {},
+    ) =>
+      request<PaginatedResponse<RecordDelivery>>(
+        apis.recordInwards.deliveriesPath(instituteId, recordInwardId),
+        HttpMethod.GET,
+        params,
+      ),
+    deliveryPath: (
+      instituteId: string,
+      recordInwardId: string,
+      recordDeliveryId: string,
+    ) =>
+      `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/`,
+    retrieveDelivery: (
+      instituteId: string,
+      recordInwardId: string,
+      recordDeliveryId: string,
+    ) =>
+      request<RecordDeliveryDetail>(
+        apis.recordInwards.deliveryPath(
+          instituteId,
+          recordInwardId,
+          recordDeliveryId,
+        ),
+        HttpMethod.GET,
+      ),
+    updateDelivery: (
+      instituteId: string,
+      recordInwardId: string,
+      recordDeliveryId: string,
+      payload: RecordDeliveryUpdatePayload,
+    ) =>
+      request<RecordDelivery>(
+        apis.recordInwards.deliveryPath(
+          instituteId,
+          recordInwardId,
+          recordDeliveryId,
+        ),
+        HttpMethod.PATCH,
+        { ...payload },
+      ),
+    deliveryItemsPath: (
+      instituteId: string,
+      recordInwardId: string,
+      recordDeliveryId: string,
+    ) =>
+      `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/items/`,
+    createDeliveryItem: (
+      instituteId: string,
+      recordInwardId: string,
+      recordDeliveryId: string,
+      payload: RecordDeliveryItemPayload,
+    ) =>
+      request<RecordDeliveryItem>(
+        apis.recordInwards.deliveryItemsPath(
+          instituteId,
+          recordInwardId,
+          recordDeliveryId,
+        ),
+        HttpMethod.POST,
+        { ...payload },
+      ),
+    deliveryItemPath: (
+      instituteId: string,
+      recordInwardId: string,
+      recordDeliveryId: string,
+      recordDeliveryItemId: string,
+    ) =>
+      `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/items/${recordDeliveryItemId}/`,
+    updateDeliveryItem: (
+      instituteId: string,
+      recordInwardId: string,
+      recordDeliveryId: string,
+      recordDeliveryItemId: string,
+      payload: RecordDeliveryItemUpdatePayload,
+    ) =>
+      request<RecordDeliveryItem>(
+        apis.recordInwards.deliveryItemPath(
+          instituteId,
+          recordInwardId,
+          recordDeliveryId,
+          recordDeliveryItemId,
+        ),
+        HttpMethod.PATCH,
+        { ...payload },
+      ),
+    retryDeliveryAcknowledgement: (
+      instituteId: string,
+      recordInwardId: string,
+      recordDeliveryId: string,
+    ) =>
+      request<void>(
+        `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/${recordDeliveryId}/retry-acknowledgement/`,
+        HttpMethod.POST,
+      ),
+  },
   recordOrderProductMappings: {
+    path: (instituteId: string, recordOrderId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/product_mappings/`,
     list: (
       instituteId: string,
       recordOrderId: string,
@@ -214,7 +424,7 @@ export const apis = {
       } = {},
     ) =>
       request<PaginatedResponse<RecordOrderProductMapping>>(
-        `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/product_mappings/`,
+        apis.recordOrderProductMappings.path(instituteId, recordOrderId),
         HttpMethod.GET,
         params,
       ),
@@ -317,18 +527,27 @@ export const apis = {
       ),
   },
   productMappings: {
+    path: (instituteId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
     list: (
       instituteId: string,
-      params?: { limit?: number; offset?: number; mapping_type?: string },
+      params?: {
+        limit?: number;
+        offset?: number;
+        mapping_type?: string;
+        eaushadhi_drug_id?: string;
+        product_knowledge_id?: string;
+        ordering?: string;
+      },
     ) =>
       request<PaginatedResponse<DvdmsProductMapping>>(
-        `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
+        apis.productMappings.path(instituteId),
         HttpMethod.GET,
         params,
       ),
     create: (instituteId: string, payload: DvdmsProductMappingCreatePayload) =>
       request<DvdmsProductMapping>(
-        `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
+        apis.productMappings.path(instituteId),
         HttpMethod.POST,
         payload,
       ),
@@ -381,16 +600,6 @@ export const apis = {
         HttpMethod.GET,
         params,
       ),
-    create: (
-      facilityId: string,
-      instituteId: string,
-      payload: DvdmsInstituteStorePayload,
-    ) =>
-      request<DvdmsInstituteStore>(
-        `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
-        HttpMethod.POST,
-        { ...payload },
-      ),
   },
   productKnowledge: {
     list: (params: {
@@ -414,11 +623,54 @@ export const apis = {
       ),
   },
   resourceCategories: {
-    list: (facilityId: string, params: { resource_type: string }) =>
+    list: (
+      facilityId: string,
+      params: {
+        resource_type: string;
+        parent?: string;
+        title?: string;
+        limit?: number;
+      },
+    ) =>
       request<PaginatedResponse<ResourceCategory>>(
         `/api/v1/facility/${facilityId}/resource_category/`,
         HttpMethod.GET,
         params,
+      ),
+    get: (facilityId: string, slug: string) =>
+      request<ResourceCategory>(
+        `/api/v1/facility/${facilityId}/resource_category/${slug}/`,
+        HttpMethod.GET,
+      ),
+  },
+  products: {
+    path: (facilityId: string) => `/api/v1/facility/${facilityId}/product/`,
+    list: (
+      facilityId: string,
+      params: {
+        product_knowledge?: string;
+        status?: string;
+        ordering?: string;
+        limit?: number;
+        offset?: number;
+      },
+    ) =>
+      request<PaginatedResponse<Product>>(
+        apis.products.path(facilityId),
+        HttpMethod.GET,
+        params,
+      ),
+    create: (facilityId: string, payload: ProductCreatePayload) =>
+      request<Product>(apis.products.path(facilityId), HttpMethod.POST, {
+        ...payload,
+      }),
+  },
+  chargeItemDefinitions: {
+    create: (facilityId: string, payload: ChargeItemDefinitionCreatePayload) =>
+      request<ChargeItemDefinition>(
+        `/api/v1/facility/${facilityId}/charge_item_definition/`,
+        HttpMethod.POST,
+        { ...payload },
       ),
   },
   superBatch: {
@@ -431,9 +683,43 @@ export const apis = {
   },
   batchRequests: {
     create: (payload: BatchRequestPayload) =>
-      request<BatchResponse>("/api/v1/batch_requests/", HttpMethod.POST, {
-        ...payload,
-      }),
+      request<BatchRequestsResponse>(
+        "/api/v1/batch_requests/",
+        HttpMethod.POST,
+        { ...payload },
+      ),
+    createChunked: async (
+      payload: BatchRequestPayload,
+    ): Promise<BatchRequestsResponse> => {
+      const responses = await Promise.all(
+        chunk(payload.requests, MAX_REQUESTS_PER_BATCH).map((requests) =>
+          apis.batchRequests.create({ requests }),
+        ),
+      );
+      return { results: responses.flatMap((response) => response.results) };
+    },
+  },
+  deliveryOrders: {
+    listPath: (facilityId: string) =>
+      `/api/v1/facility/${facilityId}/order/delivery/`,
+    path: (facilityId: string, deliveryOrderId: string) =>
+      `/api/v1/facility/${facilityId}/order/delivery/${deliveryOrderId}/`,
+    create: (facilityId: string, payload: DeliveryOrderCreatePayload) =>
+      request<DeliveryOrderRetrieve>(
+        apis.deliveryOrders.listPath(facilityId),
+        HttpMethod.POST,
+        { ...payload },
+      ),
+    update: (
+      facilityId: string,
+      deliveryOrderId: string,
+      payload: DeliveryOrderUpdatePayload,
+    ) =>
+      request<DeliveryOrderRetrieve>(
+        apis.deliveryOrders.path(facilityId, deliveryOrderId),
+        HttpMethod.PATCH,
+        { ...payload },
+      ),
   },
   tagConfigs: {
     list: (params: {

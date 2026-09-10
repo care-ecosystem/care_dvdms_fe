@@ -97,7 +97,7 @@ const OrderFilters: FC<OrderFiltersProps> = ({
   const hasFiltersRemaining = activeFields.length < fields.length;
 
   return (
-    <div className="flex shrink-0 flex-nowrap items-center gap-2">
+    <div className="flex shrink-0 flex-wrap items-center gap-2 sm:flex-nowrap">
       {activeFields.map((field) => (
         <Popover
           key={field.key}

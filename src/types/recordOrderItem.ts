@@ -1,3 +1,4 @@
+import { ProductKnowledge } from "@/types/productKnowledge";
 import { RecordOrderUser } from "@/types/recordOrder";
 
 export interface RecordItemOrderDrug {
@@ -5,7 +6,8 @@ export interface RecordItemOrderDrug {
   name: string;
   brand_id: string;
   group_id: string;
-  sub_group_id: string;
+  // Optional in the API spec (defaults to ""); absent for drugs with no subgroup.
+  sub_group_id?: string;
   unit_id: string;
   drug_category: string;
 }
@@ -15,11 +17,7 @@ export interface RecordItemOrderPayload {
   drug: RecordItemOrderDrug;
 }
 
-export interface RecordItemOrderSupplyRequestItem {
-  id: string;
-  alternate_identifier: string | null;
-  status: string;
-}
+export type RecordItemOrderSupplyRequestItem = ProductKnowledge;
 
 export interface RecordItemOrderSupplyRequestOrder {
   id: string;

@@ -116,7 +116,7 @@ async function findExistingMappingDrugIdsBatch(
     const payload: BatchRequestBody = {
       requests: chunk.map((drugId, idx) => ({
         reference_id: `check_${idx}`,
-        url: `/api/care_dvdms/institute/${instituteId}/product-mappings/?eaushadhi_drug_id=${encodeURIComponent(drugId)}&limit=1`,
+        url: `${apis.productMappings.path(instituteId)}?eaushadhi_drug_id=${encodeURIComponent(drugId)}&limit=1`,
         method: HttpMethod.GET,
       })),
     };
@@ -641,7 +641,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
       const payload: BatchRequestBody = {
         requests: chunk.map(({ row, productKnowledge }, idx) => ({
           reference_id: `create_${idx}`,
-          url: `/api/care_dvdms/institute/${instituteId}/product-mappings/`,
+          url: apis.productMappings.path(instituteId),
           method: HttpMethod.POST,
           body: {
             eaushadhi_drug_details: { id: row.drugId, name: row.drugName },

@@ -5,6 +5,7 @@ import { navigate } from "raviger";
 import { Link2Icon } from "lucide-react";
 
 import { apis } from "@/apis";
+import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -102,6 +103,38 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
         order.institute_supplier?.supplier?.id === supplierFilter.id),
   );
 
+  const approvedOrders = orders.filter((order) => order.status === "approved");
+  const approvedOrderIds = approvedOrders.map((order) => order.id);
+
+  const { data: outwardBatchResponse, isPending: isOutwardBatchPending } =
+    useQuery({
+      queryKey: [
+        "dvdms_record_order_outward_batch",
+        institute?.id,
+        approvedOrderIds,
+      ],
+      queryFn: () =>
+        apis.batchRequests.createChunked({
+          requests: approvedOrders.map((order) => ({
+            url: apis.recordOrderOutward.path(institute!.id, order.id),
+            method: HttpMethod.GET,
+            body: { limit: 1 },
+            reference_id: order.id,
+          })),
+        }),
+      enabled: !!institute?.id && approvedOrders.length > 0,
+    });
+
+  const outwardStatusByOrderId: Record<string, string> = {};
+  outwardBatchResponse?.results.forEach((result) => {
+    const status = (
+      result.data as { results?: { status?: string }[] } | undefined
+    )?.results?.[0]?.status;
+    if (status) outwardStatusByOrderId[result.reference_id] = status;
+  });
+  const isOutwardStatusLoading =
+    approvedOrders.length > 0 && isOutwardBatchPending;
+
   const renderFilters = () => (
     <div className="flex flex-col md:flex-row gap-4">
       <SupplierSelect
@@ -133,7 +166,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
             }
           >
             <Link2Icon />
-            {t("send_order_to_eaushadhi")}
+            {t("send_order_to_dvdms")}
             <ShortcutBadge actionId="link-order-eaushadhi" />
           </Button>
         </div>
@@ -166,8 +199,10 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
               facilityId={facilityId}
               locationId={locationId}
               orders={orders}
-              isLoading={isLoading}
+              isLoading={isLoading || isOutwardStatusLoading}
               emptyMessage={t(EMPTY_MESSAGE_KEYS[tab.value])}
+              showIndentNo={tab.value === "tracking"}
+              outwardStatusByOrderId={outwardStatusByOrderId}
             />
             <Pagination
               page={page}

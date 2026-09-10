@@ -1,4 +1,4 @@
-import { FC, useEffect, useMemo, useState } from "react";
+import { FC, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate, useQueryParams } from "raviger";
@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { HttpMethod } from "@/apis/types";
-import { I18N_NAMESPACE } from "@/lib/constants";
+import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { cn, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,13 @@ import {
 import { Organization } from "@/types/organization";
 
 const PAGE_SIZE = 9;
+
+const DEAD_END_RECORD_ORDER_STATUSES = new Set([
+  "approved",
+  "rejected",
+  "completed",
+  "failed",
+]);
 
 type RecordOrderFormValues = {
   name: string;
@@ -94,11 +101,11 @@ const OrderCard: FC<OrderCardProps> = ({
     <Card className="bg-white h-full flex flex-col">
       <CardContent className="space-y-3 pt-6 flex flex-col flex-1">
         <div className="flex items-start justify-between gap-2">
-          <div className={cn(!isSelectable && "opacity-50")}>
-            <h3 className="text-lg font-semibold text-gray-950">
+          <div className={cn("min-w-0", !isSelectable && "opacity-50")}>
+            <h3 className="text-base sm:text-lg font-semibold text-gray-950 wrap-break-word">
               {order.name}
             </h3>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 wrap-break-word">
               {order.supplier?.name ?? "—"}
             </p>
           </div>
@@ -113,15 +120,15 @@ const OrderCard: FC<OrderCardProps> = ({
         <div
           className={cn("grid grid-cols-2 gap-3", !isSelectable && "opacity-50")}
         >
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-medium text-gray-500 uppercase">
               {t("deliver_to")}
             </p>
-            <p className="text-sm font-semibold text-gray-900">
+            <p className="text-sm font-semibold text-gray-900 wrap-break-word">
               {order.destination?.name ?? "—"}
             </p>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-medium text-gray-500 uppercase">
               {t("items")}
             </p>
@@ -154,19 +161,20 @@ const OrderCard: FC<OrderCardProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-gray-100 pt-3 mt-auto">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-3 mt-auto">
           {isSelectable ? (
-            <p className="text-xs text-gray-500">
+            <p className="min-w-0 flex-1 text-xs text-gray-500 wrap-break-word">
               {t("created_by")}: {createdByName}
             </p>
           ) : (
-            <p className="text-xs text-red-500">
+            <p className="min-w-0 flex-1 text-xs text-red-500 wrap-break-word">
               {t("must_be_approved_before_sending")}
             </p>
           )}
           <Button
             type="button"
             size="sm"
+            className="ml-auto shrink-0"
             onClick={onSelect}
             disabled={!isSelectable || isChecking}
           >
@@ -228,7 +236,6 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
         "dvdms_link_order_candidates",
         facilityId,
         locationId,
-        page,
         supplierFilter?.id,
         statusFilter,
         priorityFilter,
@@ -236,8 +243,8 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
       queryFn: () =>
         apis.requestOrders.list(facilityId, {
           destination: locationId,
-          limit: PAGE_SIZE,
-          offset: (page - 1) * PAGE_SIZE,
+          limit: LIST_FETCH_LIMIT,
+          offset: 0,
           status: statusFilter || "pending,draft",
           origin_isnull: true,
           ...(supplierFilter ? { supplier: supplierFilter.id } : {}),
@@ -265,18 +272,77 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
 
   const candidateOrderIds = candidateOrders.map((order) => order.id);
 
+  const { data: institute } = useQuery({
+    queryKey: ["dvdms_institute", facilityId],
+    queryFn: () => apis.institutes.get(facilityId),
+  });
+
+  const { data: recordOrderStatusResults } = useQuery({
+    queryKey: [
+      "dvdms_linked_record_order_status",
+      institute?.id,
+      candidateOrderIds,
+    ],
+    queryFn: async () => {
+      const response = await apis.batchRequests.createChunked({
+        requests: candidateOrders.map((order) => ({
+          url: `/api/care_dvdms/institute/${institute!.id}/record_order/`,
+          method: HttpMethod.GET,
+          body: { order: order.id, limit: 1, ordering: "-created_date" },
+          reference_id: order.id,
+        })),
+      });
+      return response.results;
+    },
+    enabled: !!institute?.id && candidateOrders.length > 0,
+  });
+
+  const linkedRecordOrderStatusByOrderId = new Map(
+    recordOrderStatusResults?.map((result) => [
+      result.reference_id,
+      (result.data as { results?: { status?: string }[] } | undefined)
+        ?.results?.[0]?.status,
+    ]) ?? [],
+  );
+
+  const visibleCandidateOrders = candidateOrders.filter((order) => {
+    const linkedStatus = linkedRecordOrderStatusByOrderId.get(order.id);
+    return !linkedStatus || !DEAD_END_RECORD_ORDER_STATUSES.has(linkedStatus);
+  });
+
+  const pagedCandidateOrders = visibleCandidateOrders.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE,
+  );
+
+  const isCandidateOrdersFiltering =
+    candidateOrders.length > 0 && !recordOrderStatusResults;
+
+  const isCandidateListPending =
+    isCandidateOrdersLoading || isCandidateOrdersFiltering;
+
+  useEffect(() => {
+    const lastPage = Math.max(
+      1,
+      Math.ceil(visibleCandidateOrders.length / PAGE_SIZE),
+    );
+    if (page > lastPage) setPage(lastPage);
+  }, [visibleCandidateOrders.length, page]);
+
+  const pagedCandidateOrderIds = pagedCandidateOrders.map((order) => order.id);
+
   const { data: itemCountBatchResponse } = useQuery({
-    queryKey: ["dvdms_supply_requests_count", candidateOrderIds],
+    queryKey: ["dvdms_supply_requests_count", pagedCandidateOrderIds],
     queryFn: () =>
       apis.batchRequests.create({
-        requests: candidateOrders.map((order) => ({
+        requests: pagedCandidateOrders.map((order) => ({
           url: apis.supplyRequests.path,
           method: HttpMethod.GET,
           body: { order: order.id, limit: 1, offset: 0 },
           reference_id: order.id,
         })),
       }),
-    enabled: candidateOrders.length > 0,
+    enabled: pagedCandidateOrders.length > 0,
   });
 
   const itemCountByOrderId = new Map(
@@ -302,21 +368,19 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
   const selectedOrderItemCount =
     knownSelectedOrderItemCount ?? fetchedSelectedOrderItemCount;
 
-  const { data: institute } = useQuery({
-    queryKey: ["dvdms_institute", facilityId],
-    queryFn: () => apis.institutes.get(facilityId),
-  });
-
   const handleSelectOrder = async (order: RequestOrder) => {
     if (!institute) return;
     setCheckingOrderId(order.id);
     try {
       const existingRecordOrders = await apis.recordOrders.list(
         institute.id,
-        { order: order.id, limit: 1 },
+        { order: order.id, limit: 1, ordering: "-created_date" },
       );
-      if (existingRecordOrders.results.length > 0) {
-        navigate(`${returnPath}/${order.id}`);
+      const latestRecordOrder = existingRecordOrders.results[0];
+      const hasBlockingRecordOrder =
+        !!latestRecordOrder && latestRecordOrder.status !== "cancelled";
+      if (hasBlockingRecordOrder) {
+        navigate(`${returnPath}/${order.id}/record/${latestRecordOrder.id}`);
         return;
       }
       setQueryParams({ order: order.id });
@@ -341,55 +405,10 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
 
   const instituteSuppliers = supplierMappingsResponse?.results ?? [];
   const instituteStores = instituteStoresResponse?.results ?? [];
-
-  const { data: lookupStoresResponse } = useQuery({
-    queryKey: ["dvdms_lookup_stores", institute?.id],
-    queryFn: () => apis.institutes.lookupStores(institute!.id),
-    enabled: !!institute?.id,
-  });
-  const lookupStores = lookupStoresResponse ?? [];
-
-  const warehouseLookupOptions = useMemo(() => {
-    const byId = new Map<number, string>();
-    lookupStores.forEach((store) => {
-      if (!byId.has(store.hstnumParentStoreId)) {
-        byId.set(store.hstnumParentStoreId, store.hststrParentStoreName);
-      }
-    });
-    return Array.from(byId, ([id, name]) => ({ id, name }));
-  }, [lookupStores]);
-
   const selectedWarehouseId = form.watch("eaushadhiWarehouseId");
   const selectedStoreId = form.watch("eaushadhiStoreId");
-
-  const storeLookupOptions = useMemo(
-    () =>
-      lookupStores.filter(
-        (store) => String(store.hstnumParentStoreId) === selectedWarehouseId,
-      ),
-    [lookupStores, selectedWarehouseId],
-  );
-
-  const handleWarehouseSelect = (value: string) => {
-    form.setValue("eaushadhiWarehouseId", value);
-    form.setValue(
-      "eaushadhiWarehouseName",
-      warehouseLookupOptions.find((option) => String(option.id) === value)
-        ?.name ?? "",
-    );
-    form.setValue("eaushadhiStoreId", "");
-    form.setValue("eaushadhiStoreName", "");
-  };
-
-  const handleStoreSelect = (value: string) => {
-    form.setValue("eaushadhiStoreId", value);
-    form.setValue(
-      "eaushadhiStoreName",
-      storeLookupOptions.find(
-        (option) => String(option.hstnumStoreId) === value,
-      )?.hststrStoreName ?? "",
-    );
-  };
+  const selectedWarehouseName = form.watch("eaushadhiWarehouseName");
+  const selectedStoreName = form.watch("eaushadhiStoreName");
 
   useEffect(() => {
     form.setValue("name", selectedOrder?.name ?? "");
@@ -430,74 +449,27 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
         return Promise.reject(new Error("Select a supplier and store first."));
       }
 
-      const warehouseName = form.getValues("eaushadhiWarehouseName");
-      let supplierMappingId: string | undefined;
       const existingSupplierMapping = selectedOrder.supplier
         ? instituteSuppliers.find(
             (item) => item.supplier?.id === selectedOrder.supplier!.id,
           )
         : undefined;
-      if (existingSupplierMapping?.eaushadhi_warehouse_id === selectedWarehouseId) {
-        supplierMappingId = existingSupplierMapping.id;
-      } else if (existingSupplierMapping) {
-        const updatedSupplierMapping = await apis.supplierMappings.update(
-          institute.id,
-          existingSupplierMapping.id,
-          {
-            eaushadhi_warehouse_id: selectedWarehouseId,
-            eaushadhi_warehouse_name: warehouseName,
-          },
+      if (!existingSupplierMapping) {
+        return Promise.reject(
+          new Error("No DVDMS supplier mapping configured for this supplier."),
         );
-        supplierMappingId = updatedSupplierMapping.id;
-      } else {
-        if (!selectedOrder.supplier) {
-          return Promise.reject(
-            new Error("This order has no CARE supplier to map to eAushadhi."),
-          );
-        }
-        const createdSupplierMapping = await apis.supplierMappings.create(
-          institute.id,
-          {
-            supplier: selectedOrder.supplier.id,
-            eaushadhi_warehouse_id: selectedWarehouseId,
-            eaushadhi_warehouse_name: warehouseName,
-            is_default: instituteSuppliers.length === 0,
-          },
-        );
-        supplierMappingId = createdSupplierMapping.id;
       }
+      const supplierMappingId = existingSupplierMapping.id;
 
-      const storeName = form.getValues("eaushadhiStoreName");
-      let storeMappingId: string | undefined;
       const existingStoreMapping = instituteStores.find(
         (item) => item.store.id === locationId,
       );
-      if (existingStoreMapping?.eaushadhi_store_id === selectedStoreId) {
-        storeMappingId = existingStoreMapping.id;
-      } else if (existingStoreMapping) {
-        const updatedStoreMapping = await apis.storeMappings.update(
-          facilityId,
-          institute.id,
-          existingStoreMapping.id,
-          {
-            eaushadhi_store_id: selectedStoreId,
-            eaushadhi_store_name: storeName,
-          },
+      if (!existingStoreMapping) {
+        return Promise.reject(
+          new Error("No DVDMS store mapping configured for this location."),
         );
-        storeMappingId = updatedStoreMapping.id;
-      } else {
-        const createdStoreMapping = await apis.dvdmsInstituteStores.create(
-          facilityId,
-          institute.id,
-          {
-            store: locationId,
-            eaushadhi_store_id: selectedStoreId,
-            eaushadhi_store_name: storeName,
-            is_default: instituteStores.length === 0,
-          },
-        );
-        storeMappingId = createdStoreMapping.id;
       }
+      const storeMappingId = existingStoreMapping.id;
 
       return apis.recordOrders.create(institute.id, {
         name: form.getValues("name"),
@@ -507,16 +479,26 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
         status: "draft",
       });
     },
-    onSuccess: () => {
+    onSuccess: (createdRecordOrder) => {
       toast.success(t("record_order_created_successfully"));
       queryClient.invalidateQueries({ queryKey: ["dvdms_record_orders"] });
+      queryClient.invalidateQueries({
+        queryKey: [
+          "dvdms_record_order_status",
+          institute?.id,
+          selectedOrder!.id,
+        ],
+      });
       queryClient.invalidateQueries({
         queryKey: ["dvdms_supplier_mappings", institute?.id],
       });
       queryClient.invalidateQueries({
         queryKey: ["dvdms_institute_stores", facilityId, institute?.id],
       });
-      navigate(`${returnPath}/${selectedOrder!.id}`, { replace: true });
+      navigate(
+        `${returnPath}/${selectedOrder!.id}/record/${createdRecordOrder.id}`,
+        { replace: true },
+      );
     },
     onError: () => toast.error(t("failed_to_create_record_order")),
   });
@@ -526,8 +508,8 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
   return (
     <div className="md:px-6 py-0 min-w-0">
       <div className="container mx-auto max-w-7xl">
-        <div className="flex justify-between items-start mb-6">
-          <div className="flex items-start gap-4">
+        <div className="flex justify-between items-start gap-3 mb-4 sm:mb-6">
+          <div className="flex min-w-0 items-start gap-2 sm:gap-4">
             <BackButton
               size="icon"
               className="shrink-0"
@@ -538,21 +520,22 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               <ChevronLeftIcon className="size-4" />
               <span className="sr-only">{t("back")}</span>
             </BackButton>
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
-                {t("send_order_to_eaushadhi")}
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-semibold text-gray-900 flex items-center gap-2 wrap-break-word">
+                {t("send_order_to_dvdms")}
                 {/* <Badge variant="secondary">{t("draft")}</Badge> */}
               </h1>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-sm text-gray-500 mt-1 wrap-break-word">
                 {selectedOrderId
                   ? t("confirm_supplier_and_store_description")
-                  : t("send_order_to_eaushadhi_description")}
+                  : t("send_order_to_dvdms_description")}
               </p>
             </div>
           </div>
           <Button
             variant="outline"
             size="icon"
+            className="shrink-0"
             onClick={() => navigate(returnPath)}
           >
             <XIcon className="size-5" />
@@ -562,29 +545,31 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
 
         {!selectedOrderId ? (
           <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <SupplierSelect
                 value={supplierFilter}
                 onChange={handleSupplierFilterChange}
-                className="sm:min-w-0 sm:flex-1"
+                className="sm:min-w-0 sm:max-w-lg"
               />
-              <OrderFilters
-                status={statusFilter}
-                priority={priorityFilter}
-                onStatusChange={handleStatusFilterChange}
-                onPriorityChange={handlePriorityFilterChange}
-              />
+              <div className="shrink-0 sm:ml-auto">
+                <OrderFilters
+                  status={statusFilter}
+                  priority={priorityFilter}
+                  onStatusChange={handleStatusFilterChange}
+                  onPriorityChange={handlePriorityFilterChange}
+                />
+              </div>
             </div>
 
-            {isCandidateOrdersLoading ? (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {isCandidateListPending ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <Skeleton key={i} className="h-48 w-full" />
                 ))}
               </div>
-            ) : candidateOrders.length > 0 ? (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {candidateOrders.map((order) => (
+            ) : pagedCandidateOrders.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
+                {pagedCandidateOrders.map((order) => (
                   <OrderCard
                     key={order.id}
                     order={order}
@@ -601,12 +586,14 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               />
             )}
 
-            <Pagination
-              page={page}
-              pageSize={PAGE_SIZE}
-              totalCount={candidateOrdersResponse?.count ?? 0}
-              onPageChange={setPage}
-            />
+            {!isCandidateListPending && (
+              <Pagination
+                page={page}
+                pageSize={PAGE_SIZE}
+                totalCount={visibleCandidateOrders.length}
+                onPageChange={setPage}
+              />
+            )}
           </div>
         ) : isSelectedOrderLoading || !selectedOrder ? (
           <div className="space-y-4">
@@ -616,28 +603,28 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
         ) : (
           <div className="space-y-4">
             <Card className="bg-white">
-              <CardContent className="grid sm:grid-cols-3 gap-4 py-4">
-                <div>
+              <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 py-4">
+                <div className="min-w-0">
                   <p className="text-xs font-medium text-gray-500 uppercase">
                     {t("order")}
                   </p>
-                  <p className="font-semibold text-gray-950">
+                  <p className="font-semibold text-gray-950 wrap-break-word">
                     {selectedOrder.name}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs font-medium text-gray-500 uppercase">
                     {t("deliver_to")}
                   </p>
-                  <p className="font-semibold text-gray-950">
+                  <p className="font-semibold text-gray-950 wrap-break-word">
                     {selectedOrder.destination?.name ?? "—"}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs font-medium text-gray-500 uppercase">
                     {t("items")}
                   </p>
-                  <p className="font-semibold text-gray-950">
+                  <p className="font-semibold text-gray-950 wrap-break-word">
                     {selectedOrderItemCount ?? "—"} {t("items")}
                   </p>
                 </div>
@@ -648,9 +635,9 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               <form onSubmit={onSubmit} className="space-y-6">
                 <input type="submit" hidden />
                 <Card className="p-0 bg-white">
-                  <CardContent className="space-y-4 p-4 rounded-md">
+                  <CardContent className="space-y-4 p-3 sm:p-4 rounded-md">
                     <h3 className="font-semibold text-gray-900">
-                      {t("eaushadhi_connection_details")}
+                      {t("dvdms_connection_details")}
                     </h3>
 
                     <FormField
@@ -681,26 +668,20 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                           <FormLabel aria-required>
                             {t("eaushadhi_supplier")}
                           </FormLabel>
-                          <Select
-                            onValueChange={handleWarehouseSelect}
-                            value={field.value}
-                          >
+                          <Select value={field.value} disabled>
                             <FormControl>
-                              <SelectTrigger className="w-full h-9">
+                              <SelectTrigger className="w-full h-9 bg-gray-50 cursor-default disabled:opacity-100 disabled:text-gray-950">
                                 <SelectValue
                                   placeholder={t("select_eaushadhi_supplier")}
                                 />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {warehouseLookupOptions.map((option) => (
-                                <SelectItem
-                                  key={option.id}
-                                  value={String(option.id)}
-                                >
-                                  {option.name}
+                              {field.value && (
+                                <SelectItem value={field.value}>
+                                  {selectedWarehouseName}
                                 </SelectItem>
-                              ))}
+                              )}
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -708,8 +689,8 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                       )}
                     />
                     {selectedOrder.supplier && (
-                      <p className="flex items-center gap-2 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">
-                        <InfoIcon className="size-4 shrink-0" />
+                      <p className="flex items-start gap-2 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700 wrap-break-word">
+                        <InfoIcon className="size-4 shrink-0 mt-0.5" />
                         {t("supplier_in_care_order", {
                           name: selectedOrder.supplier.name,
                         })}
@@ -725,27 +706,20 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                           <FormLabel aria-required>
                             {t("eaushadhi_from_store")}
                           </FormLabel>
-                          <Select
-                            onValueChange={handleStoreSelect}
-                            value={field.value}
-                            disabled={!selectedWarehouseId}
-                          >
+                          <Select value={field.value} disabled>
                             <FormControl>
-                              <SelectTrigger className="w-full h-9">
+                              <SelectTrigger className="w-full h-9 bg-gray-50 cursor-default disabled:opacity-100 disabled:text-gray-950">
                                 <SelectValue
                                   placeholder={t("select_eaushadhi_store")}
                                 />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {storeLookupOptions.map((store) => (
-                                <SelectItem
-                                  key={store.hstnumStoreId}
-                                  value={String(store.hstnumStoreId)}
-                                >
-                                  {store.hststrStoreName}
+                              {field.value && (
+                                <SelectItem value={field.value}>
+                                  {selectedStoreName}
                                 </SelectItem>
-                              ))}
+                              )}
                             </SelectContent>
                           </Select>
                           <p className="text-xs text-gray-500">
@@ -756,10 +730,11 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                       )}
                     />
 
-                    <div className="border-t border-gray-200 pt-4 flex justify-end space-x-3">
+                    <div className="border-t border-gray-200 pt-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
                       <Button
                         type="button"
                         variant="outline"
+                        className="w-full sm:w-auto"
                         onClick={() => setQueryParams({})}
                       >
                         {t("cancel")}
@@ -767,6 +742,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                       </Button>
                       <Button
                         type="submit"
+                        className="w-full sm:w-auto"
                         disabled={
                           isCreating || !selectedWarehouseId || !selectedStoreId
                         }

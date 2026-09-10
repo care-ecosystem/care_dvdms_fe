@@ -35,16 +35,51 @@ export function toInstanceScopedSlug(slug: string): string {
 
 export function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
+
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  const date = dateOnly
+    ? new Date(
+        Number(dateOnly[1]),
+        Number(dateOnly[2]) - 1,
+        Number(dateOnly[3]),
+      )
+    : new Date(dateStr);
+  return date.toLocaleDateString("en-US", {
+    month: "numeric",
+    day: "numeric",
     year: "numeric",
   });
+}
+
+/** Trims an ISO date or datetime down to the `yyyy-mm-dd` a date input expects. */
+export function toDateInputValue(value: string | null | undefined): string {
+  return value?.slice(0, 10) ?? "";
+}
+
+export function toQuantity(value: string | number | undefined): number {
+  return Math.max(0, Math.round(Number(value) || 0));
 }
 
 export function formatQuantity(quantity: string | number): string {
   const value = Number(quantity);
   return Number.isFinite(value) ? value.toFixed(2) : String(quantity);
+}
+
+export function parseLookupId(
+  value: string | number | null | undefined,
+): number | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+export function formatLookupId(
+  value: string | number | null | undefined,
+): string {
+  if (value === null || value === undefined) return "—";
+  const text = String(value).trim();
+  if (!text || text === "null" || text === "undefined") return "—";
+  return text;
 }
 
 export function chunk<T>(items: T[], size: number): T[][] {
@@ -73,10 +108,30 @@ export function downloadProductMappingTemplate(): void {
     "Product Knowledge Slug",
   ];
   const sampleData = [
-    ["6.6.19", "Cefotaxime Injection IP 1gm 1x1Vial", "Cefotaxime 1gm Injection", "cefotaxime-1gm-injection"],
-    ["D00045", "Ibuprofen Oral Suspension IP 100mg/5ml 1x60ml bottle", "Ibuprofen 100mg/5ml Suspension", "ibuprofen-suspension"],
-    ["D00046", "Aceclofenac Tablet 100 mg 1x1", "Aceclofenac 100mg Tablet", "aceclofenac-100mg"],
-    ["10000409", "Fentanyl 100 Mcg/2ml(100 Mcg/2Ml)", "Fentanyl 100mcg/2ml Injection", "fentanyl-100mcg2ml-inject"],
+    [
+      "6.6.19",
+      "Cefotaxime Injection IP 1gm 1x1Vial",
+      "Cefotaxime 1gm Injection",
+      "cefotaxime-1gm-injection",
+    ],
+    [
+      "D00045",
+      "Ibuprofen Oral Suspension IP 100mg/5ml 1x60ml bottle",
+      "Ibuprofen 100mg/5ml Suspension",
+      "ibuprofen-suspension",
+    ],
+    [
+      "D00046",
+      "Aceclofenac Tablet 100 mg 1x1",
+      "Aceclofenac 100mg Tablet",
+      "aceclofenac-100mg",
+    ],
+    [
+      "10000409",
+      "Fentanyl 100 Mcg/2ml(100 Mcg/2Ml)",
+      "Fentanyl 100mcg/2ml Injection",
+      "fentanyl-100mcg2ml-inject",
+    ],
   ];
 
   const rows = [
@@ -121,7 +176,10 @@ export function downloadProductMappingUploadReport(
         .join(","),
     ),
   ];
-  downloadCsv("product_mapping_upload_report.csv", "\uFEFF" + csvRows.join("\n"));
+  downloadCsv(
+    "product_mapping_upload_report.csv",
+    "\uFEFF" + csvRows.join("\n"),
+  );
 }
 
 export type ProductMappingExportRow = {

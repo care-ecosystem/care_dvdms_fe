@@ -18,6 +18,7 @@ import { apis } from "@/apis";
 import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
+import { dvdmsBasePath } from "@/lib/paths";
 import {
   chunk,
   formatLookupId,
@@ -167,7 +168,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
 
-  const recordBasePath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/record/${recordOrderId}`;
+  const recordBasePath = `${dvdmsBasePath(facilityId, locationId)}/${requestOrderId}/record/${recordOrderId}`;
 
   const [currentTab, setCurrentTab] = useState<
     "requested-items" | "dvdms-issues"
@@ -542,6 +543,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableItems, recordItemOrdersData, productMappings]);
 
+  const isSavingItemsRef = useRef(false);
+
   const saveItemsMutation = useMutation({
     mutationFn: async () => {
       if (!institute?.id || !recordOrder?.id) {
@@ -551,7 +554,11 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       const recordOrderId = recordOrder.id;
 
       const itemRequests: SuperBatchRequestItem[] = tableItems
-        .filter((item) => selectedDrugs[item.id])
+        .filter(
+          (item) =>
+            selectedDrugs[item.id] &&
+            !existingItemBySupplyRequestId.has(item.id),
+        )
         .map((item) => ({
           url: `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
           method: HttpMethod.POST,
@@ -578,6 +585,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       queryClient.invalidateQueries({
         queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
       });
+    },
+    onSettled: () => {
+      isSavingItemsRef.current = false;
     },
     onError: (error: {
       data?: { results?: SuperBatchResponseItem[] };
@@ -773,9 +783,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   }, [isAwaitingIndentStatus, fetchInwards]);
 
   const handleSupplyDeliveryAction = (action: string) => {
-    if (action === "save") {
-      saveItemsMutation.mutate();
-    }
+    if (action !== "save") return;
+    if (isSavingItemsRef.current) return;
+    isSavingItemsRef.current = true;
+    saveItemsMutation.mutate();
   };
 
   const hasUnselectedDrug = tableItems.some((item) => !selectedDrugs[item.id]);
@@ -849,7 +860,11 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     <div className="md:px-6 py-0 space-y-4 min-w-0">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="flex items-center gap-4 min-w-0">
-          <BackButton size="icon" className="shrink-0">
+          <BackButton
+            size="icon"
+            className="shrink-0"
+            fallback={dvdmsBasePath(facilityId, locationId)}
+          >
             <ChevronLeft />
             <span className="sr-only">{t("back")}</span>
           </BackButton>
@@ -882,7 +897,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
             <Button
               onClick={() =>
                 navigate(
-                  `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/new?order=${requestOrderId}`,
+                  `${dvdmsBasePath(facilityId, locationId)}/new?order=${requestOrderId}`,
                 )
               }
             >
@@ -1534,7 +1549,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                             }
                           >
                             {t("send_order_to_dvdms")}
-                            <ShortcutBadge actionId="mark-as" />
+                            <ShortcutBadge actionId="link-order-eaushadhi" />
                           </Button>
                         </div>
                       )}

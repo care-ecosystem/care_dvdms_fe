@@ -1,4 +1,5 @@
 import { lazy } from "react";
+import { Pill } from "lucide-react";
 
 import en from "../public/locale/en.json";
 import routes from "./routes";
@@ -11,14 +12,17 @@ const manifest = {
     FacilityHomeActions: lazy(
       () => import("./components/pluggables/FacilityHomeActions"),
     ),
-    ExternalSupplyNavItems: lazy(
-      () => import("./components/pluggables/ExternalSupplyNavItems"),
-    ),
   },
   encounterTabs: {
     // TODO: add encounter tabs if needed
   },
-  navItems: [],
+  navItems: [
+    {
+      name: "DVDMS",
+      url: "dvdms",
+      icon: <Pill />,
+    },
+  ],
   adminNavItems: [],
   extends: [],
 };

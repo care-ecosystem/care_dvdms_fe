@@ -7,6 +7,8 @@ import { Link2Icon } from "lucide-react";
 import { apis } from "@/apis";
 import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
+import { dvdmsBasePath } from "@/lib/paths";
+import DvdmsNotConfigured from "@/components/DvdmsNotConfigured";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
@@ -18,6 +20,7 @@ import {
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
 import { Organization } from "@/types/organization";
+import useDvdmsLocation from "@/hooks/useDvdmsLocation";
 
 const PAGE_SIZE = 10;
 
@@ -69,10 +72,11 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
     queryFn: () => apis.facilities.get(facilityId),
   });
 
-  const { data: institute } = useQuery({
-    queryKey: ["dvdms_institute", facilityId],
-    queryFn: () => apis.institutes.get(facilityId),
-  });
+  const {
+    institute,
+    locationId: configuredLocationId,
+    isLoading: isConfigLoading,
+  } = useDvdmsLocation(facilityId);
 
   const currentStatus = TABS_CONFIG.find(
     (tab) => tab.value === currentTab,
@@ -82,7 +86,6 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
     queryKey: [
       "dvdms_record_orders",
       institute?.id,
-      locationId,
       currentTab,
       page,
     ],
@@ -144,6 +147,23 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
     </div>
   );
 
+  if (!isConfigLoading && !configuredLocationId) {
+    return (
+      <div className="md:px-6 py-0 space-y-4 min-w-0">
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900">
+            {t("dvdms_external_supply")}
+          </h1>
+          <p className="text-sm text-gray-500">
+            {t("manage_external_supply_for")}{" "}
+            <strong>{facility?.name ?? facilityId}</strong>
+          </p>
+        </div>
+        <DvdmsNotConfigured hasInstitute={!!institute} />
+      </div>
+    );
+  }
+
   return (
     <div className="md:px-6 py-0 space-y-4 min-w-0">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -161,7 +181,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
             variant="primary"
             onClick={() =>
               navigate(
-                `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/new`,
+  `${dvdmsBasePath(facilityId, locationId)}/new`
               )
             }
           >

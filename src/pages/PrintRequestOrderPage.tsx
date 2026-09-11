@@ -20,7 +20,6 @@ import {
 
 type PrintRequestOrderPageProps = {
   facilityId: string;
-  locationId: string;
   requestOrderId: string;
   recordOrderId: string;
 };

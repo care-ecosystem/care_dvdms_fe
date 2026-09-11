@@ -1,9 +1,7 @@
-// Standalone route map — mirrors manifest.routes.
-// Keep in sync with manifest.tsx.
-
 import { lazy } from "react";
 
 const DvdmsConfigurePage = lazy(() => import("./pages/DvdmsConfigurePage"));
+const DvdmsEntryPage = lazy(() => import("./pages/DvdmsEntryPage"));
 const ExternalSupplyPage = lazy(() => import("./pages/ExternalSupplyPage"));
 const LinkOrderFormPage = lazy(() => import("./pages/LinkOrderFormPage"));
 const RequestOrderShowPage = lazy(() => import("./pages/RequestOrderShowPage"));
@@ -23,21 +21,29 @@ const routes = {
   }: {
     facilityId: string;
   }) => <DvdmsConfigurePage facilityId={facilityId} />,
-  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms": ({
+  "/facility/:facilityId/settings/general/dvdms/product-mappings": ({
+    facilityId,
+  }: {
+    facilityId: string;
+  }) => <ProductMappings facilityId={facilityId} />,
+  "/facility/:facilityId/dvdms": ({ facilityId }: { facilityId: string }) => (
+    <DvdmsEntryPage facilityId={facilityId} />
+  ),
+  "/facility/:facilityId/dvdms/locations/:locationId": ({
     facilityId,
     locationId,
   }: {
     facilityId: string;
     locationId: string;
   }) => <ExternalSupplyPage facilityId={facilityId} locationId={locationId} />,
-  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/new": ({
+  "/facility/:facilityId/dvdms/locations/:locationId/new": ({
     facilityId,
     locationId,
   }: {
     facilityId: string;
     locationId: string;
   }) => <LinkOrderFormPage facilityId={facilityId} locationId={locationId} />,
-  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/record/:recordOrderId":
+  "/facility/:facilityId/dvdms/locations/:locationId/:requestOrderId/record/:recordOrderId":
     ({
       facilityId,
       locationId,
@@ -56,7 +62,7 @@ const routes = {
         recordOrderId={recordOrderId}
       />
     ),
-  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/record/:recordOrderId/edit":
+  "/facility/:facilityId/dvdms/locations/:locationId/:requestOrderId/record/:recordOrderId/edit":
     ({
       facilityId,
       locationId,
@@ -65,7 +71,6 @@ const routes = {
     }: {
       facilityId: string;
       locationId: string;
-      // tab: string;
       requestOrderId: string;
       recordOrderId: string;
     }) => (
@@ -76,10 +81,9 @@ const routes = {
         recordOrderId={recordOrderId}
       />
     ),
-  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/record/:recordOrderId/print":
+  "/facility/:facilityId/dvdms/locations/:locationId/:requestOrderId/record/:recordOrderId/print":
     ({
       facilityId,
-      locationId,
       requestOrderId,
       recordOrderId,
     }: {
@@ -90,13 +94,12 @@ const routes = {
     }) => (
       <PrintRequestOrderPage
         facilityId={facilityId}
-        locationId={locationId}
         requestOrderId={requestOrderId}
         recordOrderId={recordOrderId}
       />
     ),
 
-  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/record/:recordOrderId/create-delivery":
+  "/facility/:facilityId/dvdms/locations/:locationId/:requestOrderId/record/:recordOrderId/create-delivery":
     ({
       facilityId,
       locationId,
@@ -116,7 +119,7 @@ const routes = {
       />
     ),
 
-  "/facility/:facilityId/locations/:locationId/inventory/external/dvdms/:requestOrderId/record/:recordOrderId/delivery/:deliveryOrderId":
+  "/facility/:facilityId/dvdms/locations/:locationId/:requestOrderId/record/:recordOrderId/delivery/:deliveryOrderId":
     ({
       facilityId,
       locationId,
@@ -138,12 +141,6 @@ const routes = {
         deliveryOrderId={deliveryOrderId}
       />
     ),
-
-  "/facility/:facilityId/settings/general/dvdms/product-mappings": ({
-    facilityId,
-  }: {
-    facilityId: string;
-  }) => <ProductMappings facilityId={facilityId} />,
 };
 
 export default routes;

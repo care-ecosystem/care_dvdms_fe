@@ -1,5 +1,4 @@
 import { FC, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -17,6 +16,7 @@ import { apis } from "@/apis";
 import { BatchError, extractErrorMessage, performBatchRequest } from "@/apis/query";
 import { BatchRequestBody, BatchResult, HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
+import { goBack } from "@/lib/navigation";
 import {
   chunk as chunkArray,
   downloadAllProductMappings,
@@ -375,7 +375,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const isSaving = isCreating || isUpdating;
 
   const goBackToDvdmsConfig = () => {
-    navigate(`/facility/${facilityId}/settings/general/dvdms`);
+    goBack(`/facility/${facilityId}/settings/general/dvdms`);
   };
 
   const handleDownloadAllMappings = async () => {

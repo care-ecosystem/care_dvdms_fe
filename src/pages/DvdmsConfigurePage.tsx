@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE } from "@/lib/constants";
+import { goBack } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 import { LocationPicker } from "@/components/LocationPicker";
 import { EaushadhiStorePicker } from "@/components/EaushadhiStorePicker";
@@ -241,7 +242,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   const supplierOptions = suppliersData?.results ?? EMPTY_SUPPLIERS;
 
   const goBackToFacility = () => {
-    navigate(`/facility/${facilityId}/settings/general`);
+    goBack(`/facility/${facilityId}/settings/general`);
   };
 
   const onOpenChange = (next: boolean) => {

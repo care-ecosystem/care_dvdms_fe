@@ -8,6 +8,8 @@ import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
+import { goBack } from "@/lib/navigation";
+import { dvdmsBasePath } from "@/lib/paths";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -66,7 +68,7 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
 
-  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/record/${recordOrderId}`;
+  const returnPath = `${dvdmsBasePath(facilityId, locationId)}/${requestOrderId}/record/${recordOrderId}`;
 
   const { data: linkedOrder, isLoading: isLoadingLinkedOrder } = useQuery({
     queryKey: ["dvdms_request_order", facilityId, requestOrderId],
@@ -262,7 +264,7 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
           <Button
             variant="outline"
             size="icon"
-            onClick={() => navigate(returnPath)}
+            onClick={() => goBack(returnPath)}
           >
             <XIcon className="size-5" />
             <span className="sr-only">{t("close")}</span>
@@ -376,7 +378,7 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => navigate(returnPath)}
+                    onClick={() => goBack(returnPath)}
                   >
                     {t("cancel")}
                     <ShortcutBadge actionId="cancel-action" />

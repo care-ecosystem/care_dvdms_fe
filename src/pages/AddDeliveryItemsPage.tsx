@@ -1,7 +1,7 @@
-import { FC, useEffect, useMemo, useState } from "react";
+import { FC, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { navigate, useQueryParams } from "raviger";
+import { useQueryParams } from "raviger";
 import { useFieldArray, useForm } from "react-hook-form";
 import { ChevronLeftIcon, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -19,6 +19,7 @@ import {
   MAX_REQUESTS_PER_BATCH,
   MAX_REQUESTS_PER_SUPER_BATCH,
 } from "@/lib/constants";
+import { dvdmsBasePath } from "@/lib/paths";
 import { chunk, formatDate, toDateInputValue, toQuantity } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -147,10 +148,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
   const [isProcessing, setIsProcessing] = useState(false);
+  const isProcessingRef = useRef(false);
 
   const [{ issue: issueId }] = useQueryParams<{ issue?: string }>();
-
-  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/record/${recordOrderId}`;
 
   const { data: institute } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
@@ -538,6 +538,8 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       return;
     }
     if (!validateItems(data.items)) return;
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
 
     setIsProcessing(true);
     try {
@@ -620,6 +622,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           t("failed_to_save_delivery_items"),
       );
     } finally {
+      isProcessingRef.current = false;
       setIsProcessing(false);
     }
   });
@@ -809,7 +812,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           <BackButton
             size="icon"
             className="shrink-0"
-            onClick={() => navigate(returnPath)}
+            fallback={`${dvdmsBasePath(facilityId, locationId)}/${requestOrderId}/record/${recordOrderId}`}
           >
             <ChevronLeftIcon className="size-4" />
             <span className="sr-only">{t("back")}</span>

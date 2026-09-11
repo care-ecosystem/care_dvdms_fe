@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { apis } from "@/apis";
 import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
+import { goBack } from "@/lib/navigation";
+import { dvdmsBasePath } from "@/lib/paths";
 import { cn, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -194,7 +196,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
 
-  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms`;
+  const returnPath = dvdmsBasePath(facilityId, locationId);
 
   const form = useForm<RecordOrderFormValues>({
     defaultValues: {
@@ -368,6 +370,8 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
   const selectedOrderItemCount =
     knownSelectedOrderItemCount ?? fetchedSelectedOrderItemCount;
 
+  const clearSelectedOrder = () => setQueryParams({}, { replace: true });
+
   const handleSelectOrder = async (order: RequestOrder) => {
     if (!institute) return;
     setCheckingOrderId(order.id);
@@ -383,7 +387,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
         navigate(`${returnPath}/${order.id}/record/${latestRecordOrder.id}`);
         return;
       }
-      setQueryParams({ order: order.id });
+      setQueryParams({ order: order.id }, { replace: true });
     } catch {
       toast.error(t("failed_to_check_record_order"));
     } finally {
@@ -399,7 +403,10 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
 
   const { data: instituteStoresResponse } = useQuery({
     queryKey: ["dvdms_institute_stores", facilityId, institute?.id],
-    queryFn: () => apis.dvdmsInstituteStores.list(facilityId, institute!.id),
+    queryFn: () =>
+      apis.dvdmsInstituteStores.list(facilityId, institute!.id, {
+        limit: LIST_FETCH_LIMIT,
+      }),
     enabled: !!institute?.id,
   });
 
@@ -513,9 +520,8 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
             <BackButton
               size="icon"
               className="shrink-0"
-              onClick={
-                selectedOrderId ? () => setQueryParams({}) : undefined
-              }
+              fallback={returnPath}
+              onClick={selectedOrderId ? clearSelectedOrder : undefined}
             >
               <ChevronLeftIcon className="size-4" />
               <span className="sr-only">{t("back")}</span>
@@ -536,7 +542,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
             variant="outline"
             size="icon"
             className="shrink-0"
-            onClick={() => navigate(returnPath)}
+            onClick={() => goBack(returnPath)}
           >
             <XIcon className="size-5" />
             <span className="sr-only">{t("close")}</span>
@@ -735,7 +741,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                         type="button"
                         variant="outline"
                         className="w-full sm:w-auto"
-                        onClick={() => setQueryParams({})}
+                        onClick={clearSelectedOrder}
                       >
                         {t("cancel")}
                         <ShortcutBadge actionId="cancel-action" />

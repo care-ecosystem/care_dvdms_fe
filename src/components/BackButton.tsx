@@ -2,6 +2,7 @@ import { ComponentProps, MouseEvent, ReactNode } from "react";
 import type { VariantProps } from "class-variance-authority";
 
 import { Button, ButtonVariant, buttonVariants } from "@/components/ui/button";
+import { goBack } from "@/lib/navigation";
 
 type BackButtonProps = {
   children: ReactNode;
@@ -9,6 +10,8 @@ type BackButtonProps = {
   size?: VariantProps<typeof buttonVariants>["size"];
   className?: string;
   disabled?: boolean;
+  /** Where to land when this page was opened cold and there is nothing to pop. */
+  fallback?: string;
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
 } & Omit<ComponentProps<"button">, "onClick" | "children">;
 
@@ -18,6 +21,7 @@ export default function BackButton({
   size = "default",
   className,
   disabled = false,
+  fallback,
   onClick,
   ...props
 }: BackButtonProps) {
@@ -29,7 +33,7 @@ export default function BackButton({
       size={size}
       className={className}
       disabled={disabled}
-      onClick={onClick ?? (() => history.back())}
+      onClick={onClick ?? (() => goBack(fallback))}
     >
       {children}
     </Button>

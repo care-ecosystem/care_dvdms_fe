@@ -3,13 +3,16 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate, useQueryParams } from "raviger";
 import { useForm } from "react-hook-form";
-import { XIcon } from "lucide-react";
 import { toast } from "sonner";
+import { ChevronLeftIcon } from "lucide-react";
 
 import { apis } from "@/apis";
 import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
+import { goBack } from "@/lib/navigation";
+import { dvdmsBasePath } from "@/lib/paths";
+import BackButton from "@/components/BackButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -77,7 +80,7 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
 
   const [{ issue: issueId }] = useQueryParams<{ issue?: string }>();
 
-  const returnPath = `/facility/${facilityId}/locations/${locationId}/inventory/external/dvdms/${requestOrderId}/record/${recordOrderId}`;
+  const returnPath = `${dvdmsBasePath(facilityId, locationId)}/${requestOrderId}/record/${recordOrderId}`;
 
   const { data: institute } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
@@ -265,8 +268,12 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
   return (
     <div className="md:px-6 py-0 min-w-0">
       <div className="container mx-auto max-w-6xl">
-        <div className="flex justify-between items-start mb-6">
-          <div>
+        <div className="flex items-start gap-4 mb-6">
+          <BackButton size="icon" className="shrink-0" fallback={returnPath}>
+            <ChevronLeftIcon className="size-4" />
+            <span className="sr-only">{t("back")}</span>
+          </BackButton>
+          <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold text-gray-900">
               {t("create_delivery")}
             </h1>
@@ -274,14 +281,6 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
               {t("create_delivery_description")}
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => navigate(returnPath)}
-          >
-            <XIcon className="size-5" />
-            <span className="sr-only">{t("close")}</span>
-          </Button>
         </div>
 
         {isLoadingContext ? (
@@ -400,6 +399,7 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
                             <SupplierSelect
                               value={field.value}
                               onChange={field.onChange}
+                              disabled
                             />
                           </FormControl>
                           <FormMessage />
@@ -429,7 +429,7 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={() => navigate(returnPath)}
+                        onClick={() => goBack(returnPath)}
                       >
                         {t("cancel")}
                         <ShortcutBadge actionId="cancel-action" />

@@ -15,12 +15,14 @@ type SupplierSelectProps = {
   value?: Organization;
   onChange: (supplier?: Organization) => void;
   className?: string;
+  disabled?: boolean;
 };
 
 const SupplierSelect: FC<SupplierSelectProps> = ({
   value,
   onChange,
   className,
+  disabled,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   const [open, setOpen] = useState(false);
@@ -57,7 +59,7 @@ const SupplierSelect: FC<SupplierSelectProps> = ({
         limit: 20,
         name: debouncedSearch || undefined,
       }),
-    enabled: open,
+    enabled: open && !disabled,
   });
 
   const options = data?.results ?? [];
@@ -77,19 +79,26 @@ const SupplierSelect: FC<SupplierSelectProps> = ({
     <div ref={containerRef} className={cn("relative w-full", className)}>
       <button
         type="button"
+        disabled={disabled}
         onClick={() => setOpen((prev) => !prev)}
-        className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-gray-400 bg-white px-3 text-sm shadow-sm"
+        className={cn(
+          "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-gray-400 px-3 text-sm shadow-sm",
+          disabled
+            ? "bg-gray-50 cursor-default disabled:opacity-100"
+            : "bg-white",
+        )}
       >
         <span
           className={cn(
             "truncate",
             value ? "text-gray-900" : "text-gray-500",
+            disabled && value && "text-gray-950",
           )}
         >
           {value?.name ?? t("search_by_supplier")}
         </span>
         <div className="flex shrink-0 items-center gap-1">
-          {value && (
+          {value && !disabled && (
             <XIcon
               className="size-4 text-gray-400 hover:text-gray-700"
               onClick={(event) => {
@@ -102,7 +111,7 @@ const SupplierSelect: FC<SupplierSelectProps> = ({
         </div>
       </button>
 
-      {open && (
+      {open && !disabled && (
         <div className="absolute z-10 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-md">
           <div className="p-2">
             <input

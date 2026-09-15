@@ -14,6 +14,8 @@ import {
   DeliveryItemsFormValues,
 } from "@/types/deliveryItemForm";
 
+const QUANTITY_INPUT_CLASS = "h-9 w-full min-w-[3.5rem]";
+
 type DeliveryItemRowProps = {
   form: UseFormReturn<DeliveryItemsFormValues>;
   index: number;
@@ -106,7 +108,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                       markAsEdited();
                     }}
                     disabled={!productKnowledge}
-                    className="h-9 w-full min-w-[10rem]"
+                    className="h-9 w-full min-w-0"
                   />
                 </FormControl>
                 <FormMessage />
@@ -133,7 +135,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                     resetFields();
                   }}
                   placeholder={t("select_product")}
-                  className="w-full min-w-[180px]"
+                  className="w-full"
                   hideClearButton
                 />
               </FormControl>
@@ -154,7 +156,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
           placeholder="-"
           disabled
           readOnly
-          className="w-full min-w-[140px] bg-gray-50 capitalize cursor-default disabled:opacity-100 disabled:text-gray-950"
+          className="w-full min-w-0 bg-gray-50 capitalize cursor-default disabled:opacity-100 disabled:text-gray-950"
         />
       </TableCell>
 
@@ -171,7 +173,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   type="number"
                   min={0}
                   disabled
-                  className={cn("h-9 w-24", readOnlyQuantityClass)}
+                  className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
                 />
               </FormControl>
               <FormMessage />
@@ -198,7 +200,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                     field.onChange(event);
                     applyDamaged(event.target.value);
                   }}
-                  className="h-9 w-24"
+                  className={QUANTITY_INPUT_CLASS}
                 />
               </FormControl>
               <FormMessage />
@@ -227,7 +229,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   }}
                   disabled={!canUpdateReceivedQuantity}
                   className={cn(
-                    "h-9 w-24",
+                    QUANTITY_INPUT_CLASS,
                     !canUpdateReceivedQuantity && readOnlyQuantityClass,
                   )}
                 />
@@ -252,7 +254,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   type="number"
                   min={0}
                   disabled
-                  className={cn("h-9 w-24", readOnlyQuantityClass)}
+                  className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
                 />
               </FormControl>
               <FormMessage />

@@ -879,7 +879,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   {approveDeliveryMutation.isPending
                     ? t("saving")
                     : t("mark_as_completed")}
-                  <ShortcutBadge actionId="mark-as" />
+                  {!hasUnreceivedItems && <ShortcutBadge actionId="mark-as" />}
                 </Button>
               )}
             </div>
@@ -1171,6 +1171,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                         {approveItemsMutation.isPending
                           ? t("approving")
                           : t("mark_items_as_approved")}
+                        <ShortcutBadge actionId="mark-as" />
                       </Button>
                     </div>
                   )}
@@ -1185,7 +1186,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     <form onSubmit={onSubmit} className="space-y-6">
                       <div className="rounded-md border border-gray-200 bg-white shadow overflow-hidden">
                         <div className="overflow-x-auto">
-                          <Table>
+                          <Table className="min-w-[52rem]">
                             <TableHeader className="bg-gray-100">
                               <TableRow className="divide-x divide-gray-200">
                                 <TableHead
@@ -1196,49 +1197,49 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="min-w-[200px] text-xs font-semibold"
+                                  className="w-[21%] text-xs font-semibold"
                                 >
                                   {t("product_knowledge")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="min-w-[140px] text-xs font-semibold text-center"
+                                  className="w-[12%] text-xs font-semibold"
                                 >
                                   {t("category")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-24 text-xs font-semibold"
+                                  className="w-[7%] text-xs font-semibold"
                                 >
                                   {t("dispatched")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-24 text-xs font-semibold"
+                                  className="w-[7%] text-xs font-semibold"
                                 >
                                   {t("damaged")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-24 text-xs font-semibold"
+                                  className="w-[7%] text-xs font-semibold"
                                 >
                                   {t("received_qty")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-24 text-xs font-semibold"
+                                  className="w-[7%] text-xs font-semibold"
                                 >
                                   {t("short")}
                                 </TableHead>
                               </TableRow>
                               <TableRow className="divide-x divide-gray-200">
-                                <TableHead className="min-w-[200px] text-xs font-semibold">
+                                <TableHead className="w-[18%] text-xs font-semibold">
                                   {t("drug")}
                                 </TableHead>
-                                <TableHead className="min-w-[120px] text-xs font-semibold">
+                                <TableHead className="w-[9%] text-xs font-semibold">
                                   {t("batch")}
                                 </TableHead>
-                                <TableHead className="min-w-[130px] text-xs font-semibold border-r">
+                                <TableHead className="w-[12%] text-xs font-semibold border-r">
                                   {t("expiry")}
                                 </TableHead>
                               </TableRow>

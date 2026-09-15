@@ -110,7 +110,7 @@ const listAllRecordOrderProductMappings = async (
   const firstPage = await apis.recordOrderProductMappings.list(
     instituteId,
     recordOrderId,
-    { limit: LIST_FETCH_LIMIT },
+    { limit: LIST_FETCH_LIMIT, ordering: "-created_date" },
   );
 
   const remainingOffsets: number[] = [];
@@ -127,7 +127,7 @@ const listAllRecordOrderProductMappings = async (
     requests: remainingOffsets.map((offset) => ({
       url: apis.recordOrderProductMappings.path(instituteId, recordOrderId),
       method: HttpMethod.GET,
-      body: { limit: LIST_FETCH_LIMIT, offset },
+      body: { limit: LIST_FETCH_LIMIT, offset, ordering: "-created_date" },
       reference_id: `product_mappings_${offset}`,
     })),
   });
@@ -809,8 +809,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         </div>
 
         <Card className="border-none rounded-lg">
-          <CardContent className="p-4">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-12 gap-y-4">
+          <CardContent className="p-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8">
               {Array.from({ length: 6 }).map((_, index) => (
                 <div key={index} className="space-y-2">
                   <Skeleton className="h-4 w-24" />
@@ -960,13 +960,13 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       </div>
 
       <Card className="border-none rounded-lg">
-        <CardContent className="space-y-1 p-4">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-12 gap-y-4">
+        <CardContent className="space-y-1 p-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8">
             <div>
               <label className="text-sm font-medium text-gray-700">
                 {t("deliver_to")}
               </label>
-              <div className="text-lg font-semibold text-gray-950">
+              <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                 {order.destination?.name ?? "—"}
               </div>
             </div>
@@ -976,7 +976,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                 <label className="text-sm font-medium text-gray-700">
                   {t("eaushadhi_supplier")}
                 </label>
-                <div className="text-lg font-semibold text-gray-950">
+                <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                   {recordOrder.institute_supplier.eaushadhi_warehouse_name}
                 </div>
               </div>
@@ -987,7 +987,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                 <label className="text-sm font-medium text-gray-700">
                   {t("eaushadhi_store")}
                 </label>
-                <div className="text-lg font-semibold text-gray-950">
+                <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                   {recordOrder.institute_store.eaushadhi_store_name}
                 </div>
               </div>
@@ -997,7 +997,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               <label className="text-sm font-medium text-gray-700">
                 {t("items")}
               </label>
-              <div className="text-lg font-semibold text-gray-950">
+              <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                 {totalSupplyRequestsCount} {t("items")}
               </div>
             </div>
@@ -1026,7 +1026,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                 <label className="text-sm font-medium text-gray-700">
                   {t("care_indent_no")}
                 </label>
-                <div className="text-lg font-semibold text-gray-950">
+                <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                   {recordOrder?.care_indent_no ?? "—"}
                 </div>
               </div>
@@ -1040,7 +1040,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                   <label className="text-sm font-medium text-gray-700">
                     {t("eaushadhi_indent_no")}
                   </label>
-                  <div className="text-lg font-semibold text-gray-950">
+                  <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                     {outward.eaushadhi_indent_no ?? "—"}
                   </div>
                 </div>
@@ -1055,7 +1055,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                         {outward.eaushadhi_indent_status}
                       </Badge>
                     ) : (
-                      <div className="text-lg font-semibold text-gray-950">
+                      <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                         —
                       </div>
                     )}

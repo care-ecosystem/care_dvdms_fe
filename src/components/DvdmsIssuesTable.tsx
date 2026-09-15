@@ -22,7 +22,6 @@ import {
 import {
   ACKNOWLEDGEMENT_STATUS_LABELS,
   ACKNOWLEDGEMENT_STATUS_VARIANTS,
-  DELIVERABLE_RECORD_INWARD_STATUSES,
   DvdmsSyncRequestStatus,
   DvdmsSyncType,
   RecordDelivery,
@@ -31,6 +30,7 @@ import {
   RecordInward,
   RecordInwardDetail,
   RecordInwardItem,
+  RecordInwardStatus,
   RECORD_DELIVERY_STATUS_VARIANTS,
   RECORD_INWARD_STATUS_LABELS,
   RECORD_INWARD_STATUS_VARIANTS,
@@ -67,11 +67,18 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
       enabled: !!instituteId && issues.length > 0,
     });
 
-  const itemsByIssueId = new Map<string, RecordInwardItem[]>(
+  const issueDetailByIssueId = new Map<string, RecordInwardDetail | undefined>(
     issueDetailResults?.map((result) => [
       result.reference_id,
-      (result.data as RecordInwardDetail | undefined)?.items ?? [],
+      result.data as RecordInwardDetail | undefined,
     ]) ?? [],
+  );
+
+  const itemsByIssueId = new Map<string, RecordInwardItem[]>(
+    issues.map((issue) => [
+      issue.id,
+      issueDetailByIssueId.get(issue.id)?.items ?? [],
+    ]),
   );
 
   const { data: deliveryResults, isPending: isDeliveriesPending } = useQuery({
@@ -172,18 +179,14 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
           const items = itemsByIssueId.get(issue.id) ?? [];
           const delivery = deliveriesByIssueId.get(issue.id)?.[0];
           const deliveryStatus = deliveryDetailByIssueId.get(issue.id)?.status;
+          const syncLog = issueDetailByIssueId.get(issue.id)?.sync_log;
           const acknowledgement =
-            issue.sync_log?.sync_type === DvdmsSyncType.acknowledge_issue
-              ? issue.sync_log
+            syncLog?.sync_type === DvdmsSyncType.acknowledge_issue
+              ? syncLog
               : undefined;
-          const showAcknowledgement =
-            deliveryStatus === RecordDeliveryStatus.completed &&
-            !!acknowledgement;
-          const canCreateDelivery =
-            !!issue.eaushadhi_issue_status &&
-            DELIVERABLE_RECORD_INWARD_STATUSES.includes(
-              issue.eaushadhi_issue_status,
-            );
+          const showAcknowledgement = !!acknowledgement;
+          const isFetched =
+            issue.eaushadhi_issue_status === RecordInwardStatus.fetched;
 
           return (
             <TableRow key={issue.id}>
@@ -217,9 +220,7 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
                 )}
               </TableCell>
               <TableCell className="align-top">
-                {!deliveryStatus ? (
-                  "—"
-                ) : showAcknowledgement ? (
+                {showAcknowledgement ? (
                   <Badge
                     className="rounded-sm"
                     variant={
@@ -245,7 +246,7 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
                       ] ?? acknowledgement.request_status,
                     )}
                   </Badge>
-                ) : (
+                ) : deliveryStatus ? (
                   <Badge
                     className="rounded-sm"
                     variant={
@@ -257,6 +258,8 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
                       ? t("delivered")
                       : t(deliveryStatus)}
                   </Badge>
+                ) : (
+                  "—"
                 )}
               </TableCell>
               <TableCell className="align-top">
@@ -272,7 +275,7 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
                   >
                     <Eye className="size-4" /> {t("view_delivery")}
                   </Button>
-                ) : canCreateDelivery ? (
+                ) : isFetched ? (
                   <Button
                     size="sm"
                     onClick={() =>

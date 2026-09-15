@@ -275,8 +275,8 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
                     </TableHead>
                   </TableRow>
                   <TableRow>
-                    <TableHead>{t("group_id")}</TableHead>
-                    <TableHead>{t("sub_group_id")}</TableHead>
+                    <TableHead>{t("group")}</TableHead>
+                    <TableHead>{t("subgroup")}</TableHead>
                     <TableHead className="w-1/3">{t("drug_name")}</TableHead>
                   </TableRow>
                 </TableHeader>

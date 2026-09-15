@@ -10,6 +10,12 @@ export interface ProductKnowledgeSlugConfig {
   slug_value: string;
 }
 
+export interface ProductKnowledgeCoding {
+  code: string;
+  system: string;
+  display: string;
+}
+
 export interface ProductKnowledge {
   id: string;
   slug: string;
@@ -18,6 +24,7 @@ export interface ProductKnowledge {
   status: string;
   product_type: string;
   name: string;
+  base_unit?: ProductKnowledgeCoding | null;
   category: ProductKnowledgeCategory | null;
 }
 

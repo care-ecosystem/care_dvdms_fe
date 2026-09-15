@@ -1,4 +1,4 @@
-import { FC, useEffect, useRef, useState } from "react";
+import { FC, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
@@ -21,6 +21,7 @@ import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { dvdmsBasePath } from "@/lib/paths";
 import {
   chunk,
+  cn,
   formatLookupId,
   formatQuantity,
   parseLookupId,
@@ -72,6 +73,7 @@ import {
   DvdmsLookupDrug,
   DvdmsLookupGroup,
   DvdmsLookupSubgroup,
+  DvdmsProductMapping,
 } from "@/types/dvdms_config";
 import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
@@ -92,6 +94,9 @@ const DVDMS_INDENT_STATUS_POLL_MAX_FAILURES = 2;
 
 const drugsKey = (groupId: number, subgroupId?: number) =>
   `${groupId}:${subgroupId ?? ""}`;
+
+const subgroupKey = (groupId: number, subgroupId: number) =>
+  `${groupId}:${subgroupId}`;
 
 const toDrugPayload = (drug: RecordItemOrderDrug): RecordItemOrderDrug => {
   const { sub_group_id, brand_id, ...rest } = drug;
@@ -137,7 +142,57 @@ const listAllRecordOrderProductMappings = async (
     ...firstPage.results,
     ...response.results.flatMap(
       (result) =>
-        (result.data as PaginatedResponse<RecordOrderProductMapping> | undefined)
+        (
+          result.data as
+            PaginatedResponse<RecordOrderProductMapping> | undefined
+        )?.results ?? [],
+    ),
+  ];
+};
+
+const MANUAL_MAPPING_TYPE = "manual_mapping";
+const MANUAL_MAPPING_ORDERING = "-usage_count";
+
+const SUGGESTION_OPTION_PREFIX = "suggestion:";
+
+type MappingOptionMapping = {
+  id: string;
+  eaushadhi_drug_details: RecordItemOrderDrug;
+  usage_count: number | null;
+};
+
+const listAllManualProductMappings = async (instituteId: string) => {
+  const params = {
+    mapping_type: MANUAL_MAPPING_TYPE,
+    ordering: MANUAL_MAPPING_ORDERING,
+    limit: LIST_FETCH_LIMIT,
+  };
+  const firstPage = await apis.productMappings.list(instituteId, params);
+
+  const remainingOffsets: number[] = [];
+  for (
+    let offset = LIST_FETCH_LIMIT;
+    offset < firstPage.count;
+    offset += LIST_FETCH_LIMIT
+  ) {
+    remainingOffsets.push(offset);
+  }
+  if (remainingOffsets.length === 0) return firstPage.results;
+
+  const response = await apis.batchRequests.createChunked({
+    requests: remainingOffsets.map((offset) => ({
+      url: apis.productMappings.path(instituteId),
+      method: HttpMethod.GET,
+      body: { ...params, offset },
+      reference_id: `manual_product_mappings_${offset}`,
+    })),
+  });
+
+  return [
+    ...firstPage.results,
+    ...response.results.flatMap(
+      (result) =>
+        (result.data as PaginatedResponse<DvdmsProductMapping> | undefined)
           ?.results ?? [],
     ),
   ];
@@ -405,6 +460,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     ]),
   );
 
+  const defaultMappingBySupplyRequestId = new Map(
+    (productMappings ?? [])
+      .filter((mapping) => mapping.product_mapping)
+      .map((mapping) => [mapping.supply_request.id, mapping.product_mapping!]),
+  );
+
   const suggestedDrugBySupplyRequestId = new Map(
     (productMappings ?? [])
       .filter((mapping) => mapping.product_mapping)
@@ -419,20 +480,62 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   >(undefined);
   const [isLookupGroupsLoading, setIsLookupGroupsLoading] = useState(false);
 
+  const [hasLookupGroupsFailed, setHasLookupGroupsFailed] = useState(false);
+  const [failedSubgroupGroupIds, setFailedSubgroupGroupIds] = useState<
+    Set<number>
+  >(new Set());
+
   const ensureGroupsLoaded = async () => {
     if (!institute?.id || lookupGroupsData || isLookupGroupsLoading) return;
     const instituteId = institute.id;
     setIsLookupGroupsLoading(true);
+    setHasLookupGroupsFailed(false);
     try {
       const data = await queryClient.fetchQuery({
         queryKey: ["dvdms_lookup_groups", instituteId],
         queryFn: () => apis.institutes.lookupGroups(instituteId),
       });
       setLookupGroupsData(data);
+    } catch {
+      setHasLookupGroupsFailed(true);
     } finally {
       setIsLookupGroupsLoading(false);
     }
   };
+
+  const [manualMappings, setManualMappings] = useState<
+    DvdmsProductMapping[] | undefined
+  >(undefined);
+  const [isManualMappingsLoading, setIsManualMappingsLoading] = useState(false);
+  const isFirstManualMappingsLoad = isManualMappingsLoading && !manualMappings;
+
+  const ensureManualMappingsLoaded = async () => {
+    if (!institute?.id || manualMappings || isManualMappingsLoading) return;
+    const instituteId = institute.id;
+    setIsManualMappingsLoading(true);
+    try {
+      const data = await queryClient.fetchQuery({
+        queryKey: ["dvdms_manual_product_mappings", instituteId],
+        queryFn: () => listAllManualProductMappings(instituteId),
+      });
+      setManualMappings(data);
+    } catch {
+    } finally {
+      setIsManualMappingsLoading(false);
+    }
+  };
+
+  const manualMappingsByProductKnowledgeId = useMemo(() => {
+    const byProductKnowledgeId = new Map<string, DvdmsProductMapping[]>();
+    (manualMappings ?? []).forEach((mapping) => {
+      const productKnowledgeId = mapping.product_knowledge?.id;
+      if (!productKnowledgeId || !mapping.eaushadhi_drug_details?.id) return;
+      const existing = byProductKnowledgeId.get(productKnowledgeId);
+      if (existing) existing.push(mapping);
+      else byProductKnowledgeId.set(productKnowledgeId, [mapping]);
+    });
+    return byProductKnowledgeId;
+  }, [manualMappings]);
 
   const [loadingSubgroupGroupIds, setLoadingSubgroupGroupIds] = useState<
     Set<number>
@@ -450,6 +553,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       return;
     const instituteId = institute.id;
     setLoadingSubgroupGroupIds((prev) => new Set(prev).add(groupId));
+    setFailedSubgroupGroupIds((prev) => {
+      if (!prev.has(groupId)) return prev;
+      const next = new Set(prev);
+      next.delete(groupId);
+      return next;
+    });
     try {
       const data = await queryClient.fetchQuery({
         queryKey: ["dvdms_lookup_subgroups", instituteId, groupId],
@@ -457,6 +566,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
           apis.institutes.lookupSubgroups(instituteId, String(groupId)),
       });
       setSubgroupsByGroupId((prev) => ({ ...prev, [groupId]: data }));
+    } catch {
+      setFailedSubgroupGroupIds((prev) => new Set(prev).add(groupId));
     } finally {
       setLoadingSubgroupGroupIds((prev) => {
         const next = new Set(prev);
@@ -492,6 +603,105 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       });
     }
   };
+
+  const drugsNeedingLookupNames = useMemo(
+    () => [
+      ...(recordItemOrdersData?.results ?? []).map((item) => item.drug),
+      ...(productMappings ?? [])
+        .map((mapping) => mapping.product_mapping?.eaushadhi_drug_details)
+        .filter((drug): drug is RecordItemOrderDrug => !!drug),
+    ],
+    [recordItemOrdersData, productMappings],
+  );
+
+  const hasGroupIdsNeedingNames = useMemo(
+    () =>
+      drugsNeedingLookupNames.some(
+        (drug) => parseLookupId(drug.group_id) !== undefined,
+      ),
+    [drugsNeedingLookupNames],
+  );
+
+  const groupIdsNeedingSubgroupNames = useMemo(() => {
+    const groupIds = new Set<number>();
+    drugsNeedingLookupNames.forEach((drug) => {
+      const groupId = parseLookupId(drug.group_id);
+      if (
+        groupId !== undefined &&
+        parseLookupId(drug.sub_group_id) !== undefined
+      )
+        groupIds.add(groupId);
+    });
+    return Array.from(groupIds);
+  }, [drugsNeedingLookupNames]);
+
+  useEffect(() => {
+    if (!institute?.id) return;
+    if (hasGroupIdsNeedingNames) ensureGroupsLoaded();
+    groupIdsNeedingSubgroupNames.forEach((groupId) =>
+      ensureSubgroupsLoaded(groupId),
+    );
+  }, [institute?.id, hasGroupIdsNeedingNames, groupIdsNeedingSubgroupNames]);
+
+  const suggestionGroupIdsNeedingNames = useMemo(() => {
+    const groupIds = new Set<number>();
+    (manualMappings ?? []).forEach((mapping) => {
+      const groupId = parseLookupId(mapping.eaushadhi_drug_details.group_id);
+      if (groupId !== undefined) groupIds.add(groupId);
+    });
+    return Array.from(groupIds);
+  }, [manualMappings]);
+
+  useEffect(() => {
+    if (!institute?.id || suggestionGroupIdsNeedingNames.length === 0) return;
+    ensureGroupsLoaded();
+    suggestionGroupIdsNeedingNames.forEach((groupId) =>
+      ensureSubgroupsLoaded(groupId),
+    );
+  }, [institute?.id, suggestionGroupIdsNeedingNames]);
+
+  const groupNameById = useMemo(() => {
+    const names = new Map<number, string>();
+    (lookupGroupsData ?? []).forEach((group) =>
+      names.set(group.hstnumGroupId, group.hststrGroupName),
+    );
+    return names;
+  }, [lookupGroupsData]);
+
+  const subgroupNameById = useMemo(() => {
+    const names = new Map<string, string>();
+    Object.values(subgroupsByGroupId).forEach((subgroups) =>
+      subgroups.forEach((subgroup) =>
+        names.set(
+          subgroupKey(subgroup.hstnumGroupId, subgroup.hstnumSubgroupId),
+          subgroup.hststrSubgroupName,
+        ),
+      ),
+    );
+    return names;
+  }, [subgroupsByGroupId]);
+
+  const groupLabel = (groupId: number) =>
+    groupNameById.get(groupId) ?? String(groupId);
+
+  const subgroupLabel = (groupId: number, subgroupId: number) =>
+    subgroupNameById.get(subgroupKey(groupId, subgroupId)) ??
+    String(subgroupId);
+
+  const isLookupNamesLoading =
+    (hasGroupIdsNeedingNames && !lookupGroupsData && !hasLookupGroupsFailed) ||
+    groupIdsNeedingSubgroupNames.some(
+      (groupId) =>
+        !subgroupsByGroupId[groupId] && !failedSubgroupGroupIds.has(groupId),
+    );
+
+  const isRequestedItemsLoading =
+    isInstitutePending ||
+    (isRecordOrderEnabled && isRecordOrderPending) ||
+    (!!institute?.id &&
+      !!recordOrder?.id &&
+      (!recordItemOrdersData || !productMappings)) ||
+    isLookupNamesLoading;
 
   useEffect(() => {
     setSelectedDrugs((prev) => {
@@ -1095,34 +1305,42 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                     </div>
 
                     <div className="space-y-4">
-                      {tableItems.length > 0 ? (
+                      {isRequestedItemsLoading ? (
+                        <TableSkeleton count={5} />
+                      ) : tableItems.length > 0 ? (
                         <>
-                          <Table className="min-w-[56rem]">
+                          <Table
+                            className={cn(
+                              "min-w-[44rem]",
+                              !isViewOnlyStatus && "table-fixed",
+                            )}
+                          >
                             <TableHeader>
                               <TableRow>
-                                <TableHead rowSpan={2}>
+                                <TableHead rowSpan={2} className="w-[22%]">
                                   {t("product")}
                                 </TableHead>
-                                <TableHead rowSpan={2}>
+                                <TableHead rowSpan={2} className="w-[15%]">
                                   {t("category")}
                                 </TableHead>
-                                <TableHead rowSpan={2}>{t("qty")}</TableHead>
+                                <TableHead rowSpan={2} className="w-[12%]">
+                                  {t("qty")}
+                                </TableHead>
                                 <TableHead
                                   colSpan={3}
-                                  className="text-center border-b"
+                                  className="w-[51%] text-center border-b"
                                 >
                                   {t("dvdms_drug_details")}
                                 </TableHead>
-                                {/* <TableHead rowSpan={2}>{t("actions")}</TableHead> */}
                               </TableRow>
                               <TableRow>
-                                <TableHead className="w-72">
-                                  {t("group_id")}
+                                <TableHead className="w-[17%]">
+                                  {t("group")}
                                 </TableHead>
-                                <TableHead className="w-72">
-                                  {t("sub_group_id")}
+                                <TableHead className="w-[17%]">
+                                  {t("subgroup")}
                                 </TableHead>
-                                <TableHead className="w-72">
+                                <TableHead className="w-[17%]">
                                   {t("drug_name")}
                                 </TableHead>
                               </TableRow>
@@ -1134,6 +1352,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                 const readOnlyDrug =
                                   existingItemBySupplyRequestId.get(item.id)
                                     ?.drug ?? selectedDrugs[item.id];
+                                const readOnlyGroupId = parseLookupId(
+                                  readOnlyDrug?.group_id,
+                                );
+                                const readOnlySubgroupId = parseLookupId(
+                                  readOnlyDrug?.sub_group_id,
+                                );
 
                                 const selectedGroupId =
                                   selectedGroupBySupplyRequestId[item.id];
@@ -1163,12 +1387,121 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   drugsCacheKey !== undefined &&
                                   loadingDrugKeys.has(drugsCacheKey);
 
-                                const groupAutocompleteOptions = (
-                                  lookupGroupsData ?? []
-                                ).map((group) => ({
-                                  label: group.hststrGroupName,
-                                  value: String(group.hstnumGroupId),
-                                }));
+                                const defaultMapping =
+                                  defaultMappingBySupplyRequestId.get(item.id);
+
+                                  const suggestedMappings =
+                                  manualMappingsByProductKnowledgeId.get(
+                                    item.item.id,
+                                  ) ?? [];
+
+                                const mappingSources: {
+                                  mapping: MappingOptionMapping;
+                                  heading: string;
+                                  hint?: string;
+                                }[] = [
+                                  ...(defaultMapping &&
+                                  !suggestedMappings.some(
+                                    (suggested) =>
+                                      suggested.eaushadhi_drug_details.id ===
+                                      defaultMapping.eaushadhi_drug_details.id,
+                                  )
+                                    ? [
+                                        {
+                                          mapping: defaultMapping,
+                                          heading: t("default_mapping"),
+                                        },
+                                      ]
+                                    : []),
+                                  ...suggestedMappings.map((mapping) => ({
+                                    mapping,
+                                    heading: t("suggestions"),
+                                    hint: t("used_count", {
+                                      count: mapping.usage_count ?? 0,
+                                    }),
+                                  })),
+                                ];
+                                const suggestionOption = (
+                                  source: (typeof mappingSources)[number],
+                                  label: string,
+                                ) => ({
+                                  label,
+                                  value: `${SUGGESTION_OPTION_PREFIX}${source.mapping.id}`,
+                                  group: source.heading,
+                                  hint: source.hint,
+                                });
+
+                                const suggestionFromOptionValue = (
+                                  value: string,
+                                ) =>
+                                  value.startsWith(SUGGESTION_OPTION_PREFIX)
+                                    ? mappingSources.find(
+                                        (source) =>
+                                          `${SUGGESTION_OPTION_PREFIX}${source.mapping.id}` ===
+                                          value,
+                                      )?.mapping
+                                    : undefined;
+
+                                const appliedSuggestion = selectedDrugId
+                                  ? mappingSources.find(
+                                      (source) =>
+                                        source.mapping.eaushadhi_drug_details
+                                          .id === selectedDrugId,
+                                    )?.mapping
+                                  : undefined;
+                                const appliedSuggestionOptionValue =
+                                  appliedSuggestion &&
+                                  `${SUGGESTION_OPTION_PREFIX}${appliedSuggestion.id}`;
+
+                                const applySuggestion = (
+                                  mapping: MappingOptionMapping,
+                                ) => {
+                                  const drug = mapping.eaushadhi_drug_details;
+                                  const groupId = parseLookupId(drug.group_id);
+                                  const subgroupId = parseLookupId(
+                                    drug.sub_group_id,
+                                  );
+                                  setSelectedGroupBySupplyRequestId((prev) => ({
+                                    ...prev,
+                                    [item.id]: groupId,
+                                  }));
+                                  setSelectedSubgroupBySupplyRequestId(
+                                    (prev) => ({
+                                      ...prev,
+                                      [item.id]: subgroupId,
+                                    }),
+                                  );
+                                  setSelectedDrugs((prev) => ({
+                                    ...prev,
+                                    [item.id]: drug,
+                                  }));
+                                  if (groupId !== undefined) {
+                                    ensureSubgroupsLoaded(groupId);
+                                    ensureDrugsLoaded(groupId, subgroupId);
+                                  }
+                                };
+
+                                const groupAutocompleteOptions = [
+                                  ...mappingSources
+                                    .map((source) => {
+                                      const groupId = parseLookupId(
+                                        source.mapping.eaushadhi_drug_details
+                                          .group_id,
+                                      );
+                                      return groupId === undefined
+                                        ? undefined
+                                        : suggestionOption(
+                                            source,
+                                            groupLabel(groupId),
+                                          );
+                                    })
+                                    .filter((option) => !!option),
+                                  ...(lookupGroupsData ?? []).map((group) => ({
+                                    label: group.hststrGroupName,
+                                    value: String(group.hstnumGroupId),
+                                    group: t("dvdms_groups"),
+                                  })),
+                                ];
                                 if (
                                   selectedGroupId !== undefined &&
                                   !groupAutocompleteOptions.some(
@@ -1177,16 +1510,38 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   )
                                 ) {
                                   groupAutocompleteOptions.push({
-                                    label: String(selectedGroupId),
+                                    label: groupLabel(selectedGroupId),
                                     value: String(selectedGroupId),
+                                    group: t("dvdms_groups"),
                                   });
                                 }
 
-                                const subgroupAutocompleteOptions =
-                                  subgroupOptions.map((subgroup) => ({
+                                const subgroupAutocompleteOptions = [
+                                  ...mappingSources
+                                    .map((source) => {
+                                      const drug =
+                                        source.mapping.eaushadhi_drug_details;
+                                      const groupId = parseLookupId(
+                                        drug.group_id,
+                                      );
+                                      const subgroupId = parseLookupId(
+                                        drug.sub_group_id,
+                                      );
+                                      return groupId === undefined ||
+                                        subgroupId === undefined
+                                        ? undefined
+                                        : suggestionOption(
+                                            source,
+                                            subgroupLabel(groupId, subgroupId),
+                                          );
+                                    })
+                                    .filter((option) => !!option),
+                                  ...subgroupOptions.map((subgroup) => ({
                                     label: subgroup.hststrSubgroupName,
                                     value: String(subgroup.hstnumSubgroupId),
-                                  }));
+                                    group: t("dvdms_subgroups"),
+                                  })),
+                                ];
                                 if (
                                   selectedSubgroupId !== undefined &&
                                   !subgroupAutocompleteOptions.some(
@@ -1196,16 +1551,32 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   )
                                 ) {
                                   subgroupAutocompleteOptions.push({
-                                    label: String(selectedSubgroupId),
+                                    label:
+                                      selectedGroupId !== undefined
+                                        ? subgroupLabel(
+                                            selectedGroupId,
+                                            selectedSubgroupId,
+                                          )
+                                        : String(selectedSubgroupId),
                                     value: String(selectedSubgroupId),
+                                    group: t("dvdms_subgroups"),
                                   });
                                 }
 
-                                const drugAutocompleteOptions =
-                                  catalogDrugOptions.map((drug) => ({
+                                const drugAutocompleteOptions = [
+                                  ...mappingSources.map((source) =>
+                                    suggestionOption(
+                                      source,
+                                      source.mapping.eaushadhi_drug_details
+                                        .name,
+                                    ),
+                                  ),
+                                  ...catalogDrugOptions.map((drug) => ({
                                     label: drug.hststr_item_name,
                                     value: String(drug.hstnum_item_id),
-                                  }));
+                                    group: t("dvdms_drugs"),
+                                  })),
+                                ];
                                 if (
                                   selectedDrugId &&
                                   !drugAutocompleteOptions.some(
@@ -1217,10 +1588,17 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                       selectedDrugs[item.id]?.name ??
                                       selectedDrugId,
                                     value: selectedDrugId,
+                                    group: t("dvdms_drugs"),
                                   });
                                 }
 
                                 const handleGroupChange = (value: string) => {
+                                  const suggestion =
+                                    suggestionFromOptionValue(value);
+                                  if (suggestion) {
+                                    applySuggestion(suggestion);
+                                    return;
+                                  }
                                   const groupId = value
                                     ? Number(value)
                                     : undefined;
@@ -1245,6 +1623,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                 const handleSubgroupChange = (
                                   value: string,
                                 ) => {
+                                  const suggestion =
+                                    suggestionFromOptionValue(value);
+                                  if (suggestion) {
+                                    applySuggestion(suggestion);
+                                    return;
+                                  }
                                   if (selectedGroupId === undefined) return;
                                   const subgroupId = value
                                     ? Number(value)
@@ -1275,6 +1659,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                     }));
                                     return;
                                   }
+                                  const suggestion =
+                                    suggestionFromOptionValue(value);
+                                  if (suggestion) {
+                                    applySuggestion(suggestion);
+                                    return;
+                                  }
                                   const drug = catalogDrugOptions.find(
                                     (option) =>
                                       String(option.hstnum_item_id) === value,
@@ -1288,7 +1678,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
 
                                 return (
                                   <TableRow key={item.id}>
-                                    <TableCell className="align-top">
+                                    <TableCell className="align-top whitespace-normal break-words">
                                       <div className="text-xs text-gray-500 mb-3">
                                         {" "}
                                       </div>
@@ -1297,7 +1687,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                         {" "}
                                       </div>
                                     </TableCell>
-                                    <TableCell className="align-top">
+                                    <TableCell className="align-top whitespace-normal break-words">
                                       <div className="text-xs text-gray-500 mb-3">
                                         {" "}
                                       </div>
@@ -1323,22 +1713,38 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                           <div className="text-xs text-gray-500 mb-3">
                                             {" "}
                                           </div>
-                                          {formatLookupId(
-                                            readOnlyDrug?.group_id,
-                                          )}
+                                          <div className="whitespace-normal break-words">
+                                            {readOnlyGroupId !== undefined
+                                              ? groupLabel(readOnlyGroupId)
+                                              : formatLookupId(
+                                                  readOnlyDrug?.group_id,
+                                                )}
+                                          </div>
                                           <div className="text-xs text-gray-500 mt-1">
-                                            {" "}
+                                            {readOnlyGroupId !== undefined
+                                              ? `${t("group_id")}: ${readOnlyGroupId}`
+                                              : " "}
                                           </div>
                                         </TableCell>
                                         <TableCell className="align-top">
                                           <div className="text-xs text-gray-500 mb-3">
                                             {" "}
                                           </div>
-                                          {formatLookupId(
-                                            readOnlyDrug?.sub_group_id,
-                                          )}
+                                          <div className="whitespace-normal break-words">
+                                            {readOnlyGroupId !== undefined &&
+                                            readOnlySubgroupId !== undefined
+                                              ? subgroupLabel(
+                                                  readOnlyGroupId,
+                                                  readOnlySubgroupId,
+                                                )
+                                              : formatLookupId(
+                                                  readOnlyDrug?.sub_group_id,
+                                                )}
+                                          </div>
                                           <div className="text-xs text-gray-500 mt-1">
-                                            {" "}
+                                            {readOnlySubgroupId !== undefined
+                                              ? `${t("sub_group_id")}: ${readOnlySubgroupId}`
+                                              : " "}
                                           </div>
                                         </TableCell>
                                         <TableCell className="align-top">
@@ -1346,7 +1752,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                             {" "}
                                           </div>
                                           <div
-                                            className="w-72 whitespace-normal break-words"
+                                            className="whitespace-normal break-words"
                                             title={readOnlyDrug?.name}
                                           >
                                             {readOnlyDrug?.name ?? "—"}
@@ -1364,7 +1770,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                           <div className="text-xs text-gray-500 mb-3">
                                             {" "}
                                           </div>
-                                          <div className="w-72">
+                                          <div className="w-full min-w-0">
                                             <Autocomplete
                                               className="h-8 w-full"
                                               value={
@@ -1372,11 +1778,19 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                                   ? String(selectedGroupId)
                                                   : ""
                                               }
+                                              selectedOptionValue={
+                                                appliedSuggestionOptionValue
+                                              }
                                               onChange={handleGroupChange}
                                               onOpenChange={(open) => {
-                                                if (open) ensureGroupsLoaded();
+                                                if (!open) return;
+                                                ensureGroupsLoaded();
+                                                ensureManualMappingsLoaded();
                                               }}
-                                              isLoading={isLookupGroupsLoading}
+                                              isLoading={
+                                                isLookupGroupsLoading ||
+                                                isFirstManualMappingsLoad
+                                              }
                                               disabled={!institute?.id}
                                               placeholder="—"
                                               inputPlaceholder={t(
@@ -1398,7 +1812,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                           <div className="text-xs text-gray-500 mb-3">
                                             {" "}
                                           </div>
-                                          <div className="w-72">
+                                          <div className="w-full min-w-0">
                                             <Autocomplete
                                               className="h-8 w-full"
                                               value={
@@ -1406,17 +1820,24 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                                   ? String(selectedSubgroupId)
                                                   : ""
                                               }
+                                              selectedOptionValue={
+                                                appliedSuggestionOptionValue
+                                              }
                                               onChange={handleSubgroupChange}
                                               onOpenChange={(open) => {
+                                                if (!open) return;
+                                                ensureManualMappingsLoaded();
                                                 if (
-                                                  open &&
                                                   selectedGroupId !== undefined
                                                 )
                                                   ensureSubgroupsLoaded(
                                                     selectedGroupId,
                                                   );
                                               }}
-                                              isLoading={isSubgroupsLoading}
+                                              isLoading={
+                                                isSubgroupsLoading ||
+                                                isFirstManualMappingsLoad
+                                              }
                                               disabled={
                                                 selectedGroupId === undefined
                                               }
@@ -1442,14 +1863,18 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                           <div className="text-xs text-gray-500 mb-3">
                                             {" "}
                                           </div>
-                                          <div className="w-72">
+                                          <div className="w-full min-w-0">
                                             <Autocomplete
                                               className="h-8 w-full"
                                               value={selectedDrugId}
+                                              selectedOptionValue={
+                                                appliedSuggestionOptionValue
+                                              }
                                               onChange={handleCatalogDrugChange}
                                               onOpenChange={(open) => {
+                                                if (!open) return;
+                                                ensureManualMappingsLoaded();
                                                 if (
-                                                  open &&
                                                   selectedGroupId !== undefined
                                                 )
                                                   ensureDrugsLoaded(
@@ -1457,7 +1882,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                                     selectedSubgroupId,
                                                   );
                                               }}
-                                              isLoading={isDrugsLoading}
+                                              isLoading={
+                                                isDrugsLoading ||
+                                                isFirstManualMappingsLoad
+                                              }
                                               disabled={
                                                 selectedGroupId === undefined
                                               }

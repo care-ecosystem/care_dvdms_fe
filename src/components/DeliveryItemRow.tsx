@@ -8,13 +8,11 @@ import { FormControl, FormField, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { TableCell, TableRow } from "@/components/ui/table";
 import ProductKnowledgeSelect from "@/components/ProductKnowledgeSelect";
-import ResourceCategoryPicker from "@/components/ResourceCategoryPicker";
 import { useDeliveryRowItem } from "@/hooks/useDeliveryRowItem";
 import {
   DeliveryItemFormValues,
   DeliveryItemsFormValues,
 } from "@/types/deliveryItemForm";
-import { ResourceCategoryType } from "@/types/productKnowledge";
 
 type DeliveryItemRowProps = {
   form: UseFormReturn<DeliveryItemsFormValues>;
@@ -31,15 +29,8 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
-  const {
-    productKnowledge,
-    suppliedItem,
-    chargeItemCategory,
-    needsCategorySelection,
-    setField,
-    resetFields,
-    markAsEdited,
-  } = useDeliveryRowItem({ form, index, facilityId });
+  const { productKnowledge, setField, resetFields, markAsEdited } =
+    useDeliveryRowItem({ form, index, facilityId });
 
   const row = form.getValues(`items.${index}`);
 
@@ -157,25 +148,14 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         />
       </TableCell>
 
-      {/* Category */}
-      <TableCell className="align-top p-2 text-center">
-        {needsCategorySelection ? (
-          <ResourceCategoryPicker
-            facilityId={facilityId}
-            resourceType={ResourceCategoryType.charge_item_definition}
-            value={chargeItemCategory}
-            onValueChange={(category) => {
-              setField("charge_item_category", category?.slug || "");
-              markAsEdited();
-            }}
-            placeholder={t("select_category")}
-            className="w-full min-w-[140px]"
-          />
-        ) : (
-          <span className="text-sm text-gray-500">
-            {suppliedItem?.charge_item_definition?.category?.title || "-"}
-          </span>
-        )}
+      <TableCell className="align-top p-2">
+        <Input
+          value={productKnowledge?.product_type ?? ""}
+          placeholder="-"
+          disabled
+          readOnly
+          className="w-full min-w-[140px] bg-gray-50 capitalize cursor-default disabled:opacity-100 disabled:text-gray-950"
+        />
       </TableCell>
 
       <TableCell className="align-top p-2">

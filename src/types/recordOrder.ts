@@ -77,11 +77,6 @@ export interface RecordOrderOutward {
   modified_date: string;
 }
 
-export interface RecordInwardPayload {
-  eaushadhi_issue_no: string;
-  outward_record: string;
-}
-
 export enum DvdmsSyncType {
   save_indent = "save_indent",
   track_indent = "track_indent",
@@ -113,34 +108,21 @@ export const ACKNOWLEDGEMENT_STATUS_LABELS: Record<
   [DvdmsSyncRequestStatus.failure]: "acknowledgement_failed",
 };
 
+/** DVDMS reports a single issue status — the issue has been fetched from eAushadhi. */
 export enum RecordInwardStatus {
-  received = "received",
-  partially_received = "partially_received",
-  completed = "completed",
-  cancelled = "cancelled",
+  fetched = "fetched",
 }
 
 export const RECORD_INWARD_STATUS_VARIANTS: Record<
   RecordInwardStatus,
   RequestOrderBadgeVariant
 > = {
-  [RecordInwardStatus.received]: "indigo",
-  [RecordInwardStatus.partially_received]: "indigo",
-  [RecordInwardStatus.completed]: "green",
-  [RecordInwardStatus.cancelled]: "destructive",
+  [RecordInwardStatus.fetched]: "green",
 };
 
 export const RECORD_INWARD_STATUS_LABELS: Record<RecordInwardStatus, string> = {
-  [RecordInwardStatus.received]: "received",
-  [RecordInwardStatus.partially_received]: "partially_received",
-  [RecordInwardStatus.completed]: "completed",
-  [RecordInwardStatus.cancelled]: "cancelled",
+  [RecordInwardStatus.fetched]: "fetched",
 };
-
-export const DELIVERABLE_RECORD_INWARD_STATUSES: RecordInwardStatus[] = [
-  RecordInwardStatus.received,
-  RecordInwardStatus.partially_received,
-];
 
 /** The outcome of the last DVDMS sync against an issue. */
 export interface RecordInwardSyncLog {

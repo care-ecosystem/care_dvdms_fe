@@ -773,24 +773,18 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     },
   });
 
-  /** The issue's last sync, only when it was an acknowledgement attempt. */
+  const syncLog = recordInwardDetail?.sync_log;
   const acknowledgement =
-    inwardRecord?.sync_log?.sync_type === DvdmsSyncType.acknowledge_issue
-      ? inwardRecord.sync_log
-      : undefined;
+    syncLog?.sync_type === DvdmsSyncType.acknowledge_issue ? syncLog : undefined;
 
   const failedAcknowledgement =
     acknowledgement?.request_status === DvdmsSyncRequestStatus.failure
       ? acknowledgement
       : undefined;
 
-  // Once submitted, the acknowledgement outcome is the meaningful status.
-  const showAcknowledgementStatus =
-    recordDeliveryStatus === RecordDeliveryStatus.completed &&
-    !!acknowledgement;
+  const showAcknowledgementStatus = !!acknowledgement;
 
-  const hasFailedAcknowledgement =
-    showAcknowledgementStatus && !!failedAcknowledgement;
+  const hasFailedAcknowledgement = !!failedAcknowledgement;
 
   const canApproveDelivery =
     !!recordDelivery?.id &&
@@ -808,7 +802,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   return (
     <div className="md:px-6 py-0 min-w-0">
       <div className="container mx-auto max-w-6xl">
-        <div className="flex items-start gap-4 mb-6">
+        <div className="flex flex-wrap items-start gap-4 mb-6">
           <BackButton
             size="icon"
             className="shrink-0"
@@ -825,45 +819,51 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
               {t("add_delivery_items_description")}
             </p>
           </div>
-          {hasFailedAcknowledgement && (
-            <Button
-              type="button"
-              variant="outline"
-              className="shrink-0"
-              onClick={() => retryAcknowledgementMutation.mutate()}
-              disabled={retryAcknowledgementMutation.isPending}
-              title={
-                failedAcknowledgement?.error_detail ??
-                (failedAcknowledgement?.http_status_code
-                  ? t("acknowledgement_failed_with_status", {
-                      status: failedAcknowledgement.http_status_code,
-                    })
-                  : undefined)
-              }
-            >
-              <RefreshCw className="size-4" />
-              {retryAcknowledgementMutation.isPending
-                ? t("retrying")
-                : t("retry_acknowledgement")}
-            </Button>
-          )}
-          {canApproveDelivery && (
-            <Button
-              type="button"
-              className="shrink-0"
-              onClick={() => approveDeliveryMutation.mutate()}
-              disabled={approveDeliveryMutation.isPending || hasUnreceivedItems}
-              title={
-                hasUnreceivedItems
-                  ? t("receive_all_items_to_approve")
-                  : undefined
-              }
-            >
-              {approveDeliveryMutation.isPending
-                ? t("saving")
-                : t("mark_as_completed")}
-              <ShortcutBadge actionId="mark-as" />
-            </Button>
+          {(hasFailedAcknowledgement || canApproveDelivery) && (
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              {hasFailedAcknowledgement && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 sm:flex-none"
+                  onClick={() => retryAcknowledgementMutation.mutate()}
+                  disabled={retryAcknowledgementMutation.isPending}
+                  title={
+                    failedAcknowledgement?.error_detail ??
+                    (failedAcknowledgement?.http_status_code
+                      ? t("acknowledgement_failed_with_status", {
+                          status: failedAcknowledgement.http_status_code,
+                        })
+                      : undefined)
+                  }
+                >
+                  <RefreshCw className="size-4" />
+                  {retryAcknowledgementMutation.isPending
+                    ? t("retrying")
+                    : t("retry_acknowledgement")}
+                </Button>
+              )}
+              {canApproveDelivery && (
+                <Button
+                  type="button"
+                  className="flex-1 sm:flex-none"
+                  onClick={() => approveDeliveryMutation.mutate()}
+                  disabled={
+                    approveDeliveryMutation.isPending || hasUnreceivedItems
+                  }
+                  title={
+                    hasUnreceivedItems
+                      ? t("receive_all_items_to_approve")
+                      : undefined
+                  }
+                >
+                  {approveDeliveryMutation.isPending
+                    ? t("saving")
+                    : t("mark_as_completed")}
+                  <ShortcutBadge actionId="mark-as" />
+                </Button>
+              )}
+            </div>
           )}
         </div>
 
@@ -875,13 +875,13 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
         ) : (
           <>
             <Card className="mb-4">
-              <CardContent className="space-y-1 p-4">
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <CardContent className="space-y-1 p-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-8">
                   <div>
                     <label className="text-sm font-medium text-gray-700">
                       {t("deliver_to")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {recordOrder?.institute_store?.store.name ?? "—"}
                     </div>
                   </div>
@@ -889,7 +889,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     <label className="text-sm font-medium text-gray-700">
                       {t("supplier")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {recordOrder?.institute_supplier?.supplier?.name ?? "—"}
                     </div>
                   </div>
@@ -899,7 +899,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     </label>
                     <div>
                       {!recordDeliveryStatus ? (
-                        <div className="text-lg font-semibold text-gray-950">
+                        <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                           —
                         </div>
                       ) : showAcknowledgementStatus ? (
@@ -943,7 +943,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     </div>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                    <label className="text-sm font-medium text-gray-700">
                       {t("eaushadhi_indent_status")}
                     </label>
                     <div>
@@ -956,7 +956,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     <label className="text-sm font-medium text-gray-700">
                       {t("care_indent_no")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {recordOrder?.care_indent_no ?? "—"}
                     </div>
                   </div>
@@ -964,7 +964,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     <label className="text-sm font-medium text-gray-700">
                       {t("eaushadhi_indent_no")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {outward?.eaushadhi_indent_no ?? "—"}
                     </div>
                   </div>
@@ -972,7 +972,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     <label className="text-sm font-medium text-gray-700">
                       {t("issue_no")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {inwardRecord?.eaushadhi_issue_no ?? "—"}
                     </div>
                   </div>
@@ -997,7 +997,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                           )}
                         </Badge>
                       ) : (
-                        <div className="text-lg font-semibold text-gray-950">
+                        <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                           —
                         </div>
                       )}
@@ -1023,17 +1023,20 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                       <Table>
                         <TableHeader className="bg-gray-100">
                           <TableRow className="divide-x divide-gray-200">
-                            <TableHead className="min-w-[200px] text-xs font-semibold">
+                            <TableHead className="min-w-[170px] text-xs font-semibold">
                               {t("drug")}
                             </TableHead>
-                            <TableHead className="min-w-[120px] text-xs font-semibold">
+                            <TableHead className="text-xs font-semibold">
                               {t("batch")}
                             </TableHead>
-                            <TableHead className="min-w-[130px] text-xs font-semibold">
+                            <TableHead className="text-xs font-semibold">
                               {t("expiry")}
                             </TableHead>
-                            <TableHead className="min-w-[200px] text-xs font-semibold">
+                            <TableHead className="min-w-[170px] text-xs font-semibold">
                               {t("product_knowledge")}
+                            </TableHead>
+                            <TableHead className="text-xs font-semibold">
+                              {t("category")}
                             </TableHead>
                             <TableHead className="text-xs font-semibold text-right">
                               {t("dispatched")}
@@ -1077,14 +1080,21 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                     )}
                                   </div>
                                 </TableCell>
-                                <TableCell className="p-2 text-sm text-gray-900">
+                                <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
                                   {item.inward_record_item.batch_number || "—"}
                                 </TableCell>
-                                <TableCell className="p-2 text-sm text-gray-900">
+                                <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
                                   {formatDate(inwardItem?.expiry_date)}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-gray-900">
                                   {item.product_knowledge?.name || "—"}
+                                </TableCell>
+                                <TableCell className="p-2 text-sm text-gray-900 capitalize whitespace-nowrap">
+                                  {(inwardItem?.drug_id
+                                    ? productKnowledgeByDrugId.get(
+                                        inwardItem.drug_id,
+                                      )?.product_type
+                                    : undefined) || "—"}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-right tabular-nums">
                                   {item.quantity_dispatched ?? "—"}

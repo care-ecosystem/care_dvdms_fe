@@ -3,13 +3,12 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate, useQueryParams } from "raviger";
 import { useForm } from "react-hook-form";
-import { Box, ChevronLeftIcon, InfoIcon, XIcon } from "lucide-react";
+import { Box, ChevronLeftIcon, InfoIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
-import { goBack } from "@/lib/navigation";
 import { dvdmsBasePath } from "@/lib/paths";
 import { cn, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -549,15 +548,6 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               </p>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0"
-            onClick={() => goBack(returnPath)}
-          >
-            <XIcon className="size-5" />
-            <span className="sr-only">{t("close")}</span>
-          </Button>
         </div>
 
         {!selectedOrderId ? (
@@ -603,7 +593,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               />
             )}
 
-            {visibleCandidateOrders.length > 0 && (
+            {!isCandidateListPending && visibleCandidateOrders.length > 0 && (
               <Pagination
                 page={page}
                 pageSize={PAGE_SIZE}

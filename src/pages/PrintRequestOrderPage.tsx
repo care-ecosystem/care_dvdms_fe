@@ -187,17 +187,6 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
               </div>
             </div>
 
-            <div className="mt-4 text-center">
-              <h2 className="text-base font-semibold uppercase tracking-wide">
-                {t("order")}: {recordOrder.name}
-              </h2>
-              <p className="text-xs text-gray-600">
-                {t("delivery_request_to")}{" "}
-                {order.origin?.name || order.supplier?.name || t("origin")}{" "}
-                {t("to")} {order.destination?.name || t("destination")}
-              </p>
-            </div>
-
             <div className="grid md:grid-cols-2 gap-x-8 border-t border-gray-200 mt-3 pt-3">
               <div>
                 <DetailRow

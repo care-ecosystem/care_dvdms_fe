@@ -50,6 +50,7 @@ import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import { TableSkeleton } from "@/components/SkeletonLoading";
 import BackButton from "@/components/BackButton";
 import DvdmsIssuesTable from "@/components/DvdmsIssuesTable";
+import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import {
   ShortcutProvider,
   useShortcutSubContext,
@@ -1051,9 +1052,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                   </label>
                   <div>
                     {outward.eaushadhi_indent_status ? (
-                      <Badge className="rounded-sm" variant="secondary">
-                        {outward.eaushadhi_indent_status}
-                      </Badge>
+                      <DvdmsIssueStatusBadge
+                        status={outward.eaushadhi_indent_status}
+                      />
                     ) : (
                       <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                         —

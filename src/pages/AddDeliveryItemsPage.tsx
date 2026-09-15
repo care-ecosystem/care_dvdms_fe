@@ -37,6 +37,7 @@ import {
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import BackButton from "@/components/BackButton";
 import DeliveryItemRow from "@/components/DeliveryItemRow";
+import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import {
   ShortcutProvider,
   useShortcutSubContext,
@@ -60,11 +61,12 @@ import {
   RECORD_INWARD_STATUS_LABELS,
   RECORD_INWARD_STATUS_VARIANTS,
   DvdmsSyncRequestStatus,
-  DvdmsSyncType,
   RecordDeliveryItem,
   RecordDeliveryItemStatus,
   RecordDeliveryStatus,
   RecordInwardItem,
+  acknowledgementSyncLog,
+  isAcknowledgementInFlight,
 } from "@/types/recordOrder";
 import { SuperBatchRequestItem } from "@/types/superBatch";
 import {
@@ -76,6 +78,8 @@ import {
 import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
 const MAX_ROWS_PER_SUPER_BATCH = Math.floor(MAX_REQUESTS_PER_SUPER_BATCH / 3);
+
+const ACKNOWLEDGEMENT_POLL_INTERVAL_MS = 5_000;
 
 const MAX_ITEMS_PER_APPROVAL_BATCH = MAX_REQUESTS_PER_SUPER_BATCH - 1;
 
@@ -229,10 +233,17 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     [savedItems],
   );
 
+  const isDeliveryCompleted =
+    recordDeliveryStatus === RecordDeliveryStatus.completed;
+
   const { data: recordInwardDetail, isLoading: isLoadingApiItems } = useQuery({
     queryKey: ["dvdms_record_inward_detail", institute?.id, inwardRecord?.id],
     queryFn: () => apis.recordInwards.retrieve(institute!.id, inwardRecord!.id),
     enabled: !!institute?.id && !!inwardRecord?.id,
+    refetchInterval: (query) =>
+      isAcknowledgementInFlight(query.state.data?.sync_log, isDeliveryCompleted)
+        ? ACKNOWLEDGEMENT_POLL_INTERVAL_MS
+        : false,
   });
 
   const apiItems: RecordInwardItem[] = recordInwardDetail?.items ?? [];
@@ -739,6 +750,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       queryClient.invalidateQueries({
         queryKey: ["dvdms_record_delivery_detail"],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_inward_detail"],
+      });
     },
     onError: (error: unknown) => {
       const message =
@@ -760,22 +774,27 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
         recordDelivery.id,
       );
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success(t("acknowledgement_retry_queued"));
-      queryClient.invalidateQueries({ queryKey: ["dvdms_record_inwards"] });
-      queryClient.invalidateQueries({ queryKey: ["dvdms_record_deliveries"] });
-      queryClient.invalidateQueries({
-        queryKey: ["dvdms_record_delivery_detail"],
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dvdms_record_inwards"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_record_inward_detail"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_record_deliveries"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_record_delivery_detail"],
+        }),
+      ]);
     },
     onError: (error: { message?: string }) => {
       toast.error(error?.message || t("acknowledgement_retry_failed"));
     },
   });
 
-  const syncLog = recordInwardDetail?.sync_log;
-  const acknowledgement =
-    syncLog?.sync_type === DvdmsSyncType.acknowledge_issue ? syncLog : undefined;
+  const acknowledgement = acknowledgementSyncLog(recordInwardDetail?.sync_log);
 
   const failedAcknowledgement =
     acknowledgement?.request_status === DvdmsSyncRequestStatus.failure
@@ -947,9 +966,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                       {t("eaushadhi_indent_status")}
                     </label>
                     <div>
-                      <Badge className="rounded-sm" variant="secondary">
-                        {outward?.eaushadhi_indent_status ?? "—"}
-                      </Badge>
+                      <DvdmsIssueStatusBadge
+                        status={outward?.eaushadhi_indent_status}
+                      />
                     </div>
                   </div>
                   <div>
@@ -1057,8 +1076,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                         </TableHeader>
                         <TableBody>
                           {savedItems.map((item) => {
-                            // A saved item carries the batch but not the
-                            // expiry, so the issue's own item supplies it.
                             const inwardItem = inwardItemById.get(
                               item.inward_record_item.id,
                             );
@@ -1084,7 +1101,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                   {item.inward_record_item.batch_number || "—"}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
-                                  {formatDate(inwardItem?.expiry_date)}
+                                  {formatDate(
+                                    item.inward_record_item.expiry_date,
+                                  )}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-gray-900">
                                   {item.product_knowledge?.name || "—"}

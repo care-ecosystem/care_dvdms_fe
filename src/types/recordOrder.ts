@@ -77,6 +77,28 @@ export interface RecordOrderOutward {
   modified_date: string;
 }
 
+/** How far DVDMS has got with issuing against the indent. */
+export enum DvdmsIndentStatus {
+  issue_in_process = "issue in process",
+  issued = "issued",
+}
+
+export const DVDMS_INDENT_STATUS_VARIANTS: Record<
+  DvdmsIndentStatus,
+  RequestOrderBadgeVariant
+> = {
+  [DvdmsIndentStatus.issue_in_process]: "yellow",
+  [DvdmsIndentStatus.issued]: "green",
+};
+
+export const DVDMS_INDENT_STATUS_LABELS: Record<DvdmsIndentStatus, string> = {
+  [DvdmsIndentStatus.issue_in_process]: "issue_in_process",
+  [DvdmsIndentStatus.issued]: "issued",
+};
+
+export const toDvdmsIndentStatusKey = (status: string) =>
+  status.trim().toLowerCase().replace(/\s+/g, " ") as DvdmsIndentStatus;
+
 export enum DvdmsSyncType {
   save_indent = "save_indent",
   track_indent = "track_indent",
@@ -133,6 +155,27 @@ export interface RecordInwardSyncLog {
   retry_count: number;
   error_detail: string | null;
 }
+
+/** The last sync against an issue, when it was an acknowledgement attempt. */
+export const acknowledgementSyncLog = (
+  syncLog: RecordInwardSyncLog | null | undefined,
+) =>
+  syncLog?.sync_type === DvdmsSyncType.acknowledge_issue ? syncLog : undefined;
+
+/**
+ * DVDMS acknowledges a completed delivery in the background: the outcome is
+ * still on its way while the acknowledgement is pending, or while a completed
+ * delivery has no acknowledgement recorded against it yet.
+ */
+export const isAcknowledgementInFlight = (
+  syncLog: RecordInwardSyncLog | null | undefined,
+  isDeliveryCompleted: boolean,
+) => {
+  const acknowledgement = acknowledgementSyncLog(syncLog);
+  return acknowledgement
+    ? acknowledgement.request_status === DvdmsSyncRequestStatus.pending
+    : isDeliveryCompleted;
+};
 
 export interface RecordInward {
   id: string;
@@ -251,6 +294,7 @@ export interface RecordDeliveryItemInwardRecordItem {
   id: string;
   item_name: string;
   batch_number: string;
+  expiry_date: string | null;
 }
 
 export interface RecordDeliveryItemSupplyDeliveryOrder {

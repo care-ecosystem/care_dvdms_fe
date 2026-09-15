@@ -13,6 +13,7 @@ import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { goBack } from "@/lib/navigation";
 import { dvdmsBasePath } from "@/lib/paths";
 import BackButton from "@/components/BackButton";
+import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -306,9 +307,9 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
                       {t("eaushadhi_indent_status")}
                     </label>
                     <div>
-                      <Badge className="rounded-sm" variant="secondary">
-                        {outward?.eaushadhi_indent_status ?? "—"}
-                      </Badge>
+                      <DvdmsIssueStatusBadge
+                        status={outward?.eaushadhi_indent_status}
+                      />
                     </div>
                   </div>
                   <div>

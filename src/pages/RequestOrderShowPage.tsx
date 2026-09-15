@@ -341,7 +341,19 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     const hasIndentDetails =
       !!outwardRow?.eaushadhi_indent_no &&
       !!outwardRow?.eaushadhi_indent_status;
-    if (hasIndentDetails || outwardRow?.status === "failed") {
+    if (hasIndentDetails) {
+      return false;
+    }
+
+    const outwardFailedAt =
+      outwardRow?.status === "failed"
+        ? Date.parse(outwardRow.modified_date)
+        : Number.NaN;
+    const approvedAt = Date.parse(order.modified_date);
+    if (
+      Number.isFinite(outwardFailedAt) &&
+      (!Number.isFinite(approvedAt) || outwardFailedAt >= approvedAt)
+    ) {
       return false;
     }
 

@@ -63,7 +63,10 @@ import {
   RecordOrderOutward,
 } from "@/types/recordOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
-import { RecordOrderProductMapping } from "@/types/productMapping";
+import {
+  ProductMapping,
+  RecordOrderProductMapping,
+} from "@/types/productMapping";
 import { RecordItemOrderDrug } from "@/types/recordOrderItem";
 import {
   SuperBatchRequestItem,
@@ -73,7 +76,6 @@ import {
   DvdmsLookupDrug,
   DvdmsLookupGroup,
   DvdmsLookupSubgroup,
-  DvdmsProductMapping,
 } from "@/types/dvdms_config";
 import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
@@ -150,53 +152,7 @@ const listAllRecordOrderProductMappings = async (
   ];
 };
 
-const MANUAL_MAPPING_TYPE = "manual_mapping";
-const MANUAL_MAPPING_ORDERING = "-usage_count";
-
 const SUGGESTION_OPTION_PREFIX = "suggestion:";
-
-type MappingOptionMapping = {
-  id: string;
-  eaushadhi_drug_details: RecordItemOrderDrug;
-  usage_count: number | null;
-};
-
-const listAllManualProductMappings = async (instituteId: string) => {
-  const params = {
-    mapping_type: MANUAL_MAPPING_TYPE,
-    ordering: MANUAL_MAPPING_ORDERING,
-    limit: LIST_FETCH_LIMIT,
-  };
-  const firstPage = await apis.productMappings.list(instituteId, params);
-
-  const remainingOffsets: number[] = [];
-  for (
-    let offset = LIST_FETCH_LIMIT;
-    offset < firstPage.count;
-    offset += LIST_FETCH_LIMIT
-  ) {
-    remainingOffsets.push(offset);
-  }
-  if (remainingOffsets.length === 0) return firstPage.results;
-
-  const response = await apis.batchRequests.createChunked({
-    requests: remainingOffsets.map((offset) => ({
-      url: apis.productMappings.path(instituteId),
-      method: HttpMethod.GET,
-      body: { ...params, offset },
-      reference_id: `manual_product_mappings_${offset}`,
-    })),
-  });
-
-  return [
-    ...firstPage.results,
-    ...response.results.flatMap(
-      (result) =>
-        (result.data as PaginatedResponse<DvdmsProductMapping> | undefined)
-          ?.results ?? [],
-    ),
-  ];
-};
 
 const lookupDrugToPayload = (drug: DvdmsLookupDrug): RecordItemOrderDrug => ({
   id: String(drug.hstnum_item_id),
@@ -515,40 +471,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     }
   };
 
-  const [manualMappings, setManualMappings] = useState<
-    DvdmsProductMapping[] | undefined
-  >(undefined);
-  const [isManualMappingsLoading, setIsManualMappingsLoading] = useState(false);
-  const isFirstManualMappingsLoad = isManualMappingsLoading && !manualMappings;
-
-  const ensureManualMappingsLoaded = async () => {
-    if (!institute?.id || manualMappings || isManualMappingsLoading) return;
-    const instituteId = institute.id;
-    setIsManualMappingsLoading(true);
-    try {
-      const data = await queryClient.fetchQuery({
-        queryKey: ["dvdms_manual_product_mappings", instituteId],
-        queryFn: () => listAllManualProductMappings(instituteId),
-      });
-      setManualMappings(data);
-    } catch {
-    } finally {
-      setIsManualMappingsLoading(false);
-    }
-  };
-
-  const manualMappingsByProductKnowledgeId = useMemo(() => {
-    const byProductKnowledgeId = new Map<string, DvdmsProductMapping[]>();
-    (manualMappings ?? []).forEach((mapping) => {
-      const productKnowledgeId = mapping.product_knowledge?.id;
-      if (!productKnowledgeId || !mapping.eaushadhi_drug_details?.id) return;
-      const existing = byProductKnowledgeId.get(productKnowledgeId);
-      if (existing) existing.push(mapping);
-      else byProductKnowledgeId.set(productKnowledgeId, [mapping]);
-    });
-    return byProductKnowledgeId;
-  }, [manualMappings]);
-
   const [loadingSubgroupGroupIds, setLoadingSubgroupGroupIds] = useState<
     Set<number>
   >(new Set());
@@ -654,23 +576,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       ensureSubgroupsLoaded(groupId),
     );
   }, [institute?.id, hasGroupIdsNeedingNames, groupIdsNeedingSubgroupNames]);
-
-  const suggestionGroupIdsNeedingNames = useMemo(() => {
-    const groupIds = new Set<number>();
-    (manualMappings ?? []).forEach((mapping) => {
-      const groupId = parseLookupId(mapping.eaushadhi_drug_details.group_id);
-      if (groupId !== undefined) groupIds.add(groupId);
-    });
-    return Array.from(groupIds);
-  }, [manualMappings]);
-
-  useEffect(() => {
-    if (!institute?.id || suggestionGroupIdsNeedingNames.length === 0) return;
-    ensureGroupsLoaded();
-    suggestionGroupIdsNeedingNames.forEach((groupId) =>
-      ensureSubgroupsLoaded(groupId),
-    );
-  }, [institute?.id, suggestionGroupIdsNeedingNames]);
 
   const groupNameById = useMemo(() => {
     const names = new Map<number, string>();
@@ -1402,37 +1307,17 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                 const defaultMapping =
                                   defaultMappingBySupplyRequestId.get(item.id);
 
-                                  const suggestedMappings =
-                                  manualMappingsByProductKnowledgeId.get(
-                                    item.item.id,
-                                  ) ?? [];
-
                                 const mappingSources: {
-                                  mapping: MappingOptionMapping;
+                                  mapping: ProductMapping;
                                   heading: string;
-                                  hint?: string;
-                                }[] = [
-                                  ...(defaultMapping &&
-                                  !suggestedMappings.some(
-                                    (suggested) =>
-                                      suggested.eaushadhi_drug_details.id ===
-                                      defaultMapping.eaushadhi_drug_details.id,
-                                  )
-                                    ? [
-                                        {
-                                          mapping: defaultMapping,
-                                          heading: t("default_mapping"),
-                                        },
-                                      ]
-                                    : []),
-                                  ...suggestedMappings.map((mapping) => ({
-                                    mapping,
-                                    heading: t("suggestions"),
-                                    hint: t("used_count", {
-                                      count: mapping.usage_count ?? 0,
-                                    }),
-                                  })),
-                                ];
+                                }[] = defaultMapping
+                                  ? [
+                                      {
+                                        mapping: defaultMapping,
+                                        heading: t("default_mapping"),
+                                      },
+                                    ]
+                                  : [];
                                 const suggestionOption = (
                                   source: (typeof mappingSources)[number],
                                   label: string,
@@ -1440,7 +1325,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   label,
                                   value: `${SUGGESTION_OPTION_PREFIX}${source.mapping.id}`,
                                   group: source.heading,
-                                  hint: source.hint,
                                 });
 
                                 const suggestionFromOptionValue = (
@@ -1466,7 +1350,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   `${SUGGESTION_OPTION_PREFIX}${appliedSuggestion.id}`;
 
                                 const applySuggestion = (
-                                  mapping: MappingOptionMapping,
+                                  mapping: ProductMapping,
                                 ) => {
                                   const drug = mapping.eaushadhi_drug_details;
                                   const groupId = parseLookupId(drug.group_id);
@@ -1795,14 +1679,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                               }
                                               onChange={handleGroupChange}
                                               onOpenChange={(open) => {
-                                                if (!open) return;
-                                                ensureGroupsLoaded();
-                                                ensureManualMappingsLoaded();
+                                                if (open) ensureGroupsLoaded();
                                               }}
-                                              isLoading={
-                                                isLookupGroupsLoading ||
-                                                isFirstManualMappingsLoad
-                                              }
+                                              isLoading={isLookupGroupsLoading}
                                               disabled={!institute?.id}
                                               placeholder="—"
                                               inputPlaceholder={t(
@@ -1837,19 +1716,15 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                               }
                                               onChange={handleSubgroupChange}
                                               onOpenChange={(open) => {
-                                                if (!open) return;
-                                                ensureManualMappingsLoaded();
                                                 if (
+                                                  open &&
                                                   selectedGroupId !== undefined
                                                 )
                                                   ensureSubgroupsLoaded(
                                                     selectedGroupId,
                                                   );
                                               }}
-                                              isLoading={
-                                                isSubgroupsLoading ||
-                                                isFirstManualMappingsLoad
-                                              }
+                                              isLoading={isSubgroupsLoading}
                                               disabled={
                                                 selectedGroupId === undefined
                                               }
@@ -1884,9 +1759,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                               }
                                               onChange={handleCatalogDrugChange}
                                               onOpenChange={(open) => {
-                                                if (!open) return;
-                                                ensureManualMappingsLoaded();
                                                 if (
+                                                  open &&
                                                   selectedGroupId !== undefined
                                                 )
                                                   ensureDrugsLoaded(
@@ -1894,10 +1768,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                                     selectedSubgroupId,
                                                   );
                                               }}
-                                              isLoading={
-                                                isDrugsLoading ||
-                                                isFirstManualMappingsLoad
-                                              }
+                                              isLoading={isDrugsLoading}
                                               disabled={
                                                 selectedGroupId === undefined
                                               }

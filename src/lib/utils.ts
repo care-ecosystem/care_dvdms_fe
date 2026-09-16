@@ -141,18 +141,22 @@ export function downloadProductMappingTemplate(): void {
   downloadCsv("product_mapping_template.csv", rows.join("\n"));
 }
 
+export type ProductMappingReportStatus = "SUCCESS" | "FAILED" | "SKIPPED";
+
 export type ProductMappingReportRow = {
+  rowNum?: number;
   drugId: string;
   drugName: string;
   pkName: string;
   pkSlug: string;
-  status: "SUCCESS" | "FAILED" | "SKIPPED";
+  status: ProductMappingReportStatus;
   message?: string;
 };
 
-export function downloadProductMappingUploadReport(
+function buildProductMappingReportCsv(
   rows: ProductMappingReportRow[],
-): void {
+  statusLabels: Record<ProductMappingReportStatus, string>,
+): string {
   const headers = [
     "DVDMS Drug ID",
     "DVDMS Drug Name",
@@ -169,16 +173,39 @@ export function downloadProductMappingUploadReport(
         row.drugName,
         row.pkName,
         row.pkSlug,
-        row.status,
+        statusLabels[row.status],
         row.message ?? "",
       ]
         .map((cell) => `"${cell.replace(/"/g, '""')}"`)
         .join(","),
     ),
   ];
+  return "\uFEFF" + csvRows.join("\n");
+}
+
+export function downloadProductMappingUploadReport(
+  rows: ProductMappingReportRow[],
+): void {
   downloadCsv(
     "product_mapping_upload_report.csv",
-    "\uFEFF" + csvRows.join("\n"),
+    buildProductMappingReportCsv(rows, {
+      SUCCESS: "SUCCESS",
+      FAILED: "FAILED",
+      SKIPPED: "SKIPPED",
+    }),
+  );
+}
+
+export function downloadProductMappingValidationReport(
+  rows: ProductMappingReportRow[],
+): void {
+  downloadCsv(
+    "product_mapping_validation_report.csv",
+    buildProductMappingReportCsv(rows, {
+      SUCCESS: "READY",
+      FAILED: "FAILED",
+      SKIPPED: "SKIPPED",
+    }),
   );
 }
 

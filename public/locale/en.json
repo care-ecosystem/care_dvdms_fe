@@ -127,6 +127,7 @@
   "dvdms_configure_hint": "Set it up in",
   "dvdms_not_configured": "DVDMS is not configured",
   "dvdms_store_not_configured": "No DVDMS store mapped",
+  "dvdms_product_knowledge_already_mapped": "This product knowledge is already mapped to {{drug}}",
   "dvdms_product_mapping_save_error": "Failed to save product mapping",
   "dvdms_product_mapping_save_success": "Product mapping saved",
   "dvdms_status": "DVDMS Issue Status",

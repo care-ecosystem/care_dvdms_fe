@@ -217,6 +217,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const [mappingOpen, setMappingOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [mappingForm, setMappingForm] = useState<MappingForm>(EMPTY_MAPPING);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
 
   const [groupId, setGroupId] = useState<string | undefined>(undefined);
   const [subgroupId, setSubgroupId] = useState<string | undefined>(undefined);
@@ -461,10 +462,42 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     setMappingOpen(true);
   };
 
-  const saveMapping = () => {
-    if (!mappingForm.productKnowledge || !mappingForm.dvdmsDrug) {
+  const findConflictingMapping = async (productKnowledgeId: string) => {
+    const { results } = await apis.productMappings.list(instituteId!, {
+      product_knowledge_id: productKnowledgeId,
+      mapping_type: "default_mapping",
+      limit: 2,
+    });
+    return results.find((mapping) => mapping.id !== editingId) ?? null;
+  };
+
+  const saveMapping = async () => {
+    if (!instituteId || !mappingForm.productKnowledge || !mappingForm.dvdmsDrug) {
       return;
     }
+
+    setIsCheckingDuplicate(true);
+    try {
+      const conflictingMapping = await findConflictingMapping(
+        mappingForm.productKnowledge.id,
+      );
+      if (conflictingMapping) {
+        toast.error(
+          t("dvdms_product_knowledge_already_mapped", {
+            drug: conflictingMapping.eaushadhi_drug_details.name,
+          }),
+        );
+        return;
+      }
+    } catch (error) {
+      toast.error(
+        getErrorMessage(error) || t("dvdms_product_mapping_save_error"),
+      );
+      return;
+    } finally {
+      setIsCheckingDuplicate(false);
+    }
+
     if (editingId) {
       updateMapping();
     } else {
@@ -1138,11 +1171,12 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                     disabled={
                       !mappingForm.productKnowledge ||
                       !mappingForm.dvdmsDrug ||
+                      isCheckingDuplicate ||
                       isSaving
                     }
                     onClick={saveMapping}
                   >
-                    {isSaving && (
+                    {(isCheckingDuplicate || isSaving) && (
                       <Loader2Icon className="mr-2 size-4 animate-spin" />
                     )}
                     {t("save")}

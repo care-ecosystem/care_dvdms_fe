@@ -58,9 +58,9 @@ import {
 } from "@/context/ShortcutContext";
 import { REQUEST_ORDER_STATUS_VARIANTS } from "@/types/requestOrder";
 import {
-  RecordDeliveryStatus,
   RecordOrder,
   RecordOrderOutward,
+  isRecordDeliveryReceived,
 } from "@/types/recordOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
 import {
@@ -415,8 +415,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       const deliveries = deliveriesByInwardId.get(issue.id) ?? [];
       return (
         deliveries.length > 0 &&
-        deliveries.every(
-          (delivery) => delivery.status === RecordDeliveryStatus.completed,
+        deliveries.every((delivery) =>
+          isRecordDeliveryReceived(delivery.status),
         )
       );
     });

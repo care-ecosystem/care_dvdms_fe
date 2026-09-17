@@ -6,7 +6,11 @@ import { Eye, Plus } from "lucide-react";
 
 import { apis } from "@/apis";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
-import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
+import {
+  ACKNOWLEDGEMENT_POLL_INTERVAL_MS,
+  I18N_NAMESPACE,
+  LIST_FETCH_LIMIT,
+} from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
 import { TableSkeleton } from "@/components/SkeletonLoading";
 import { Badge } from "@/components/ui/badge";
@@ -20,17 +24,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  ACKNOWLEDGEMENT_STATUS_LABELS,
-  ACKNOWLEDGEMENT_STATUS_VARIANTS,
-  DvdmsSyncRequestStatus,
-  DvdmsSyncType,
   RecordDelivery,
   RecordDeliveryDetail,
-  RecordDeliveryStatus,
   RecordInward,
   RecordInwardDetail,
   RecordInwardItem,
+  RecordDeliveryStatus,
   RecordInwardStatus,
+  RECORD_DELIVERY_STATUS_LABELS,
   RECORD_DELIVERY_STATUS_VARIANTS,
   RECORD_INWARD_STATUS_LABELS,
   RECORD_INWARD_STATUS_VARIANTS,
@@ -140,6 +141,14 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
         return response.results;
       },
       enabled: !!instituteId && hasIssueDeliveries,
+      refetchInterval: (query) =>
+        query.state.data?.some(
+          (result) =>
+            (result.data as RecordDeliveryDetail | undefined)?.status ===
+            RecordDeliveryStatus.received,
+        )
+          ? ACKNOWLEDGEMENT_POLL_INTERVAL_MS
+          : false,
     });
 
   const deliveryDetailByIssueId = new Map<
@@ -179,12 +188,6 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
           const items = itemsByIssueId.get(issue.id) ?? [];
           const delivery = deliveriesByIssueId.get(issue.id)?.[0];
           const deliveryStatus = deliveryDetailByIssueId.get(issue.id)?.status;
-          const syncLog = issueDetailByIssueId.get(issue.id)?.sync_log;
-          const acknowledgement =
-            syncLog?.sync_type === DvdmsSyncType.acknowledge_issue
-              ? syncLog
-              : undefined;
-          const showAcknowledgement = !!acknowledgement;
           const isFetched =
             issue.eaushadhi_issue_status === RecordInwardStatus.fetched;
 
@@ -220,33 +223,7 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
                 )}
               </TableCell>
               <TableCell className="align-top">
-                {showAcknowledgement ? (
-                  <Badge
-                    className="rounded-sm"
-                    variant={
-                      ACKNOWLEDGEMENT_STATUS_VARIANTS[
-                        acknowledgement.request_status
-                      ] ?? "secondary"
-                    }
-                    title={
-                      acknowledgement.request_status ===
-                      DvdmsSyncRequestStatus.failure
-                        ? (acknowledgement.error_detail ??
-                          (acknowledgement.http_status_code
-                            ? t("acknowledgement_failed_with_status", {
-                                status: acknowledgement.http_status_code,
-                              })
-                            : undefined))
-                        : undefined
-                    }
-                  >
-                    {t(
-                      ACKNOWLEDGEMENT_STATUS_LABELS[
-                        acknowledgement.request_status
-                      ] ?? acknowledgement.request_status,
-                    )}
-                  </Badge>
-                ) : deliveryStatus ? (
+                {deliveryStatus ? (
                   <Badge
                     className="rounded-sm"
                     variant={
@@ -254,9 +231,10 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
                       "secondary"
                     }
                   >
-                    {deliveryStatus === RecordDeliveryStatus.completed
-                      ? t("delivered")
-                      : t(deliveryStatus)}
+                    {t(
+                      RECORD_DELIVERY_STATUS_LABELS[deliveryStatus] ??
+                        deliveryStatus,
+                    )}
                   </Badge>
                 ) : (
                   "—"

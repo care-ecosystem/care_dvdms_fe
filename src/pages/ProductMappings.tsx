@@ -22,6 +22,7 @@ import {
   downloadAllProductMappings,
   downloadProductMappingTemplate,
   downloadProductMappingUploadReport,
+  downloadProductMappingValidationReport,
   formatDate,
   getProductKnowledgeSlugValue,
   getProgressPercent,
@@ -69,6 +70,7 @@ type ProductMappingsProps = {
 const DUPLICATE_REASON_MESSAGE_KEYS: Record<DuplicateReasonCode, string> = {
   DUPLICATE_ROW: "csv_duplicate_row",
   DUPLICATE_DRUG_ID: "csv_duplicate_drug_id",
+  DUPLICATE_SLUG: "csv_duplicate_slug",
 };
 
 const PRODUCT_MAPPING_BATCH_SIZE = 10;
@@ -138,6 +140,39 @@ async function findExistingMappingDrugIdsBatch(
   return existing;
 }
 
+async function findMappedProductKnowledgeIdsBatch(
+  instituteId: string,
+  productKnowledgeIds: string[],
+  onProgress?: (done: number) => void,
+): Promise<Set<string>> {
+  const mapped = new Set<string>();
+
+  for (const chunk of chunkArray(productKnowledgeIds, PRODUCT_MAPPING_BATCH_SIZE)) {
+    const payload: BatchRequestBody = {
+      requests: chunk.map((productKnowledgeId, idx) => ({
+        reference_id: `pk_check_${idx}`,
+        url: `${apis.productMappings.path(instituteId)}?product_knowledge_id=${encodeURIComponent(productKnowledgeId)}&mapping_type=default_mapping&limit=1`,
+        method: HttpMethod.GET,
+      })),
+    };
+
+    const results = await performBatchRequest(payload).catch((error: unknown) =>
+      error instanceof BatchError ? error.results : ([] as BatchResult[]),
+    );
+
+    chunk.forEach((productKnowledgeId, idx) => {
+      const result = results.find((r) => r.reference_id === `pk_check_${idx}`);
+      const data = result?.data as { count?: number } | undefined;
+      if (result && result.status_code <= 299 && (data?.count ?? 0) > 0) {
+        mapped.add(productKnowledgeId);
+      }
+    });
+    onProgress?.(chunk.length);
+  }
+
+  return mapped;
+}
+
 const CsvStatusCard: FC<{
   title: string;
   children: ReactNode;
@@ -155,6 +190,24 @@ type DvdmsDrugValue = {
   name: string;
   group_id: string;
   sub_group_id: string;
+};
+
+type ResolvedCsvRow = {
+  row: ProductMappingCsvRow;
+  productKnowledge: ProductKnowledge;
+};
+
+type CsvValidation = {
+  resolvedRows: ResolvedCsvRow[];
+  preUploadRows: ProductMappingReportRow[];
+  counts: {
+    ready: number;
+    alreadyMappedDrug: number;
+    alreadyMappedProductKnowledge: number;
+    duplicateProductKnowledge: number;
+    inactive: number;
+    notFound: number;
+  };
 };
 
 type MappingForm = {
@@ -208,6 +261,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     DuplicateProductMappingCsvRow[]
   >([]);
   const [csvReport, setCsvReport] = useState<ProductMappingReportRow[]>([]);
+  const [csvValidation, setCsvValidation] = useState<CsvValidation | null>(null);
   const [isUploadingCsv, setIsUploadingCsv] = useState(false);
   const [isValidatingCsv, setIsValidatingCsv] = useState(false);
   const [validationProgress, setValidationProgress] = useState({ done: 0, total: 0 });
@@ -217,6 +271,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const [mappingOpen, setMappingOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [mappingForm, setMappingForm] = useState<MappingForm>(EMPTY_MAPPING);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
 
   const [groupId, setGroupId] = useState<string | undefined>(undefined);
   const [subgroupId, setSubgroupId] = useState<string | undefined>(undefined);
@@ -423,6 +478,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     setCsvRows([]);
     setCsvDuplicateRows([]);
     setCsvReport([]);
+    setCsvValidation(null);
     setValidationProgress({ done: 0, total: 0 });
     setUploadProgress({ done: 0, total: 0 });
   };
@@ -461,10 +517,42 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     setMappingOpen(true);
   };
 
-  const saveMapping = () => {
-    if (!mappingForm.productKnowledge || !mappingForm.dvdmsDrug) {
+  const findConflictingMapping = async (productKnowledgeId: string) => {
+    const { results } = await apis.productMappings.list(instituteId!, {
+      product_knowledge_id: productKnowledgeId,
+      mapping_type: "default_mapping",
+      limit: 2,
+    });
+    return results.find((mapping) => mapping.id !== editingId) ?? null;
+  };
+
+  const saveMapping = async () => {
+    if (!instituteId || !mappingForm.productKnowledge || !mappingForm.dvdmsDrug) {
       return;
     }
+
+    setIsCheckingDuplicate(true);
+    try {
+      const conflictingMapping = await findConflictingMapping(
+        mappingForm.productKnowledge.id,
+      );
+      if (conflictingMapping) {
+        toast.error(
+          t("dvdms_product_knowledge_already_mapped", {
+            drug: conflictingMapping.eaushadhi_drug_details.name,
+          }),
+        );
+        return;
+      }
+    } catch (error) {
+      toast.error(
+        getErrorMessage(error) || t("dvdms_product_mapping_save_error"),
+      );
+      return;
+    } finally {
+      setIsCheckingDuplicate(false);
+    }
+
     if (editingId) {
       updateMapping();
     } else {
@@ -526,113 +614,241 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     toast.error(t("csv_invalid_file"));
   };
 
-  const uploadCsv = async () => {
-    if (!instituteId || csvRows.length === 0 || isUploadingCsv) return;
+  const csvValidationRunRef = useRef(0);
+
+  useEffect(() => {
+    if (!instituteId || csvRows.length === 0) {
+      csvValidationRunRef.current += 1;
+      setIsValidatingCsv(false);
+      setCsvValidation(null);
+      setValidationProgress({ done: 0, total: 0 });
+      return;
+    }
+
+    const runId = ++csvValidationRunRef.current;
+    const isStale = () => runId !== csvValidationRunRef.current;
+    const rows = csvRows;
 
     setIsValidatingCsv(true);
+    setCsvValidation(null);
+    setCsvReport([]);
+    setUploadProgress({ done: 0, total: 0 });
+
+    (async () => {
+      try {
+        const preUploadRows: ProductMappingReportRow[] = [];
+        const addPreUploadRow = (
+          row: ProductMappingCsvRow,
+          status: ProductMappingReportRow["status"],
+          message: string,
+        ) =>
+          preUploadRows.push({
+            rowNum: row.rowNum,
+            drugId: row.drugId,
+            drugName: row.drugName,
+            pkName: row.pkName,
+            pkSlug: row.pkSlug,
+            status,
+            message,
+          });
+
+        const uniqueSlugs = Array.from(
+          new Set(rows.map((row) => row.pkSlug.toLowerCase())),
+        );
+        const unscopedSlugs = uniqueSlugs.filter(
+          (slug) => !hasExplicitSlugScope(slug),
+        );
+        const scopedSlugs = uniqueSlugs.filter(hasExplicitSlugScope);
+
+        setValidationProgress({ done: 0, total: uniqueSlugs.length });
+        const onValidationProgress = (done: number) => {
+          if (isStale()) return;
+          setValidationProgress((prev) => ({ ...prev, done: prev.done + done }));
+        };
+
+        const productKnowledgeBySlug = new Map<string, ProductKnowledge>([
+          ...(await resolveProductKnowledgeSlugsBatch(
+            scopedSlugs,
+            (slug) => slug,
+            onValidationProgress,
+          )),
+          ...(await resolveProductKnowledgeSlugsBatch(
+            unscopedSlugs,
+            (slug) => toFacilityScopedSlug(facilityId, slug),
+            onValidationProgress,
+          )),
+        ]);
+        if (isStale()) return;
+
+        const stillMissingSlugs = unscopedSlugs.filter(
+          (slug) => !productKnowledgeBySlug.has(slug),
+        );
+        if (stillMissingSlugs.length > 0) {
+          setValidationProgress((prev) => ({
+            ...prev,
+            total: prev.total + stillMissingSlugs.length,
+          }));
+          const instanceScoped = await resolveProductKnowledgeSlugsBatch(
+            stillMissingSlugs,
+            toInstanceScopedSlug,
+            onValidationProgress,
+          );
+          if (isStale()) return;
+          instanceScoped.forEach((pk, slug) =>
+            productKnowledgeBySlug.set(slug, pk),
+          );
+        }
+
+        let notFound = 0;
+        let inactive = 0;
+        const activeRows: ResolvedCsvRow[] = [];
+
+        for (const row of rows) {
+          const productKnowledge = productKnowledgeBySlug.get(
+            row.pkSlug.toLowerCase(),
+          );
+          if (!productKnowledge) {
+            notFound += 1;
+            addPreUploadRow(row, "FAILED", t("csv_product_knowledge_not_found"));
+            continue;
+          }
+          if (productKnowledge.status && productKnowledge.status !== "active") {
+            inactive += 1;
+            addPreUploadRow(
+              row,
+              "SKIPPED",
+              t("csv_skipped_inactive_product_knowledge", {
+                status: productKnowledge.status,
+              }),
+            );
+            continue;
+          }
+          activeRows.push({ row, productKnowledge });
+        }
+
+        const uniqueActiveDrugIds = Array.from(
+          new Set(activeRows.map(({ row }) => row.drugId)),
+        );
+        const uniqueActiveProductKnowledgeIds = Array.from(
+          new Set(activeRows.map(({ productKnowledge }) => productKnowledge.id)),
+        );
+        setValidationProgress((prev) => ({
+          ...prev,
+          total:
+            prev.total +
+            uniqueActiveDrugIds.length +
+            uniqueActiveProductKnowledgeIds.length,
+        }));
+
+        const existingDrugIds = await findExistingMappingDrugIdsBatch(
+          instituteId,
+          uniqueActiveDrugIds,
+          onValidationProgress,
+        );
+        if (isStale()) return;
+
+        const mappedProductKnowledgeIds =
+          await findMappedProductKnowledgeIdsBatch(
+            instituteId,
+            uniqueActiveProductKnowledgeIds,
+            onValidationProgress,
+          );
+        if (isStale()) return;
+
+        let alreadyMappedDrug = 0;
+        let alreadyMappedProductKnowledge = 0;
+        let duplicateProductKnowledge = 0;
+        const resolvedRows: ResolvedCsvRow[] = [];
+        const seenProductKnowledgeIds = new Set<string>();
+
+        for (const entry of activeRows) {
+          if (seenProductKnowledgeIds.has(entry.productKnowledge.id)) {
+            duplicateProductKnowledge += 1;
+            addPreUploadRow(entry.row, "SKIPPED", t("csv_duplicate_slug"));
+            continue;
+          }
+          if (existingDrugIds.has(entry.row.drugId)) {
+            alreadyMappedDrug += 1;
+            addPreUploadRow(
+              entry.row,
+              "SKIPPED",
+              t("csv_skipped_existing_mapping"),
+            );
+            continue;
+          }
+          if (mappedProductKnowledgeIds.has(entry.productKnowledge.id)) {
+            alreadyMappedProductKnowledge += 1;
+            addPreUploadRow(
+              entry.row,
+              "SKIPPED",
+              t("csv_skipped_existing_product_knowledge_mapping"),
+            );
+            continue;
+          }
+          seenProductKnowledgeIds.add(entry.productKnowledge.id);
+          resolvedRows.push(entry);
+        }
+
+        setCsvValidation({
+          resolvedRows,
+          preUploadRows,
+          counts: {
+            ready: resolvedRows.length,
+            alreadyMappedDrug,
+            alreadyMappedProductKnowledge,
+            duplicateProductKnowledge,
+            inactive,
+            notFound,
+          },
+        });
+      } catch (error) {
+        if (isStale()) return;
+        toast.error(getErrorMessage(error) || t("csv_validation_failed"));
+      } finally {
+        if (!isStale()) setIsValidatingCsv(false);
+      }
+    })();
+  }, [csvRows, instituteId, facilityId, t]);
+
+  const buildValidationReportRows = (): ProductMappingReportRow[] => {
+    if (!csvValidation) return [];
+
+    return [
+      ...csvValidation.resolvedRows.map(({ row }) => ({
+        rowNum: row.rowNum,
+        drugId: row.drugId,
+        drugName: row.drugName,
+        pkName: row.pkName,
+        pkSlug: row.pkSlug,
+        status: "SUCCESS" as const,
+      })),
+      ...csvValidation.preUploadRows,
+      ...csvDuplicateRows.map((row) => ({
+        rowNum: row.rowNum,
+        drugId: row.drugId,
+        drugName: row.drugName,
+        pkName: row.pkName,
+        pkSlug: row.pkSlug,
+        status: "SKIPPED" as const,
+        message: t(DUPLICATE_REASON_MESSAGE_KEYS[row.reasonCode]),
+      })),
+    ].sort((a, b) => (a.rowNum ?? 0) - (b.rowNum ?? 0));
+  };
+
+  const uploadCsv = async () => {
+    const resolvedRows = csvValidation?.resolvedRows ?? [];
+    if (
+      !instituteId ||
+      resolvedRows.length === 0 ||
+      isValidatingCsv ||
+      isUploadingCsv ||
+      csvReport.length > 0
+    ) {
+      return;
+    }
+
     let successCount = 0;
-    const report: ProductMappingReportRow[] = [];
-
-    const uniqueSlugs = Array.from(
-      new Set(csvRows.map((row) => row.pkSlug.toLowerCase())),
-    );
-    const unscopedSlugs = uniqueSlugs.filter((slug) => !hasExplicitSlugScope(slug));
-    const scopedSlugs = uniqueSlugs.filter(hasExplicitSlugScope);
-
-    setValidationProgress({ done: 0, total: uniqueSlugs.length });
-    const onValidationProgress = (done: number) =>
-      setValidationProgress((prev) => ({ ...prev, done: prev.done + done }));
-
-    const productKnowledgeBySlug = new Map<string, ProductKnowledge>([
-      ...(await resolveProductKnowledgeSlugsBatch(
-        scopedSlugs,
-        (slug) => slug,
-        onValidationProgress,
-      )),
-      ...(await resolveProductKnowledgeSlugsBatch(
-        unscopedSlugs,
-        (slug) => toFacilityScopedSlug(facilityId, slug),
-        onValidationProgress,
-      )),
-    ]);
-
-    const stillMissingSlugs = unscopedSlugs.filter(
-      (slug) => !productKnowledgeBySlug.has(slug),
-    );
-    if (stillMissingSlugs.length > 0) {
-      setValidationProgress((prev) => ({
-        ...prev,
-        total: prev.total + stillMissingSlugs.length,
-      }));
-      const instanceScoped = await resolveProductKnowledgeSlugsBatch(
-        stillMissingSlugs,
-        toInstanceScopedSlug,
-        onValidationProgress,
-      );
-      instanceScoped.forEach((pk, slug) => productKnowledgeBySlug.set(slug, pk));
-    }
-
-    const activeRows: { row: ProductMappingCsvRow; productKnowledge: ProductKnowledge }[] = [];
-    for (const row of csvRows) {
-      const productKnowledge = productKnowledgeBySlug.get(row.pkSlug.toLowerCase());
-      if (!productKnowledge) {
-        report.push({
-          drugId: row.drugId,
-          drugName: row.drugName,
-          pkName: row.pkName,
-          pkSlug: row.pkSlug,
-          status: "FAILED",
-          message: t("csv_product_knowledge_not_found"),
-        });
-        continue;
-      }
-      if (productKnowledge.status && productKnowledge.status !== "active") {
-        report.push({
-          drugId: row.drugId,
-          drugName: row.drugName,
-          pkName: row.pkName,
-          pkSlug: row.pkSlug,
-          status: "SKIPPED",
-          message: t("csv_skipped_inactive_product_knowledge", {
-            status: productKnowledge.status,
-          }),
-        });
-        continue;
-      }
-      activeRows.push({ row, productKnowledge });
-    }
-
-    const uniqueActiveDrugIds = Array.from(
-      new Set(activeRows.map(({ row }) => row.drugId)),
-    );
-    setValidationProgress((prev) => ({
-      ...prev,
-      total: prev.total + uniqueActiveDrugIds.length,
-    }));
-    const existingDrugIds = await findExistingMappingDrugIdsBatch(
-      instituteId,
-      uniqueActiveDrugIds,
-      onValidationProgress,
-    );
-
-    setIsValidatingCsv(false);
-
-    const resolvedRows: { row: ProductMappingCsvRow; productKnowledge: ProductKnowledge }[] =
-      [];
-    for (const entry of activeRows) {
-      if (existingDrugIds.has(entry.row.drugId)) {
-        report.push({
-          drugId: entry.row.drugId,
-          drugName: entry.row.drugName,
-          pkName: entry.row.pkName,
-          pkSlug: entry.row.pkSlug,
-          status: "SKIPPED",
-          message: t("csv_skipped_existing_mapping"),
-        });
-        continue;
-      }
-      resolvedRows.push(entry);
-    }
+    const report: ProductMappingReportRow[] = [...csvValidation!.preUploadRows];
 
     setIsUploadingCsv(true);
     setUploadProgress({ done: 0, total: resolvedRows.length });
@@ -893,18 +1109,77 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                   )}
                   {csvFile &&
                     csvErrors.length === 0 &&
-                    csvRows.length > 0 &&
+                    csvValidation &&
                     csvReport.length === 0 &&
                     !isValidatingCsv &&
                     !isUploadingCsv && (
-                      <CsvStatusCard title={t("csv_ready_title")}>
+                      <CsvStatusCard
+                        title={
+                          csvValidation.counts.ready > 0
+                            ? t("csv_ready_title")
+                            : t("csv_validation_issues")
+                        }
+                        action={
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="bg-white"
+                            onClick={() =>
+                              downloadProductMappingValidationReport(
+                                buildValidationReportRows(),
+                              )
+                            }
+                          >
+                            <DownloadIcon className="mr-2 size-4" />
+                            {t("download_validation_report")}
+                          </Button>
+                        }
+                      >
                         <p>
-                          {t("csv_ready_to_upload", { count: csvRows.length })}
+                          {t("csv_ready_to_upload", {
+                            count: csvValidation.counts.ready,
+                          })}
                         </p>
-                        {csvDuplicateRows.length > 0 && (
+                        {csvValidation.counts.alreadyMappedProductKnowledge >
+                          0 && (
+                          <p>
+                            {t("csv_product_knowledge_already_mapped_skipped", {
+                              count:
+                                csvValidation.counts
+                                  .alreadyMappedProductKnowledge,
+                            })}
+                          </p>
+                        )}
+                        {csvValidation.counts.alreadyMappedDrug > 0 && (
+                          <p>
+                            {t("csv_drug_already_mapped_skipped", {
+                              count: csvValidation.counts.alreadyMappedDrug,
+                            })}
+                          </p>
+                        )}
+                        {csvValidation.counts.inactive > 0 && (
+                          <p>
+                            {t("csv_inactive_skipped", {
+                              count: csvValidation.counts.inactive,
+                            })}
+                          </p>
+                        )}
+                        {csvDuplicateRows.length +
+                          csvValidation.counts.duplicateProductKnowledge >
+                          0 && (
                           <p>
                             {t("csv_duplicates_skipped", {
-                              count: csvDuplicateRows.length,
+                              count:
+                                csvDuplicateRows.length +
+                                csvValidation.counts.duplicateProductKnowledge,
+                            })}
+                          </p>
+                        )}
+                        {csvValidation.counts.notFound > 0 && (
+                          <p className="text-red-600">
+                            {t("csv_product_knowledge_not_found_count", {
+                              count: csvValidation.counts.notFound,
                             })}
                           </p>
                         )}
@@ -981,7 +1256,9 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                       disabled={
                         !csvFile ||
                         csvErrors.length > 0 ||
-                        csvRows.length === 0 ||
+                        !csvValidation ||
+                        csvValidation.resolvedRows.length === 0 ||
+                        csvReport.length > 0 ||
                         isValidatingCsv ||
                         isUploadingCsv
                       }
@@ -1138,11 +1415,12 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                     disabled={
                       !mappingForm.productKnowledge ||
                       !mappingForm.dvdmsDrug ||
+                      isCheckingDuplicate ||
                       isSaving
                     }
                     onClick={saveMapping}
                   >
-                    {isSaving && (
+                    {(isCheckingDuplicate || isSaving) && (
                       <Loader2Icon className="mr-2 size-4 animate-spin" />
                     )}
                     {t("save")}

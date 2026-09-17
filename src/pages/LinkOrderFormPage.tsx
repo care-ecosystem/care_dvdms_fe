@@ -3,13 +3,12 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate, useQueryParams } from "raviger";
 import { useForm } from "react-hook-form";
-import { Box, ChevronLeftIcon, InfoIcon, XIcon } from "lucide-react";
+import { Box, ChevronLeftIcon, InfoIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
-import { goBack } from "@/lib/navigation";
 import { dvdmsBasePath } from "@/lib/paths";
 import { cn, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -232,27 +231,29 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
     setPage(1);
   };
 
-  const { data: candidateOrdersResponse, isLoading: isCandidateOrdersLoading } =
-    useQuery({
-      queryKey: [
-        "dvdms_link_order_candidates",
-        facilityId,
-        locationId,
-        supplierFilter?.id,
-        statusFilter,
-        priorityFilter,
-      ],
-      queryFn: () =>
-        apis.requestOrders.list(facilityId, {
-          destination: locationId,
-          limit: LIST_FETCH_LIMIT,
-          offset: 0,
-          status: statusFilter || "pending,draft",
-          origin_isnull: true,
-          ...(supplierFilter ? { supplier: supplierFilter.id } : {}),
-          ...(priorityFilter ? { priority: priorityFilter } : {}),
-        }),
-    });
+  const {
+    data: candidateOrdersResponse,
+    isFetching: isCandidateOrdersFetching,
+  } = useQuery({
+    queryKey: [
+      "dvdms_link_order_candidates",
+      facilityId,
+      locationId,
+      supplierFilter?.id,
+      statusFilter,
+      priorityFilter,
+    ],
+    queryFn: () =>
+      apis.requestOrders.list(facilityId, {
+        destination: locationId,
+        limit: LIST_FETCH_LIMIT,
+        offset: 0,
+        status: statusFilter || "pending,draft",
+        origin_isnull: true,
+        ...(supplierFilter ? { supplier: supplierFilter.id } : {}),
+        ...(priorityFilter ? { priority: priorityFilter } : {}),
+      }),
+  });
 
   const SELECTABLE_STATUS_ORDER: Record<string, number> = {
     pending: 0,
@@ -279,7 +280,11 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
     queryFn: () => apis.institutes.get(facilityId),
   });
 
-  const { data: recordOrderStatusResults } = useQuery({
+  const {
+    data: recordOrderStatusResults,
+    isPending: isRecordOrderStatusPending,
+    isFetching: isRecordOrderStatusFetching,
+  } = useQuery({
     queryKey: [
       "dvdms_linked_record_order_status",
       institute?.id,
@@ -317,12 +322,6 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
     page * PAGE_SIZE,
   );
 
-  const isCandidateOrdersFiltering =
-    candidateOrders.length > 0 && !recordOrderStatusResults;
-
-  const isCandidateListPending =
-    isCandidateOrdersLoading || isCandidateOrdersFiltering;
-
   useEffect(() => {
     const lastPage = Math.max(
       1,
@@ -333,7 +332,11 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
 
   const pagedCandidateOrderIds = pagedCandidateOrders.map((order) => order.id);
 
-  const { data: itemCountBatchResponse } = useQuery({
+  const {
+    data: itemCountBatchResponse,
+    isPending: isItemCountPending,
+    isFetching: isItemCountFetching,
+  } = useQuery({
     queryKey: ["dvdms_supply_requests_count", pagedCandidateOrderIds],
     queryFn: () =>
       apis.batchRequests.create({
@@ -353,6 +356,13 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
       (result.data as { count?: number } | undefined)?.count,
     ]) ?? [],
   );
+
+  const isCandidateListPending =
+    isCandidateOrdersFetching ||
+    (candidateOrders.length > 0 &&
+      (isRecordOrderStatusPending || isRecordOrderStatusFetching)) ||
+    (pagedCandidateOrders.length > 0 &&
+      (isItemCountPending || isItemCountFetching));
 
   const knownSelectedOrderItemCount = selectedOrder
     ? itemCountByOrderId.get(selectedOrder.id)
@@ -538,15 +548,6 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               </p>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0"
-            onClick={() => goBack(returnPath)}
-          >
-            <XIcon className="size-5" />
-            <span className="sr-only">{t("close")}</span>
-          </Button>
         </div>
 
         {!selectedOrderId ? (
@@ -592,7 +593,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               />
             )}
 
-            {!isCandidateListPending && (
+            {!isCandidateListPending && visibleCandidateOrders.length > 0 && (
               <Pagination
                 page={page}
                 pageSize={PAGE_SIZE}

@@ -52,7 +52,6 @@ const listAllRecordInwards = async (instituteId: string) => {
 
 type UseRecordInwardDeliveriesOptions = {
   indentStatus?: string | null;
-  
   inwardRecordId?: string;
 };
 

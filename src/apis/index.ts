@@ -50,7 +50,6 @@ import {
   RecordDeliveryUpdatePayload,
   RecordInward,
   RecordInwardDetail,
-  RecordInwardPayload,
   RecordOrder,
   RecordOrderOutward,
   RecordOrderPayload,
@@ -287,12 +286,6 @@ export const apis = {
       request<RecordInwardDetail>(
         apis.recordInwards.path(instituteId, recordInwardId),
         HttpMethod.GET,
-      ),
-    create: (instituteId: string, payload: RecordInwardPayload) =>
-      request<RecordInward>(
-        apis.recordInwards.listPath(instituteId),
-        HttpMethod.POST,
-        { ...payload },
       ),
     deliveriesPath: (instituteId: string, recordInwardId: string) =>
       `/api/care_dvdms/institute/${instituteId}/record_inwards/${recordInwardId}/delivery/`,

@@ -13,6 +13,7 @@ import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { goBack } from "@/lib/navigation";
 import { dvdmsBasePath } from "@/lib/paths";
 import BackButton from "@/components/BackButton";
+import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -49,11 +50,8 @@ type CreateDeliveryPageProps = {
   recordOrderId: string;
 };
 
-const INWARD_RECORD_REF = "inward-record";
 const DELIVERY_ORDER_REF = "delivery-order";
 const RECORD_DELIVERY_REF = "record-delivery";
-/** Placeholder the super batch swaps for the inward record it just created. */
-const INWARD_RECORD_URL_TOKEN = "inward_record";
 
 type DeliveryFormValues = {
   name: string;
@@ -166,30 +164,14 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
       ) {
         throw new Error("Missing DVDMS indent number for this outward record");
       }
+      if (!inwardRecord?.id) {
+        throw new Error("No DVDMS issue to record this delivery against");
+      }
       const instituteId = institute.id;
+      const inwardRecordId = inwardRecord.id;
 
       const requests: SuperBatchRequestItem[] = [];
       const replacements: SuperBatchReplacement[] = [];
-
-      if (!inwardRecord) {
-        requests.push({
-          reference_id: INWARD_RECORD_REF,
-          url: apis.recordInwards.listPath(instituteId),
-          method: HttpMethod.POST,
-          body: {
-            eaushadhi_issue_no: outward.eaushadhi_indent_no,
-            outward_record: outward.id,
-          },
-        });
-        replacements.push({
-          source_path: { reference_id: INWARD_RECORD_REF, path: "id" },
-          value_path: {
-            reference_id: RECORD_DELIVERY_REF,
-            path: INWARD_RECORD_URL_TOKEN,
-            type: "url",
-          },
-        });
-      }
 
       requests.push({
         reference_id: DELIVERY_ORDER_REF,
@@ -214,10 +196,7 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
 
       requests.push({
         reference_id: RECORD_DELIVERY_REF,
-        url: apis.recordInwards.deliveriesPath(
-          instituteId,
-          inwardRecord?.id ?? `{${INWARD_RECORD_URL_TOKEN}}`,
-        ),
+        url: apis.recordInwards.deliveriesPath(instituteId, inwardRecordId),
         method: HttpMethod.POST,
         body: {
           delivery_order: "",
@@ -234,11 +213,8 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
       const deliveryOrderId = (
         dataByRef.get(DELIVERY_ORDER_REF) as { id?: string } | undefined
       )?.id;
-      const inwardRecordId =
-        inwardRecord?.id ??
-        (dataByRef.get(INWARD_RECORD_REF) as { id?: string } | undefined)?.id;
 
-      if (!deliveryOrderId || !inwardRecordId) {
+      if (!deliveryOrderId) {
         throw new Error("Super batch did not return the created records");
       }
 
@@ -291,13 +267,13 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
         ) : (
           <div className="space-y-4">
             <Card>
-              <CardContent className="space-y-1 p-4">
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <CardContent className="space-y-1 p-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-8">
                   <div>
                     <label className="text-sm font-medium text-gray-700">
                       {t("deliver_to")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {recordOrder?.institute_store?.store.name ?? "—"}
                     </div>
                   </div>
@@ -305,7 +281,7 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
                     <label className="text-sm font-medium text-gray-700">
                       {t("supplier")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {recordOrder?.institute_supplier?.supplier?.name ?? "—"}
                     </div>
                   </div>
@@ -331,16 +307,16 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
                       {t("eaushadhi_indent_status")}
                     </label>
                     <div>
-                      <Badge className="rounded-sm" variant="secondary">
-                        {outward?.eaushadhi_indent_status ?? "—"}
-                      </Badge>
+                      <DvdmsIssueStatusBadge
+                        status={outward?.eaushadhi_indent_status}
+                      />
                     </div>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">
                       {t("care_indent_no")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {recordOrder?.care_indent_no ?? "—"}
                     </div>
                   </div>
@@ -348,7 +324,7 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
                     <label className="text-sm font-medium text-gray-700">
                       {t("eaushadhi_indent_no")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {outward?.eaushadhi_indent_no ?? "—"}
                     </div>
                   </div>
@@ -356,7 +332,7 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
                     <label className="text-sm font-medium text-gray-700">
                       {t("issue_no")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {inwardRecord?.eaushadhi_issue_no ?? "—"}
                     </div>
                   </div>
@@ -434,7 +410,15 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
                         {t("cancel")}
                         <ShortcutBadge actionId="cancel-action" />
                       </Button>
-                      <Button type="submit" disabled={isCreating}>
+                      <Button
+                        type="submit"
+                        disabled={isCreating || !inwardRecord}
+                        title={
+                          inwardRecord
+                            ? undefined
+                            : t("no_issues_found_description")
+                        }
+                      >
                         {isCreating ? t("creating") : t("create")}
                         <ShortcutBadge actionId="enter-action" />
                       </Button>

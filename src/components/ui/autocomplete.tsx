@@ -21,12 +21,15 @@ import {
 interface AutoCompleteOption {
   label: string;
   value: string;
+  group?: string;
+  hint?: string;
 }
 
 interface AutocompleteProps {
   options: AutoCompleteOption[];
   isLoading?: boolean;
   value: string;
+  selectedOptionValue?: string;
   onChange: (value: string) => void;
   onSearch?: (value: string) => void;
   onOpenChange?: (open: boolean) => void;
@@ -47,6 +50,7 @@ export default function Autocomplete({
   options,
   isLoading = false,
   value,
+  selectedOptionValue,
   onChange,
   onSearch,
   onOpenChange,
@@ -68,12 +72,30 @@ export default function Autocomplete({
 
   const selectedOption = options.find((option) => option.value === value);
 
-  const orderedOptions = React.useMemo(() => {
-    if (!selectedOption) return options;
-    return [
-      selectedOption,
-      ...options.filter((option) => option.value !== selectedOption.value),
-    ];
+  const tickedOptionValue = selectedOptionValue ?? value;
+
+  const groupedOptions = React.useMemo(() => {
+    const groups: { heading?: string; options: AutoCompleteOption[] }[] = [];
+    const byHeading = new Map<string | undefined, (typeof groups)[number]>();
+    options.forEach((option) => {
+      let group = byHeading.get(option.group);
+      if (!group) {
+        group = { heading: option.group, options: [] };
+        byHeading.set(option.group, group);
+        groups.push(group);
+      }
+      group.options.push(option);
+    });
+    const selectedGroup = selectedOption && byHeading.get(selectedOption.group);
+    if (selectedGroup) {
+      selectedGroup.options = [
+        selectedOption,
+        ...selectedGroup.options.filter(
+          (option) => option.value !== selectedOption.value,
+        ),
+      ];
+    }
+    return groups;
   }, [options, selectedOption]);
 
   React.useEffect(() => {
@@ -169,45 +191,56 @@ export default function Autocomplete({
               ) : (
                 <CommandEmpty>{noOptionsMessage}</CommandEmpty>
               )}
-              <CommandGroup>
-                {orderedOptions.map((option) => (
-                  <CommandItem
-                    key={option.value}
-                    value={`${option.label} - ${option.value}`}
-                    onSelect={(v) => {
-                      const currentValue =
-                        options.find((o) => `${o.label} - ${o.value}` === v)
-                          ?.value || "";
-                      onChange(currentValue);
-                      if (freeInput) {
-                        const selected = options.find(
-                          (o) => o.value === currentValue,
-                        );
-                        setInputValue(selected ? selected.label : currentValue);
-                      }
-                      if (closeOnSelect) setOpen(false);
-                    }}
-                  >
-                    <Check
-                      className={cn(
-                        "mr-2 size-4 shrink-0",
-                        value === option.value ? "opacity-100" : "opacity-0",
-                      )}
-                    />
-                    <span
-                      className="min-w-0 flex-1"
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        overflowWrap: "anywhere",
+              {groupedOptions.map((group) => (
+                <CommandGroup key={group.heading ?? ""} heading={group.heading}>
+                  {group.options.map((option) => (
+                    <CommandItem
+                      key={option.value}
+                      value={`${option.label} - ${option.value}`}
+                      onSelect={(v) => {
+                        const currentValue =
+                          options.find((o) => `${o.label} - ${o.value}` === v)
+                            ?.value || "";
+                        onChange(currentValue);
+                        if (freeInput) {
+                          const selected = options.find(
+                            (o) => o.value === currentValue,
+                          );
+                          setInputValue(
+                            selected ? selected.label : currentValue,
+                          );
+                        }
+                        if (closeOnSelect) setOpen(false);
                       }}
-                      title={option.label}
                     >
-                      {option.label}
-                    </span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
+                      <Check
+                        className={cn(
+                          "mr-2 size-4 shrink-0",
+                          tickedOptionValue === option.value
+                            ? "opacity-100"
+                            : "opacity-0",
+                        )}
+                      />
+                      <span
+                        className="min-w-0 flex-1"
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          overflowWrap: "anywhere",
+                        }}
+                        title={option.label}
+                      >
+                        {option.label}
+                      </span>
+                      {option.hint && (
+                        <span className="ml-2 shrink-0 text-xs text-gray-500">
+                          {option.hint}
+                        </span>
+                      )}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ))}
             </CommandList>
           </Command>
         </PopoverContent>

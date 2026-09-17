@@ -14,6 +14,7 @@ import {
 } from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import {
+  ACKNOWLEDGEMENT_POLL_INTERVAL_MS,
   I18N_NAMESPACE,
   LIST_FETCH_LIMIT,
   MAX_REQUESTS_PER_BATCH,
@@ -37,6 +38,7 @@ import {
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import BackButton from "@/components/BackButton";
 import DeliveryItemRow from "@/components/DeliveryItemRow";
+import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import {
   ShortcutProvider,
   useShortcutSubContext,
@@ -52,19 +54,17 @@ import { ProductStatus } from "@/types/inventory";
 import { ProductKnowledge } from "@/types/productKnowledge";
 import { RecordItemOrder } from "@/types/recordOrderItem";
 import {
-  ACKNOWLEDGEMENT_STATUS_LABELS,
-  ACKNOWLEDGEMENT_STATUS_VARIANTS,
   RECORD_DELIVERY_ITEM_STATUS_LABELS,
   RECORD_DELIVERY_ITEM_STATUS_VARIANTS,
+  RECORD_DELIVERY_STATUS_LABELS,
   RECORD_DELIVERY_STATUS_VARIANTS,
   RECORD_INWARD_STATUS_LABELS,
   RECORD_INWARD_STATUS_VARIANTS,
-  DvdmsSyncRequestStatus,
-  DvdmsSyncType,
   RecordDeliveryItem,
   RecordDeliveryItemStatus,
   RecordDeliveryStatus,
   RecordInwardItem,
+  isRecordDeliveryReceived,
 } from "@/types/recordOrder";
 import { SuperBatchRequestItem } from "@/types/superBatch";
 import {
@@ -200,7 +200,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
 
   const inwardRecord = deliveryOwner?.inwardRecord ?? fallbackInwardRecord;
   const recordDelivery = deliveryOwner?.recordDelivery;
-  const recordDeliveryStatus = recordDelivery?.status;
 
   const { data: recordDeliveryDetail, isLoading: isLoadingSavedItems } =
     useQuery({
@@ -217,7 +216,14 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           recordDelivery!.id,
         ),
       enabled: !!institute?.id && !!inwardRecord?.id && !!recordDelivery?.id,
+      refetchInterval: (query) =>
+        query.state.data?.status === RecordDeliveryStatus.received
+          ? ACKNOWLEDGEMENT_POLL_INTERVAL_MS
+          : false,
     });
+
+  const recordDeliveryStatus =
+    recordDeliveryDetail?.status ?? recordDelivery?.status;
 
   const savedItems = useMemo(
     () => recordDeliveryDetail?.items ?? [],
@@ -716,7 +722,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
               recordDelivery.id,
             ),
             method: HttpMethod.PATCH,
-            body: { status: RecordDeliveryStatus.completed },
+            body: { status: RecordDeliveryStatus.received },
           },
           {
             reference_id: "delivery-order",
@@ -739,6 +745,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       queryClient.invalidateQueries({
         queryKey: ["dvdms_record_delivery_detail"],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_inward_detail"],
+      });
     },
     onError: (error: unknown) => {
       const message =
@@ -760,41 +769,32 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
         recordDelivery.id,
       );
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success(t("acknowledgement_retry_queued"));
-      queryClient.invalidateQueries({ queryKey: ["dvdms_record_inwards"] });
-      queryClient.invalidateQueries({ queryKey: ["dvdms_record_deliveries"] });
-      queryClient.invalidateQueries({
-        queryKey: ["dvdms_record_delivery_detail"],
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dvdms_record_inwards"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_record_inward_detail"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_record_deliveries"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_record_delivery_detail"],
+        }),
+      ]);
     },
     onError: (error: { message?: string }) => {
       toast.error(error?.message || t("acknowledgement_retry_failed"));
     },
   });
 
-  /** The issue's last sync, only when it was an acknowledgement attempt. */
-  const acknowledgement =
-    inwardRecord?.sync_log?.sync_type === DvdmsSyncType.acknowledge_issue
-      ? inwardRecord.sync_log
-      : undefined;
-
-  const failedAcknowledgement =
-    acknowledgement?.request_status === DvdmsSyncRequestStatus.failure
-      ? acknowledgement
-      : undefined;
-
-  // Once submitted, the acknowledgement outcome is the meaningful status.
-  const showAcknowledgementStatus =
-    recordDeliveryStatus === RecordDeliveryStatus.completed &&
-    !!acknowledgement;
-
   const hasFailedAcknowledgement =
-    showAcknowledgementStatus && !!failedAcknowledgement;
+    recordDeliveryStatus === RecordDeliveryStatus.acknowledgement_failed;
 
   const canApproveDelivery =
     !!recordDelivery?.id &&
-    recordDeliveryStatus !== RecordDeliveryStatus.completed &&
+    !isRecordDeliveryReceived(recordDeliveryStatus) &&
     recordDeliveryStatus !== RecordDeliveryStatus.cancelled &&
     fields.length === 0 &&
     savedItems.length > 0 &&
@@ -808,7 +808,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   return (
     <div className="md:px-6 py-0 min-w-0">
       <div className="container mx-auto max-w-6xl">
-        <div className="flex items-start gap-4 mb-6">
+        <div className="flex flex-wrap items-start gap-4 mb-6">
           <BackButton
             size="icon"
             className="shrink-0"
@@ -825,45 +825,43 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
               {t("add_delivery_items_description")}
             </p>
           </div>
-          {hasFailedAcknowledgement && (
-            <Button
-              type="button"
-              variant="outline"
-              className="shrink-0"
-              onClick={() => retryAcknowledgementMutation.mutate()}
-              disabled={retryAcknowledgementMutation.isPending}
-              title={
-                failedAcknowledgement?.error_detail ??
-                (failedAcknowledgement?.http_status_code
-                  ? t("acknowledgement_failed_with_status", {
-                      status: failedAcknowledgement.http_status_code,
-                    })
-                  : undefined)
-              }
-            >
-              <RefreshCw className="size-4" />
-              {retryAcknowledgementMutation.isPending
-                ? t("retrying")
-                : t("retry_acknowledgement")}
-            </Button>
-          )}
-          {canApproveDelivery && (
-            <Button
-              type="button"
-              className="shrink-0"
-              onClick={() => approveDeliveryMutation.mutate()}
-              disabled={approveDeliveryMutation.isPending || hasUnreceivedItems}
-              title={
-                hasUnreceivedItems
-                  ? t("receive_all_items_to_approve")
-                  : undefined
-              }
-            >
-              {approveDeliveryMutation.isPending
-                ? t("saving")
-                : t("mark_as_completed")}
-              <ShortcutBadge actionId="mark-as" />
-            </Button>
+          {(hasFailedAcknowledgement || canApproveDelivery) && (
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              {hasFailedAcknowledgement && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 sm:flex-none"
+                  onClick={() => retryAcknowledgementMutation.mutate()}
+                  disabled={retryAcknowledgementMutation.isPending}
+                >
+                  <RefreshCw className="size-4" />
+                  {retryAcknowledgementMutation.isPending
+                    ? t("retrying")
+                    : t("retry_acknowledgement")}
+                </Button>
+              )}
+              {canApproveDelivery && (
+                <Button
+                  type="button"
+                  className="flex-1 sm:flex-none"
+                  onClick={() => approveDeliveryMutation.mutate()}
+                  disabled={
+                    approveDeliveryMutation.isPending || hasUnreceivedItems
+                  }
+                  title={
+                    hasUnreceivedItems
+                      ? t("receive_all_items_to_approve")
+                      : undefined
+                  }
+                >
+                  {approveDeliveryMutation.isPending
+                    ? t("saving")
+                    : t("mark_as_completed")}
+                  {!hasUnreceivedItems && <ShortcutBadge actionId="mark-as" />}
+                </Button>
+              )}
+            </div>
           )}
         </div>
 
@@ -875,13 +873,13 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
         ) : (
           <>
             <Card className="mb-4">
-              <CardContent className="space-y-1 p-4">
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <CardContent className="space-y-1 p-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-8">
                   <div>
                     <label className="text-sm font-medium text-gray-700">
                       {t("deliver_to")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {recordOrder?.institute_store?.store.name ?? "—"}
                     </div>
                   </div>
@@ -889,7 +887,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     <label className="text-sm font-medium text-gray-700">
                       {t("supplier")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {recordOrder?.institute_supplier?.supplier?.name ?? "—"}
                     </div>
                   </div>
@@ -899,35 +897,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     </label>
                     <div>
                       {!recordDeliveryStatus ? (
-                        <div className="text-lg font-semibold text-gray-950">
+                        <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                           —
                         </div>
-                      ) : showAcknowledgementStatus ? (
-                        <Badge
-                          className="rounded-sm"
-                          variant={
-                            ACKNOWLEDGEMENT_STATUS_VARIANTS[
-                              acknowledgement.request_status
-                            ] ?? "secondary"
-                          }
-                          title={
-                            failedAcknowledgement
-                              ? (failedAcknowledgement.error_detail ??
-                                (failedAcknowledgement.http_status_code
-                                  ? t("acknowledgement_failed_with_status", {
-                                      status:
-                                        failedAcknowledgement.http_status_code,
-                                    })
-                                  : undefined))
-                              : undefined
-                          }
-                        >
-                          {t(
-                            ACKNOWLEDGEMENT_STATUS_LABELS[
-                              acknowledgement.request_status
-                            ] ?? acknowledgement.request_status,
-                          )}
-                        </Badge>
                       ) : (
                         <Badge
                           className="rounded-sm"
@@ -937,26 +909,30 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                             ] ?? "secondary"
                           }
                         >
-                          {t(recordDeliveryStatus)}
+                          {t(
+                            RECORD_DELIVERY_STATUS_LABELS[
+                              recordDeliveryStatus
+                            ] ?? recordDeliveryStatus,
+                          )}
                         </Badge>
                       )}
                     </div>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                    <label className="text-sm font-medium text-gray-700">
                       {t("eaushadhi_indent_status")}
                     </label>
                     <div>
-                      <Badge className="rounded-sm" variant="secondary">
-                        {outward?.eaushadhi_indent_status ?? "—"}
-                      </Badge>
+                      <DvdmsIssueStatusBadge
+                        status={outward?.eaushadhi_indent_status}
+                      />
                     </div>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">
                       {t("care_indent_no")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {recordOrder?.care_indent_no ?? "—"}
                     </div>
                   </div>
@@ -964,7 +940,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     <label className="text-sm font-medium text-gray-700">
                       {t("eaushadhi_indent_no")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {outward?.eaushadhi_indent_no ?? "—"}
                     </div>
                   </div>
@@ -972,7 +948,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     <label className="text-sm font-medium text-gray-700">
                       {t("issue_no")}
                     </label>
-                    <div className="text-lg font-semibold text-gray-950">
+                    <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                       {inwardRecord?.eaushadhi_issue_no ?? "—"}
                     </div>
                   </div>
@@ -997,7 +973,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                           )}
                         </Badge>
                       ) : (
-                        <div className="text-lg font-semibold text-gray-950">
+                        <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                           —
                         </div>
                       )}
@@ -1023,17 +999,20 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                       <Table>
                         <TableHeader className="bg-gray-100">
                           <TableRow className="divide-x divide-gray-200">
-                            <TableHead className="min-w-[200px] text-xs font-semibold">
+                            <TableHead className="min-w-[170px] text-xs font-semibold">
                               {t("drug")}
                             </TableHead>
-                            <TableHead className="min-w-[120px] text-xs font-semibold">
+                            <TableHead className="text-xs font-semibold">
                               {t("batch")}
                             </TableHead>
-                            <TableHead className="min-w-[130px] text-xs font-semibold">
+                            <TableHead className="text-xs font-semibold">
                               {t("expiry")}
                             </TableHead>
-                            <TableHead className="min-w-[200px] text-xs font-semibold">
+                            <TableHead className="min-w-[170px] text-xs font-semibold">
                               {t("product_knowledge")}
+                            </TableHead>
+                            <TableHead className="text-xs font-semibold">
+                              {t("category")}
                             </TableHead>
                             <TableHead className="text-xs font-semibold text-right">
                               {t("dispatched")}
@@ -1054,8 +1033,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                         </TableHeader>
                         <TableBody>
                           {savedItems.map((item) => {
-                            // A saved item carries the batch but not the
-                            // expiry, so the issue's own item supplies it.
                             const inwardItem = inwardItemById.get(
                               item.inward_record_item.id,
                             );
@@ -1077,14 +1054,23 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                     )}
                                   </div>
                                 </TableCell>
-                                <TableCell className="p-2 text-sm text-gray-900">
+                                <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
                                   {item.inward_record_item.batch_number || "—"}
                                 </TableCell>
-                                <TableCell className="p-2 text-sm text-gray-900">
-                                  {formatDate(inwardItem?.expiry_date)}
+                                <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
+                                  {formatDate(
+                                    item.inward_record_item.expiry_date,
+                                  )}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-gray-900">
                                   {item.product_knowledge?.name || "—"}
+                                </TableCell>
+                                <TableCell className="p-2 text-sm text-gray-900 capitalize whitespace-nowrap">
+                                  {(inwardItem?.drug_id
+                                    ? productKnowledgeByDrugId.get(
+                                        inwardItem.drug_id,
+                                      )?.product_type
+                                    : undefined) || "—"}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-right tabular-nums">
                                   {item.quantity_dispatched ?? "—"}
@@ -1142,6 +1128,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                         {approveItemsMutation.isPending
                           ? t("approving")
                           : t("mark_items_as_approved")}
+                        <ShortcutBadge actionId="mark-as" />
                       </Button>
                     </div>
                   )}
@@ -1156,7 +1143,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     <form onSubmit={onSubmit} className="space-y-6">
                       <div className="rounded-md border border-gray-200 bg-white shadow overflow-hidden">
                         <div className="overflow-x-auto">
-                          <Table>
+                          <Table className="min-w-[52rem]">
                             <TableHeader className="bg-gray-100">
                               <TableRow className="divide-x divide-gray-200">
                                 <TableHead
@@ -1167,49 +1154,49 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="min-w-[200px] text-xs font-semibold"
+                                  className="w-[21%] text-xs font-semibold"
                                 >
                                   {t("product_knowledge")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="min-w-[140px] text-xs font-semibold text-center"
+                                  className="w-[12%] text-xs font-semibold"
                                 >
                                   {t("category")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-24 text-xs font-semibold"
+                                  className="w-[7%] text-xs font-semibold"
                                 >
                                   {t("dispatched")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-24 text-xs font-semibold"
+                                  className="w-[7%] text-xs font-semibold"
                                 >
                                   {t("damaged")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-24 text-xs font-semibold"
+                                  className="w-[7%] text-xs font-semibold"
                                 >
                                   {t("received_qty")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-24 text-xs font-semibold"
+                                  className="w-[7%] text-xs font-semibold"
                                 >
                                   {t("short")}
                                 </TableHead>
                               </TableRow>
                               <TableRow className="divide-x divide-gray-200">
-                                <TableHead className="min-w-[200px] text-xs font-semibold">
+                                <TableHead className="w-[18%] text-xs font-semibold">
                                   {t("drug")}
                                 </TableHead>
-                                <TableHead className="min-w-[120px] text-xs font-semibold">
+                                <TableHead className="w-[9%] text-xs font-semibold">
                                   {t("batch")}
                                 </TableHead>
-                                <TableHead className="min-w-[130px] text-xs font-semibold border-r">
+                                <TableHead className="w-[12%] text-xs font-semibold border-r">
                                   {t("expiry")}
                                 </TableHead>
                               </TableRow>

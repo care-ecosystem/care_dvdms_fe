@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { UseFormReturn, useWatch } from "react-hook-form";
 
@@ -24,15 +24,11 @@ export function useDeliveryRowItem({
   index,
   facilityId,
 }: UseDeliveryRowItemProps) {
-  const [isCreatingNew, setIsCreatingNew] = useState(false);
-
   const item = useWatch({ control: form.control, name: `items.${index}` });
 
   const {
     product_knowledge: productKnowledge,
     supplied_item: suppliedItem,
-    charge_item_category: chargeItemCategory,
-    is_manually_edited: isManuallyEdited,
     eaushadhi_expiry: eaushadhiExpiry,
   } = item || {};
 
@@ -63,13 +59,11 @@ export function useDeliveryRowItem({
         value as DeliveryItemFormValues[keyof DeliveryItemFormValues],
       );
     });
-    setIsCreatingNew(false);
   }, [setField, eaushadhiExpiry]);
 
   const markAsEdited = useCallback(() => {
     setField("is_manually_edited", true);
     setField("supplied_item", undefined);
-    setIsCreatingNew(true);
   }, [setField]);
 
   const { data: productsData } = useQuery({
@@ -115,7 +109,6 @@ export function useDeliveryRowItem({
     [resetFields, setField, eaushadhiExpiry],
   );
 
-
   useEffect(() => {
     const isManuallyEdited = form.getValues(
       `items.${index}.is_manually_edited`,
@@ -136,25 +129,9 @@ export function useDeliveryRowItem({
     fillFromProduct(matchingProduct ?? products[0]);
   }, [products, suppliedItem, index, form, fillFromProduct]);
 
-  const needsCategorySelection = useMemo(() => {
-    if (!productKnowledge) return false;
-    if (suppliedItem?.charge_item_definition?.category) return false;
-    return isCreatingNew || isManuallyEdited || products.length === 0;
-  }, [
-    productKnowledge,
-    suppliedItem,
-    products.length,
-    isCreatingNew,
-    isManuallyEdited,
-  ]);
-
   return {
     productKnowledge,
     suppliedItem,
-    chargeItemCategory,
-
-    needsCategorySelection,
-
     setField,
     resetFields,
     markAsEdited,

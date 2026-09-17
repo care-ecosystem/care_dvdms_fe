@@ -8,13 +8,13 @@ import { FormControl, FormField, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { TableCell, TableRow } from "@/components/ui/table";
 import ProductKnowledgeSelect from "@/components/ProductKnowledgeSelect";
-import ResourceCategoryPicker from "@/components/ResourceCategoryPicker";
 import { useDeliveryRowItem } from "@/hooks/useDeliveryRowItem";
 import {
   DeliveryItemFormValues,
   DeliveryItemsFormValues,
 } from "@/types/deliveryItemForm";
-import { ResourceCategoryType } from "@/types/productKnowledge";
+
+const QUANTITY_INPUT_CLASS = "h-9 w-full min-w-[3.5rem]";
 
 type DeliveryItemRowProps = {
   form: UseFormReturn<DeliveryItemsFormValues>;
@@ -31,15 +31,8 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
-  const {
-    productKnowledge,
-    suppliedItem,
-    chargeItemCategory,
-    needsCategorySelection,
-    setField,
-    resetFields,
-    markAsEdited,
-  } = useDeliveryRowItem({ form, index, facilityId });
+  const { productKnowledge, setField, resetFields, markAsEdited } =
+    useDeliveryRowItem({ form, index, facilityId });
 
   const row = form.getValues(`items.${index}`);
 
@@ -115,7 +108,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                       markAsEdited();
                     }}
                     disabled={!productKnowledge}
-                    className="h-9 w-full min-w-[10rem]"
+                    className="h-9 w-full min-w-0"
                   />
                 </FormControl>
                 <FormMessage />
@@ -142,7 +135,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                     resetFields();
                   }}
                   placeholder={t("select_product")}
-                  className="w-full min-w-[180px]"
+                  className="w-full"
                   hideClearButton
                 />
               </FormControl>
@@ -157,25 +150,14 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         />
       </TableCell>
 
-      {/* Category */}
-      <TableCell className="align-top p-2 text-center">
-        {needsCategorySelection ? (
-          <ResourceCategoryPicker
-            facilityId={facilityId}
-            resourceType={ResourceCategoryType.charge_item_definition}
-            value={chargeItemCategory}
-            onValueChange={(category) => {
-              setField("charge_item_category", category?.slug || "");
-              markAsEdited();
-            }}
-            placeholder={t("select_category")}
-            className="w-full min-w-[140px]"
-          />
-        ) : (
-          <span className="text-sm text-gray-500">
-            {suppliedItem?.charge_item_definition?.category?.title || "-"}
-          </span>
-        )}
+      <TableCell className="align-top p-2">
+        <Input
+          value={productKnowledge?.product_type ?? ""}
+          placeholder="-"
+          disabled
+          readOnly
+          className="w-full min-w-0 bg-gray-50 capitalize cursor-default disabled:opacity-100 disabled:text-gray-950"
+        />
       </TableCell>
 
       <TableCell className="align-top p-2">
@@ -191,7 +173,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   type="number"
                   min={0}
                   disabled
-                  className={cn("h-9 w-24", readOnlyQuantityClass)}
+                  className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
                 />
               </FormControl>
               <FormMessage />
@@ -218,7 +200,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                     field.onChange(event);
                     applyDamaged(event.target.value);
                   }}
-                  className="h-9 w-24"
+                  className={QUANTITY_INPUT_CLASS}
                 />
               </FormControl>
               <FormMessage />
@@ -247,7 +229,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   }}
                   disabled={!canUpdateReceivedQuantity}
                   className={cn(
-                    "h-9 w-24",
+                    QUANTITY_INPUT_CLASS,
                     !canUpdateReceivedQuantity && readOnlyQuantityClass,
                   )}
                 />
@@ -272,7 +254,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   type="number"
                   min={0}
                   disabled
-                  className={cn("h-9 w-24", readOnlyQuantityClass)}
+                  className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
                 />
               </FormControl>
               <FormMessage />

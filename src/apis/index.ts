@@ -60,7 +60,7 @@ import {
   RecordItemOrderPayload,
 } from "@/types/recordOrderItem";
 import { RecordOrderProductMapping } from "@/types/productMapping";
-import { RequestOrder } from "@/types/requestOrder";
+import { AvailableRequestOrder, RequestOrder } from "@/types/requestOrder";
 import {
   SUPPLY_DELIVERY_ITEM_TYPE,
   SupplyDeliveryCreatePayload,
@@ -163,6 +163,27 @@ export const apis = {
         apis.supplyDeliveries.upsertPath,
         HttpMethod.POST,
         { datapoints },
+      ),
+  },
+  availableRequestOrders: {
+    path: (instituteId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/available_request_orders/`,
+    list: (
+      instituteId: string,
+      params: {
+        location: string;
+        limit?: number;
+        offset?: number;
+        priority?: string;
+        status?: string;
+        supplier?: string;
+        ordering?: string;
+      },
+    ) =>
+      request<PaginatedResponse<AvailableRequestOrder>>(
+        apis.availableRequestOrders.path(instituteId),
+        HttpMethod.GET,
+        params,
       ),
   },
   recordOrders: {

@@ -112,24 +112,6 @@ export enum DvdmsSyncRequestStatus {
   failure = "failure",
 }
 
-export const ACKNOWLEDGEMENT_STATUS_VARIANTS: Record<
-  DvdmsSyncRequestStatus,
-  RequestOrderBadgeVariant
-> = {
-  [DvdmsSyncRequestStatus.pending]: "yellow",
-  [DvdmsSyncRequestStatus.success]: "green",
-  [DvdmsSyncRequestStatus.failure]: "destructive",
-};
-
-export const ACKNOWLEDGEMENT_STATUS_LABELS: Record<
-  DvdmsSyncRequestStatus,
-  string
-> = {
-  [DvdmsSyncRequestStatus.pending]: "acknowledgement_pending",
-  [DvdmsSyncRequestStatus.success]: "acknowledgement_completed",
-  [DvdmsSyncRequestStatus.failure]: "acknowledgement_failed",
-};
-
 /** DVDMS reports a single issue status — the issue has been fetched from eAushadhi. */
 export enum RecordInwardStatus {
   fetched = "fetched",
@@ -155,27 +137,6 @@ export interface RecordInwardSyncLog {
   retry_count: number;
   error_detail: string | null;
 }
-
-/** The last sync against an issue, when it was an acknowledgement attempt. */
-export const acknowledgementSyncLog = (
-  syncLog: RecordInwardSyncLog | null | undefined,
-) =>
-  syncLog?.sync_type === DvdmsSyncType.acknowledge_issue ? syncLog : undefined;
-
-/**
- * DVDMS acknowledges a completed delivery in the background: the outcome is
- * still on its way while the acknowledgement is pending, or while a completed
- * delivery has no acknowledgement recorded against it yet.
- */
-export const isAcknowledgementInFlight = (
-  syncLog: RecordInwardSyncLog | null | undefined,
-  isDeliveryCompleted: boolean,
-) => {
-  const acknowledgement = acknowledgementSyncLog(syncLog);
-  return acknowledgement
-    ? acknowledgement.request_status === DvdmsSyncRequestStatus.pending
-    : isDeliveryCompleted;
-};
 
 export interface RecordInward {
   id: string;
@@ -212,7 +173,9 @@ export interface RecordInwardDetail extends RecordInward {
 export enum RecordDeliveryStatus {
   pending = "pending",
   in_progress = "in_progress",
-  completed = "completed",
+  received = "received",
+  acknowledged = "acknowledged",
+  acknowledgement_failed = "acknowledgement_failed",
   cancelled = "cancelled",
 }
 
@@ -222,9 +185,30 @@ export const RECORD_DELIVERY_STATUS_VARIANTS: Record<
 > = {
   [RecordDeliveryStatus.pending]: "yellow",
   [RecordDeliveryStatus.in_progress]: "indigo",
-  [RecordDeliveryStatus.completed]: "green",
+  [RecordDeliveryStatus.received]: "green",
+  [RecordDeliveryStatus.acknowledged]: "green",
+  [RecordDeliveryStatus.acknowledgement_failed]: "destructive",
   [RecordDeliveryStatus.cancelled]: "destructive",
 };
+
+export const RECORD_DELIVERY_STATUS_LABELS: Record<
+  RecordDeliveryStatus,
+  string
+> = {
+  [RecordDeliveryStatus.pending]: "pending",
+  [RecordDeliveryStatus.in_progress]: "in_progress",
+  [RecordDeliveryStatus.received]: "delivered",
+  [RecordDeliveryStatus.acknowledged]: "acknowledgement_completed",
+  [RecordDeliveryStatus.acknowledgement_failed]: "acknowledgement_failed",
+  [RecordDeliveryStatus.cancelled]: "cancelled",
+};
+
+export const isRecordDeliveryReceived = (
+  status?: RecordDeliveryStatus,
+): boolean =>
+  status === RecordDeliveryStatus.received ||
+  status === RecordDeliveryStatus.acknowledged ||
+  status === RecordDeliveryStatus.acknowledgement_failed;
 
 export interface RecordDeliveryPayload {
   delivery_order: string;

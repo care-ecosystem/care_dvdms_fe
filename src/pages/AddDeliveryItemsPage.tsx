@@ -14,6 +14,7 @@ import {
 } from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import {
+  ACKNOWLEDGEMENT_POLL_INTERVAL_MS,
   I18N_NAMESPACE,
   LIST_FETCH_LIMIT,
   MAX_REQUESTS_PER_BATCH,
@@ -53,20 +54,17 @@ import { ProductStatus } from "@/types/inventory";
 import { ProductKnowledge } from "@/types/productKnowledge";
 import { RecordItemOrder } from "@/types/recordOrderItem";
 import {
-  ACKNOWLEDGEMENT_STATUS_LABELS,
-  ACKNOWLEDGEMENT_STATUS_VARIANTS,
   RECORD_DELIVERY_ITEM_STATUS_LABELS,
   RECORD_DELIVERY_ITEM_STATUS_VARIANTS,
+  RECORD_DELIVERY_STATUS_LABELS,
   RECORD_DELIVERY_STATUS_VARIANTS,
   RECORD_INWARD_STATUS_LABELS,
   RECORD_INWARD_STATUS_VARIANTS,
-  DvdmsSyncRequestStatus,
   RecordDeliveryItem,
   RecordDeliveryItemStatus,
   RecordDeliveryStatus,
   RecordInwardItem,
-  acknowledgementSyncLog,
-  isAcknowledgementInFlight,
+  isRecordDeliveryReceived,
 } from "@/types/recordOrder";
 import { SuperBatchRequestItem } from "@/types/superBatch";
 import {
@@ -78,8 +76,6 @@ import {
 import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
 
 const MAX_ROWS_PER_SUPER_BATCH = Math.floor(MAX_REQUESTS_PER_SUPER_BATCH / 3);
-
-const ACKNOWLEDGEMENT_POLL_INTERVAL_MS = 5_000;
 
 const MAX_ITEMS_PER_APPROVAL_BATCH = MAX_REQUESTS_PER_SUPER_BATCH - 1;
 
@@ -204,7 +200,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
 
   const inwardRecord = deliveryOwner?.inwardRecord ?? fallbackInwardRecord;
   const recordDelivery = deliveryOwner?.recordDelivery;
-  const recordDeliveryStatus = recordDelivery?.status;
 
   const { data: recordDeliveryDetail, isLoading: isLoadingSavedItems } =
     useQuery({
@@ -221,7 +216,14 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           recordDelivery!.id,
         ),
       enabled: !!institute?.id && !!inwardRecord?.id && !!recordDelivery?.id,
+      refetchInterval: (query) =>
+        query.state.data?.status === RecordDeliveryStatus.received
+          ? ACKNOWLEDGEMENT_POLL_INTERVAL_MS
+          : false,
     });
+
+  const recordDeliveryStatus =
+    recordDeliveryDetail?.status ?? recordDelivery?.status;
 
   const savedItems = useMemo(
     () => recordDeliveryDetail?.items ?? [],
@@ -233,17 +235,10 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     [savedItems],
   );
 
-  const isDeliveryCompleted =
-    recordDeliveryStatus === RecordDeliveryStatus.completed;
-
   const { data: recordInwardDetail, isLoading: isLoadingApiItems } = useQuery({
     queryKey: ["dvdms_record_inward_detail", institute?.id, inwardRecord?.id],
     queryFn: () => apis.recordInwards.retrieve(institute!.id, inwardRecord!.id),
     enabled: !!institute?.id && !!inwardRecord?.id,
-    refetchInterval: (query) =>
-      isAcknowledgementInFlight(query.state.data?.sync_log, isDeliveryCompleted)
-        ? ACKNOWLEDGEMENT_POLL_INTERVAL_MS
-        : false,
   });
 
   const apiItems: RecordInwardItem[] = recordInwardDetail?.items ?? [];
@@ -727,7 +722,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
               recordDelivery.id,
             ),
             method: HttpMethod.PATCH,
-            body: { status: RecordDeliveryStatus.completed },
+            body: { status: RecordDeliveryStatus.received },
           },
           {
             reference_id: "delivery-order",
@@ -794,20 +789,12 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     },
   });
 
-  const acknowledgement = acknowledgementSyncLog(recordInwardDetail?.sync_log);
-
-  const failedAcknowledgement =
-    acknowledgement?.request_status === DvdmsSyncRequestStatus.failure
-      ? acknowledgement
-      : undefined;
-
-  const showAcknowledgementStatus = !!acknowledgement;
-
-  const hasFailedAcknowledgement = !!failedAcknowledgement;
+  const hasFailedAcknowledgement =
+    recordDeliveryStatus === RecordDeliveryStatus.acknowledgement_failed;
 
   const canApproveDelivery =
     !!recordDelivery?.id &&
-    recordDeliveryStatus !== RecordDeliveryStatus.completed &&
+    !isRecordDeliveryReceived(recordDeliveryStatus) &&
     recordDeliveryStatus !== RecordDeliveryStatus.cancelled &&
     fields.length === 0 &&
     savedItems.length > 0 &&
@@ -847,14 +834,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   className="flex-1 sm:flex-none"
                   onClick={() => retryAcknowledgementMutation.mutate()}
                   disabled={retryAcknowledgementMutation.isPending}
-                  title={
-                    failedAcknowledgement?.error_detail ??
-                    (failedAcknowledgement?.http_status_code
-                      ? t("acknowledgement_failed_with_status", {
-                          status: failedAcknowledgement.http_status_code,
-                        })
-                      : undefined)
-                  }
                 >
                   <RefreshCw className="size-4" />
                   {retryAcknowledgementMutation.isPending
@@ -921,32 +900,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                         <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                           —
                         </div>
-                      ) : showAcknowledgementStatus ? (
-                        <Badge
-                          className="rounded-sm"
-                          variant={
-                            ACKNOWLEDGEMENT_STATUS_VARIANTS[
-                              acknowledgement.request_status
-                            ] ?? "secondary"
-                          }
-                          title={
-                            failedAcknowledgement
-                              ? (failedAcknowledgement.error_detail ??
-                                (failedAcknowledgement.http_status_code
-                                  ? t("acknowledgement_failed_with_status", {
-                                      status:
-                                        failedAcknowledgement.http_status_code,
-                                    })
-                                  : undefined))
-                              : undefined
-                          }
-                        >
-                          {t(
-                            ACKNOWLEDGEMENT_STATUS_LABELS[
-                              acknowledgement.request_status
-                            ] ?? acknowledgement.request_status,
-                          )}
-                        </Badge>
                       ) : (
                         <Badge
                           className="rounded-sm"
@@ -956,7 +909,11 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                             ] ?? "secondary"
                           }
                         >
-                          {t(recordDeliveryStatus)}
+                          {t(
+                            RECORD_DELIVERY_STATUS_LABELS[
+                              recordDeliveryStatus
+                            ] ?? recordDeliveryStatus,
+                          )}
                         </Badge>
                       )}
                     </div>

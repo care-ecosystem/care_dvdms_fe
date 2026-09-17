@@ -7,7 +7,6 @@ import { Box, ChevronLeftIcon, InfoIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
-import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { dvdmsBasePath } from "@/lib/paths";
 import { cn, formatDate } from "@/lib/utils";
@@ -42,20 +41,13 @@ import {
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
 import {
+  AvailableRequestOrder,
   REQUEST_ORDER_PRIORITY_VARIANTS,
   REQUEST_ORDER_STATUS_VARIANTS,
-  RequestOrder,
 } from "@/types/requestOrder";
 import { Organization } from "@/types/organization";
 
 const PAGE_SIZE = 9;
-
-const DEAD_END_RECORD_ORDER_STATUSES = new Set([
-  "approved",
-  "rejected",
-  "completed",
-  "failed",
-]);
 
 type RecordOrderFormValues = {
   name: string;
@@ -77,18 +69,12 @@ const LinkOrderFormPage: FC<LinkOrderFormPageProps> = (props) => (
 );
 
 type OrderCardProps = {
-  order: RequestOrder;
-  itemCount: number | undefined;
+  order: AvailableRequestOrder;
   isChecking: boolean;
   onSelect: () => void;
 };
 
-const OrderCard: FC<OrderCardProps> = ({
-  order,
-  itemCount,
-  isChecking,
-  onSelect,
-}) => {
+const OrderCard: FC<OrderCardProps> = ({ order, isChecking, onSelect }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
   const isSelectable = order.status === "pending";
@@ -133,13 +119,9 @@ const OrderCard: FC<OrderCardProps> = ({
             <p className="text-xs font-medium text-gray-500 uppercase">
               {t("items")}
             </p>
-            {itemCount === undefined ? (
-              <Skeleton className="h-5 w-12" />
-            ) : (
-              <p className="text-sm font-semibold text-gray-900">
-                {itemCount} {t("items")}
-              </p>
-            )}
+            <p className="text-sm font-semibold text-gray-900">
+              {order.item_count} {t("items")}
+            </p>
           </div>
           <div>
             <p className="text-xs font-medium text-gray-500 uppercase">
@@ -231,39 +213,47 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
     setPage(1);
   };
 
+  const { data: institute, isLoading: isInstituteLoading } = useQuery({
+    queryKey: ["dvdms_institute", facilityId],
+    queryFn: () => apis.institutes.get(facilityId),
+  });
+
   const {
-    data: candidateOrdersResponse,
-    isFetching: isCandidateOrdersFetching,
+    data: availableOrdersResponse,
+    isFetching: isAvailableOrdersFetching,
   } = useQuery({
     queryKey: [
-      "dvdms_link_order_candidates",
-      facilityId,
+      "dvdms_available_request_orders",
+      institute?.id,
       locationId,
       supplierFilter?.id,
       statusFilter,
       priorityFilter,
+      page,
     ],
     queryFn: () =>
-      apis.requestOrders.list(facilityId, {
-        destination: locationId,
-        limit: LIST_FETCH_LIMIT,
-        offset: 0,
-        status: statusFilter || "pending,draft",
-        origin_isnull: true,
-        ...(supplierFilter ? { supplier: supplierFilter.id } : {}),
+      apis.availableRequestOrders.list(institute!.id, {
+        location: locationId,
+        limit: PAGE_SIZE,
+        offset: (page - 1) * PAGE_SIZE,
+        ordering: "-created_date",
+        ...(statusFilter ? { status: statusFilter } : {}),
         ...(priorityFilter ? { priority: priorityFilter } : {}),
+        ...(supplierFilter ? { supplier: supplierFilter.id } : {}),
       }),
+    enabled: !!institute?.id,
   });
 
-  const SELECTABLE_STATUS_ORDER: Record<string, number> = {
-    pending: 0,
-    draft: 1,
-  };
-  const candidateOrders = [...(candidateOrdersResponse?.results ?? [])].sort(
-    (a, b) =>
-      (SELECTABLE_STATUS_ORDER[a.status] ?? 2) -
-      (SELECTABLE_STATUS_ORDER[b.status] ?? 2),
-  );
+  const availableOrders = availableOrdersResponse?.results ?? [];
+  const availableOrdersCount = availableOrdersResponse?.count ?? 0;
+
+  const lastPage = availableOrdersResponse
+    ? Math.max(1, Math.ceil(availableOrdersResponse.count / PAGE_SIZE))
+    : undefined;
+
+  useEffect(() => {
+    if (lastPage !== undefined && page > lastPage) setPage(lastPage);
+  }, [lastPage, page]);
 
   const { data: selectedOrder, isLoading: isSelectedOrderLoading } = useQuery(
     {
@@ -273,116 +263,13 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
     },
   );
 
-  const candidateOrderIds = candidateOrders.map((order) => order.id);
-
-  const { data: institute } = useQuery({
-    queryKey: ["dvdms_institute", facilityId],
-    queryFn: () => apis.institutes.get(facilityId),
-  });
-
-  const {
-    data: recordOrderStatusResults,
-    isPending: isRecordOrderStatusPending,
-    isFetching: isRecordOrderStatusFetching,
-  } = useQuery({
-    queryKey: [
-      "dvdms_linked_record_order_status",
-      institute?.id,
-      candidateOrderIds,
-    ],
-    queryFn: async () => {
-      const response = await apis.batchRequests.createChunked({
-        requests: candidateOrders.map((order) => ({
-          url: `/api/care_dvdms/institute/${institute!.id}/record_order/`,
-          method: HttpMethod.GET,
-          body: { order: order.id, limit: 1, ordering: "-created_date" },
-          reference_id: order.id,
-        })),
-      });
-      return response.results;
-    },
-    enabled: !!institute?.id && candidateOrders.length > 0,
-  });
-
-  const linkedRecordOrderStatusByOrderId = new Map(
-    recordOrderStatusResults?.map((result) => [
-      result.reference_id,
-      (result.data as { results?: { status?: string }[] } | undefined)
-        ?.results?.[0]?.status,
-    ]) ?? [],
-  );
-
-  const visibleCandidateOrders = candidateOrders.filter((order) => {
-    const linkedStatus = linkedRecordOrderStatusByOrderId.get(order.id);
-    return !linkedStatus || !DEAD_END_RECORD_ORDER_STATUSES.has(linkedStatus);
-  });
-
-  const pagedCandidateOrders = visibleCandidateOrders.slice(
-    (page - 1) * PAGE_SIZE,
-    page * PAGE_SIZE,
-  );
-
-  useEffect(() => {
-    const lastPage = Math.max(
-      1,
-      Math.ceil(visibleCandidateOrders.length / PAGE_SIZE),
-    );
-    if (page > lastPage) setPage(lastPage);
-  }, [visibleCandidateOrders.length, page]);
-
-  const pagedCandidateOrderIds = pagedCandidateOrders.map((order) => order.id);
-
-  const {
-    data: itemCountBatchResponse,
-    isPending: isItemCountPending,
-    isFetching: isItemCountFetching,
-  } = useQuery({
-    queryKey: ["dvdms_supply_requests_count", pagedCandidateOrderIds],
-    queryFn: () =>
-      apis.batchRequests.create({
-        requests: pagedCandidateOrders.map((order) => ({
-          url: apis.supplyRequests.path,
-          method: HttpMethod.GET,
-          body: { order: order.id, limit: 1, offset: 0 },
-          reference_id: order.id,
-        })),
-      }),
-    enabled: pagedCandidateOrders.length > 0,
-  });
-
-  const itemCountByOrderId = new Map(
-    itemCountBatchResponse?.results.map((result) => [
-      result.reference_id,
-      (result.data as { count?: number } | undefined)?.count,
-    ]) ?? [],
-  );
-
-  const isCandidateListPending =
-    isCandidateOrdersFetching ||
-    (candidateOrders.length > 0 &&
-      (isRecordOrderStatusPending || isRecordOrderStatusFetching)) ||
-    (pagedCandidateOrders.length > 0 &&
-      (isItemCountPending || isItemCountFetching));
-
-  const knownSelectedOrderItemCount = selectedOrder
-    ? itemCountByOrderId.get(selectedOrder.id)
-    : undefined;
-
-  const { data: fetchedSelectedOrderItemCount } = useQuery({
-    queryKey: ["dvdms_supply_requests_count", selectedOrder?.id],
-    queryFn: () =>
-      apis.supplyRequests
-        .list({ order: selectedOrder!.id, limit: 1, offset: 0 })
-        .then((response) => response.count),
-    enabled: !!selectedOrder && knownSelectedOrderItemCount === undefined,
-  });
-
-  const selectedOrderItemCount =
-    knownSelectedOrderItemCount ?? fetchedSelectedOrderItemCount;
+  const selectedOrderItemCount = availableOrders.find(
+    (order) => order.id === selectedOrderId,
+  )?.item_count;
 
   const clearSelectedOrder = () => setQueryParams({}, { replace: true });
 
-  const handleSelectOrder = async (order: RequestOrder) => {
+  const handleSelectOrder = async (order: AvailableRequestOrder) => {
     if (!institute) return;
     setCheckingOrderId(order.id);
     try {
@@ -422,6 +309,9 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
 
   const instituteSuppliers = supplierMappingsResponse?.results ?? [];
   const instituteStores = instituteStoresResponse?.results ?? [];
+
+  const isCandidateListPending =
+    isInstituteLoading || isAvailableOrdersFetching;
   const selectedWarehouseId = form.watch("eaushadhiWarehouseId");
   const selectedStoreId = form.watch("eaushadhiStoreId");
   const selectedWarehouseName = form.watch("eaushadhiWarehouseName");
@@ -574,13 +464,12 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                   <Skeleton key={i} className="h-48 w-full" />
                 ))}
               </div>
-            ) : pagedCandidateOrders.length > 0 ? (
+            ) : availableOrders.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
-                {pagedCandidateOrders.map((order) => (
+                {availableOrders.map((order) => (
                   <OrderCard
                     key={order.id}
                     order={order}
-                    itemCount={itemCountByOrderId.get(order.id)}
                     isChecking={checkingOrderId === order.id}
                     onSelect={() => handleSelectOrder(order)}
                   />
@@ -593,11 +482,11 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
               />
             )}
 
-            {!isCandidateListPending && visibleCandidateOrders.length > 0 && (
+            {!isCandidateListPending && availableOrdersCount > 0 && (
               <Pagination
                 page={page}
                 pageSize={PAGE_SIZE}
-                totalCount={visibleCandidateOrders.length}
+                totalCount={availableOrdersCount}
                 onPageChange={setPage}
               />
             )}

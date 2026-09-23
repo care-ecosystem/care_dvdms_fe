@@ -385,19 +385,14 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const { mutate: createMapping, isPending: isCreating } = useMutation({
     mutationFn: () =>
       apis.productMappings.create(instituteId!, {
-        eaushadhi_drug_details: {
-          id: mappingForm.dvdmsDrug!.id,
-          name: mappingForm.dvdmsDrug!.name,
-          group_id: mappingForm.dvdmsDrug!.group_id,
-          sub_group_id: mappingForm.dvdmsDrug!.sub_group_id,
-        },
+        eaushadhi_drug_id: mappingForm.dvdmsDrug!.id,
         product_knowledge_id: mappingForm.productKnowledge!.id,
         mapping_type: "default_mapping",
       }),
     onSuccess: () => {
       toast.success(t("dvdms_product_mapping_save_success"));
       invalidateMappings();
-      clearMappingForm();
+      closeMappingSheet();
     },
     onError: (error: unknown) =>
       toast.error(
@@ -408,18 +403,13 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const { mutate: updateMapping, isPending: isUpdating } = useMutation({
     mutationFn: () =>
       apis.productMappings.update(instituteId!, editingId!, {
-        eaushadhi_drug_details: {
-          id: mappingForm.dvdmsDrug!.id,
-          name: mappingForm.dvdmsDrug!.name,
-          group_id: mappingForm.dvdmsDrug!.group_id,
-          sub_group_id: mappingForm.dvdmsDrug!.sub_group_id,
-        },
+        eaushadhi_drug_id: mappingForm.dvdmsDrug!.id,
         product_knowledge_id: mappingForm.productKnowledge!.id,
       }),
     onSuccess: () => {
       toast.success(t("dvdms_product_mapping_save_success"));
       invalidateMappings();
-      clearMappingForm();
+      closeMappingSheet();
     },
     onError: (error: unknown) =>
       toast.error(
@@ -472,15 +462,19 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     }
   };
 
-  const resetCsvState = () => {
+  const resetCsvInput = () => {
     setCsvFile(null);
     setCsvErrors([]);
     setCsvRows([]);
     setCsvDuplicateRows([]);
-    setCsvReport([]);
     setCsvValidation(null);
     setValidationProgress({ done: 0, total: 0 });
     setUploadProgress({ done: 0, total: 0 });
+  };
+
+  const resetCsvState = () => {
+    resetCsvInput();
+    setCsvReport([]);
   };
 
   const clearMappingForm = () => {
@@ -488,6 +482,11 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     setMappingForm(EMPTY_MAPPING);
     setGroupId(undefined);
     setSubgroupId(undefined);
+  };
+
+  const closeMappingSheet = () => {
+    setMappingOpen(false);
+    clearMappingForm();
   };
 
   const openAddMapping = () => {
@@ -860,7 +859,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           url: apis.productMappings.path(instituteId),
           method: HttpMethod.POST,
           body: {
-            eaushadhi_drug_details: { id: row.drugId, name: row.drugName },
+            eaushadhi_drug_id: row.drugId,
             product_knowledge_id: productKnowledge.id,
             mapping_type: "default_mapping",
           },
@@ -955,7 +954,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     setCsvReport(report);
 
     if (failedCount === 0) {
-      resetCsvState();
+      resetCsvInput();
       toast.success(t("csv_upload_success", { count: successCount }));
     } else {
       toast.error(

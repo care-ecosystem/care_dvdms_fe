@@ -100,17 +100,6 @@ const drugsKey = (groupId: number, subgroupId?: number) =>
 const subgroupKey = (groupId: number, subgroupId: number) =>
   `${groupId}:${subgroupId}`;
 
-const toDrugPayload = (drug: RecordItemOrderDrug): RecordItemOrderDrug => {
-  const { sub_group_id, brand_id, ...rest } = drug;
-  const withBrand = {
-    ...rest,
-    brand_id: brand_id && brand_id !== "undefined" ? brand_id : drug.id,
-  };
-  return sub_group_id !== undefined && sub_group_id !== ""
-    ? { ...withBrand, sub_group_id }
-    : withBrand;
-};
-
 const listAllRecordOrderProductMappings = async (
   instituteId: string,
   recordOrderId: string,
@@ -154,7 +143,7 @@ const listAllRecordOrderProductMappings = async (
 
 const SUGGESTION_OPTION_PREFIX = "suggestion:";
 
-const lookupDrugToPayload = (drug: DvdmsLookupDrug): RecordItemOrderDrug => ({
+const lookupDrugToSelection = (drug: DvdmsLookupDrug): RecordItemOrderDrug => ({
   id: String(drug.hstnum_item_id),
   name: drug.hststr_item_name,
   brand_id: String(drug.hstnum_itembrand_id ?? drug.hstnum_item_id),
@@ -692,7 +681,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
           method: HttpMethod.POST,
           body: {
             supply_request: item.id,
-            drug: toDrugPayload(selectedDrugs[item.id]!),
+            drug_id: selectedDrugs[item.id]!.id,
           },
           reference_id: `item-${item.id}`,
         }));
@@ -1568,7 +1557,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                   if (!drug) return;
                                   setSelectedDrugs((prev) => ({
                                     ...prev,
-                                    [item.id]: lookupDrugToPayload(drug),
+                                    [item.id]: lookupDrugToSelection(drug),
                                   }));
                                 };
 

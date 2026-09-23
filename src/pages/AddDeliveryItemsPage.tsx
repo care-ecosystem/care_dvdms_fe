@@ -337,9 +337,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     [apiItems],
   );
 
-  const canUpdateReceivedQuantity =
-    institute?.meta?.allow_updating_quantity_after_received ?? false;
-
   const form = useForm<DeliveryItemsFormValues>({
     defaultValues: { items: [] },
   });
@@ -1208,9 +1205,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                   form={form}
                                   index={index}
                                   facilityId={facilityId}
-                                  canUpdateReceivedQuantity={
-                                    canUpdateReceivedQuantity
-                                  }
                                 />
                               ))}
                             </TableBody>

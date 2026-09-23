@@ -20,14 +20,12 @@ type DeliveryItemRowProps = {
   form: UseFormReturn<DeliveryItemsFormValues>;
   index: number;
   facilityId: string;
-  canUpdateReceivedQuantity?: boolean;
 };
 
 const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
   form,
   index,
   facilityId,
-  canUpdateReceivedQuantity = false,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
@@ -227,11 +225,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                     field.onChange(event);
                     applyReceived(event.target.value);
                   }}
-                  disabled={!canUpdateReceivedQuantity}
-                  className={cn(
-                    QUANTITY_INPUT_CLASS,
-                    !canUpdateReceivedQuantity && readOnlyQuantityClass,
-                  )}
+                  className={QUANTITY_INPUT_CLASS}
                 />
               </FormControl>
               <FormMessage />

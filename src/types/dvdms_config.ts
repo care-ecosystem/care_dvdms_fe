@@ -214,18 +214,11 @@ export interface DvdmsProductMapping {
 }
 
 export type DvdmsProductMappingCreatePayload = {
-  eaushadhi_drug_details: {
-    id: string;
-    name: string;
-    brand_id?: string;
-    group_id?: string;
-    sub_group_id?: string;
-    unit_id?: string;
-    drug_category?: string;
-  };
+  eaushadhi_drug_id: string;
   product_knowledge_id: string;
   mapping_type?: string;
 };
 
-export type DvdmsProductMappingUpdatePayload =
-  Partial<DvdmsProductMappingCreatePayload>;
+export type DvdmsProductMappingUpdatePayload = Partial<
+  Omit<DvdmsProductMappingCreatePayload, "mapping_type">
+>;

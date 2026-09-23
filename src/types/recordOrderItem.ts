@@ -14,7 +14,7 @@ export interface RecordItemOrderDrug {
 
 export interface RecordItemOrderPayload {
   supply_request: string;
-  drug: RecordItemOrderDrug;
+  drug_id: string;
 }
 
 export type RecordItemOrderSupplyRequestItem = ProductKnowledge;

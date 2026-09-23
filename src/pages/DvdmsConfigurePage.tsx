@@ -367,48 +367,72 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
 
                     <div className="relative border border-gray-200 rounded-lg p-3 pt-5">
                       <div className="space-y-3">
-                        <FormField
-                          control={form.control}
-                          name="mapping.eaushadhi_store_id"
-                          rules={{ required: t("eaushadhi_store_required") }}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel
-                                aria-required
-                                className="text-xs font-medium text-gray-600"
-                              >
-                                {t("eaushadhi_store")}
-                              </FormLabel>
-                              <FormControl>
-                                <EaushadhiStorePicker
-                                  storeOptions={storeOptions}
-                                  value={field.value}
-                                  onValueChange={(store) => {
-                                    field.onChange(
-                                      store ? String(store.hstnumStoreId) : "",
-                                    );
-                                    form.setValue(
-                                      "mapping.eaushadhi_store_name",
-                                      store?.hststrStoreName ?? "",
-                                    );
-                                    form.setValue(
-                                      "mapping.eaushadhi_warehouse_id",
-                                      store
-                                        ? String(store.hstnumParentStoreId)
-                                        : "",
-                                    );
-                                    form.setValue(
-                                      "mapping.eaushadhi_warehouse_name",
-                                      store?.hststrParentStoreName ?? "",
-                                    );
-                                  }}
-                                  placeholder={t("eaushadhi_store_placeholder")}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                        <div className="grid grid-cols-2 gap-3 w-full">
+                          <FormField
+                            control={form.control}
+                            name="mapping.eaushadhi_store_id"
+                            rules={{ required: t("eaushadhi_store_required") }}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel
+                                  aria-required
+                                  className="text-xs font-medium text-gray-600"
+                                >
+                                  {t("eaushadhi_store")}
+                                </FormLabel>
+                                <FormControl>
+                                  <EaushadhiStorePicker
+                                    storeOptions={storeOptions}
+                                    value={field.value}
+                                    onValueChange={(store) => {
+                                      field.onChange(
+                                        store ? String(store.hstnumStoreId) : "",
+                                      );
+                                      form.setValue(
+                                        "mapping.eaushadhi_store_name",
+                                        store?.hststrStoreName ?? "",
+                                      );
+                                      form.setValue(
+                                        "mapping.eaushadhi_warehouse_id",
+                                        store
+                                          ? String(store.hstnumParentStoreId)
+                                          : "",
+                                      );
+                                      form.setValue(
+                                        "mapping.eaushadhi_warehouse_name",
+                                        store?.hststrParentStoreName ?? "",
+                                      );
+                                    }}
+                                    placeholder={t(
+                                      "eaushadhi_store_placeholder",
+                                    )}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name="mapping.eaushadhi_warehouse_name"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs font-medium text-gray-600">
+                                  {t("eaushadhi_warehouse_name")}
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    className="h-9 bg-gray-50 cursor-default"
+                                    readOnly
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
 
                         <div className="grid grid-cols-2 gap-3 w-full">
                           <FormField
@@ -438,60 +462,40 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
 
                           <FormField
                             control={form.control}
-                            name="mapping.eaushadhi_warehouse_name"
+                            name="mapping.supplier_id"
+                            rules={{ required: t("supplier_required") }}
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel className="text-xs font-medium text-gray-600">
-                                  {t("eaushadhi_warehouse_name")}
+                                <FormLabel
+                                  aria-required
+                                  className="text-xs font-medium text-gray-600"
+                                >
+                                  {t("supplier")}
                                 </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    className="h-9 bg-gray-50 cursor-default"
-                                    readOnly
-                                    {...field}
-                                  />
-                                </FormControl>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  value={field.value}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger className="w-full h-9">
+                                      <SelectValue
+                                        placeholder={t("supplier_placeholder")}
+                                      />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {supplierOptions.map((org) => (
+                                      <SelectItem key={org.id} value={org.id}>
+                                        {org.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                                 <FormMessage />
                               </FormItem>
                             )}
                           />
                         </div>
-
-                        <FormField
-                          control={form.control}
-                          name="mapping.supplier_id"
-                          rules={{ required: t("supplier_required") }}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel
-                                aria-required
-                                className="text-xs font-medium text-gray-600"
-                              >
-                                {t("supplier")}
-                              </FormLabel>
-                              <Select
-                                onValueChange={field.onChange}
-                                value={field.value}
-                              >
-                                <FormControl>
-                                  <SelectTrigger className="w-full h-9">
-                                    <SelectValue
-                                      placeholder={t("supplier_placeholder")}
-                                    />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {supplierOptions.map((org) => (
-                                    <SelectItem key={org.id} value={org.id}>
-                                      {org.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
                       </div>
                     </div>
                   </div>

@@ -8,3 +8,5 @@ export const MAX_REQUESTS_PER_BATCH = 20;
 export const MAX_REQUESTS_PER_SUPER_BATCH = 20;
 
 export const ACKNOWLEDGEMENT_POLL_INTERVAL_MS = 5_000;
+
+export const DVDMS_SCHEMA_VERSION = "1";

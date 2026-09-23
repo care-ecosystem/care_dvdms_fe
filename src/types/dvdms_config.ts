@@ -114,16 +114,10 @@ export interface DvdmsLookupDrug {
   hstnum_itembrand_id: number;
 }
 
-export interface DvdmsFacilityConfigMeta {
-  allow_updating_quantity_after_received: boolean;
-}
-
 export interface DvdmsFacilityConfig {
   eaushadhi_institute_id: string;
   eaushadhi_user_ref_id: string;
   eaushadhi_institute_name: string;
-  schema_version: string;
-  meta: DvdmsFacilityConfigMeta;
   mapping: DvdmsSupplierMapping;
 }
 
@@ -134,7 +128,6 @@ export interface DvdmsInstitute {
   eaushadhi_user_ref_id: string;
   eaushadhi_institute_name: string;
   schema_version: string;
-  meta: DvdmsFacilityConfigMeta | null;
 }
 
 export type DvdmsInstitutePayload = Pick<
@@ -142,8 +135,6 @@ export type DvdmsInstitutePayload = Pick<
   | "eaushadhi_institute_id"
   | "eaushadhi_user_ref_id"
   | "eaushadhi_institute_name"
-  | "schema_version"
-  | "meta"
 >;
 export interface DvdmsInstituteUser {
   id: string;

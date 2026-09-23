@@ -5,7 +5,10 @@ import {
   PaginatedResponse,
 } from "@/apis/types";
 import { request } from "@/apis/query";
-import { MAX_REQUESTS_PER_BATCH } from "@/lib/constants";
+import {
+  DVDMS_SCHEMA_VERSION,
+  MAX_REQUESTS_PER_BATCH,
+} from "@/lib/constants";
 import { chunk } from "@/lib/utils";
 import { Organization } from "@/types/organization";
 import { Facility } from "@/types/facility";
@@ -456,13 +459,13 @@ export const apis = {
       request<DvdmsInstitute>(
         `/api/care_dvdms/facility/${facilityId}/institute/`,
         HttpMethod.POST,
-        payload,
+        { ...payload, schema_version: DVDMS_SCHEMA_VERSION },
       ),
     update: (facilityId: string, payload: Partial<DvdmsInstitutePayload>) =>
       request<DvdmsInstitute>(
         `/api/care_dvdms/facility/${facilityId}/institute/`,
         HttpMethod.PATCH,
-        payload,
+        { ...payload, schema_version: DVDMS_SCHEMA_VERSION },
       ),
     lookupStores: (instituteId: string) =>
       request<DvdmsLookupStore[]>(

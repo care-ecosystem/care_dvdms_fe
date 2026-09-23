@@ -13,7 +13,6 @@ import { LocationPicker } from "@/components/LocationPicker";
 import { EaushadhiStorePicker } from "@/components/EaushadhiStorePicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -24,7 +23,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -189,10 +187,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       eaushadhi_institute_id: "",
       eaushadhi_user_ref_id: "",
       eaushadhi_institute_name: "",
-      schema_version: "",
-      meta: {
-        allow_updating_quantity_after_received: false,
-      },
       mapping: EMPTY_MAPPING,
     },
   });
@@ -205,11 +199,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       eaushadhi_institute_id: institute.eaushadhi_institute_id,
       eaushadhi_user_ref_id: institute.eaushadhi_user_ref_id,
       eaushadhi_institute_name: institute.eaushadhi_institute_name,
-      schema_version: institute.schema_version,
-      meta: {
-        allow_updating_quantity_after_received:
-          institute.meta?.allow_updating_quantity_after_received ?? false,
-      },
     });
   }, [institute, isDirty]);
 
@@ -273,8 +262,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                   eaushadhi_institute_id: values.eaushadhi_institute_id,
                   eaushadhi_user_ref_id: values.eaushadhi_user_ref_id,
                   eaushadhi_institute_name: values.eaushadhi_institute_name,
-                  schema_version: values.schema_version,
-                  meta: values.meta,
                 });
               })}
               className="space-y-8"
@@ -362,27 +349,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                       </FormItem>
                     )}
                   />
-
-                  <FormField
-                    control={form.control}
-                    name="schema_version"
-                    rules={{ required: t("schema_version_required") }}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel aria-required>
-                          {t("schema_version")}
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder={t("schema_version_placeholder")}
-                            className="h-9"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
                 </div>
               </div>
 
@@ -401,48 +367,72 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
 
                     <div className="relative border border-gray-200 rounded-lg p-3 pt-5">
                       <div className="space-y-3">
-                        <FormField
-                          control={form.control}
-                          name="mapping.eaushadhi_store_id"
-                          rules={{ required: t("eaushadhi_store_required") }}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel
-                                aria-required
-                                className="text-xs font-medium text-gray-600"
-                              >
-                                {t("eaushadhi_store")}
-                              </FormLabel>
-                              <FormControl>
-                                <EaushadhiStorePicker
-                                  storeOptions={storeOptions}
-                                  value={field.value}
-                                  onValueChange={(store) => {
-                                    field.onChange(
-                                      store ? String(store.hstnumStoreId) : "",
-                                    );
-                                    form.setValue(
-                                      "mapping.eaushadhi_store_name",
-                                      store?.hststrStoreName ?? "",
-                                    );
-                                    form.setValue(
-                                      "mapping.eaushadhi_warehouse_id",
-                                      store
-                                        ? String(store.hstnumParentStoreId)
-                                        : "",
-                                    );
-                                    form.setValue(
-                                      "mapping.eaushadhi_warehouse_name",
-                                      store?.hststrParentStoreName ?? "",
-                                    );
-                                  }}
-                                  placeholder={t("eaushadhi_store_placeholder")}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                        <div className="grid grid-cols-2 gap-3 w-full">
+                          <FormField
+                            control={form.control}
+                            name="mapping.eaushadhi_store_id"
+                            rules={{ required: t("eaushadhi_store_required") }}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel
+                                  aria-required
+                                  className="text-xs font-medium text-gray-600"
+                                >
+                                  {t("eaushadhi_store")}
+                                </FormLabel>
+                                <FormControl>
+                                  <EaushadhiStorePicker
+                                    storeOptions={storeOptions}
+                                    value={field.value}
+                                    onValueChange={(store) => {
+                                      field.onChange(
+                                        store ? String(store.hstnumStoreId) : "",
+                                      );
+                                      form.setValue(
+                                        "mapping.eaushadhi_store_name",
+                                        store?.hststrStoreName ?? "",
+                                      );
+                                      form.setValue(
+                                        "mapping.eaushadhi_warehouse_id",
+                                        store
+                                          ? String(store.hstnumParentStoreId)
+                                          : "",
+                                      );
+                                      form.setValue(
+                                        "mapping.eaushadhi_warehouse_name",
+                                        store?.hststrParentStoreName ?? "",
+                                      );
+                                    }}
+                                    placeholder={t(
+                                      "eaushadhi_store_placeholder",
+                                    )}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name="mapping.eaushadhi_warehouse_name"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs font-medium text-gray-600">
+                                  {t("eaushadhi_warehouse_name")}
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    className="h-9 bg-gray-50 cursor-default"
+                                    readOnly
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
 
                         <div className="grid grid-cols-2 gap-3 w-full">
                           <FormField
@@ -472,99 +462,41 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
 
                           <FormField
                             control={form.control}
-                            name="mapping.eaushadhi_warehouse_name"
+                            name="mapping.supplier_id"
+                            rules={{ required: t("supplier_required") }}
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel className="text-xs font-medium text-gray-600">
-                                  {t("eaushadhi_warehouse_name")}
+                                <FormLabel
+                                  aria-required
+                                  className="text-xs font-medium text-gray-600"
+                                >
+                                  {t("supplier")}
                                 </FormLabel>
-                                <FormControl>
-                                  <Input
-                                    className="h-9 bg-gray-50 cursor-default"
-                                    readOnly
-                                    {...field}
-                                  />
-                                </FormControl>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  value={field.value}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger className="w-full h-9">
+                                      <SelectValue
+                                        placeholder={t("supplier_placeholder")}
+                                      />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {supplierOptions.map((org) => (
+                                      <SelectItem key={org.id} value={org.id}>
+                                        {org.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                                 <FormMessage />
                               </FormItem>
                             )}
                           />
                         </div>
-
-                        <FormField
-                          control={form.control}
-                          name="mapping.supplier_id"
-                          rules={{ required: t("supplier_required") }}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel
-                                aria-required
-                                className="text-xs font-medium text-gray-600"
-                              >
-                                {t("supplier")}
-                              </FormLabel>
-                              <Select
-                                onValueChange={field.onChange}
-                                value={field.value}
-                              >
-                                <FormControl>
-                                  <SelectTrigger className="w-full h-9">
-                                    <SelectValue
-                                      placeholder={t("supplier_placeholder")}
-                                    />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {supplierOptions.map((org) => (
-                                    <SelectItem key={org.id} value={org.id}>
-                                      {org.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
                       </div>
-                    </div>
-                  </div>
-
-                  <hr className="border-gray-200" />
-
-                  <div>
-                    <h3 className="text-base font-semibold text-gray-900 mb-1">
-                      {t("settings")}
-                    </h3>
-                    <p className="text-sm text-gray-500 mb-4">
-                      {t("settings_subtitle")}
-                    </p>
-
-                    <div className="space-y-5">
-                      <FormField
-                        control={form.control}
-                        name="meta.allow_updating_quantity_after_received"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-row items-start justify-between">
-                            <div className="space-y-0.5">
-                              <FormLabel className="text-sm font-medium text-gray-900">
-                                {t("allow_updating_quantity_after_received")}
-                              </FormLabel>
-                              <FormDescription>
-                                {t(
-                                  "allow_updating_quantity_after_received_description",
-                                )}
-                              </FormDescription>
-                            </div>
-                            <FormControl>
-                              <Switch
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
                     </div>
                   </div>
 

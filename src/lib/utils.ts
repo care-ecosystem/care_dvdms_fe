@@ -44,11 +44,9 @@ export function formatDate(dateStr: string | null | undefined): string {
         Number(dateOnly[3]),
       )
     : new Date(dateStr);
-  return date.toLocaleDateString("en-US", {
-    month: "numeric",
-    day: "numeric",
-    year: "numeric",
-  });
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${date.getFullYear()}`;
 }
 
 /** Trims an ISO date or datetime down to the `yyyy-mm-dd` a date input expects. */

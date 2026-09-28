@@ -37,6 +37,7 @@ type RequestOrderTableProps = {
   emptyMessage: string;
   showIndentNo?: boolean;
   outwardByOrderId?: Record<string, RecordOrderOutward>;
+  skeletonCount?: number;
 };
 
 const RequestOrderTable: FC<RequestOrderTableProps> = ({
@@ -47,6 +48,7 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
   emptyMessage,
   showIndentNo = false,
   outwardByOrderId = {},
+  skeletonCount = 5,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
@@ -57,7 +59,7 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
   };
 
   if (isLoading) {
-    return <TableSkeleton count={5} />;
+    return <TableSkeleton count={skeletonCount} />;
   }
 
   if (orders.length === 0) {
@@ -75,8 +77,8 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
         <TableRow>
           <TableHead>{t("name")}</TableHead>
           {showIndentNo && <TableHead>{t("eaushadhi_indent_no")}</TableHead>}
-          <TableHead>{t("supplier")}</TableHead>
-          <TableHead>{t("deliver_to")}</TableHead>
+          <TableHead>{t("dvdms_store")}</TableHead>
+          <TableHead>{t("dvdms_warehouse")}</TableHead>
           <TableHead>{t("status")}</TableHead>
           <TableHead>{t("priority")}</TableHead>
           <TableHead>{t("created_by")}</TableHead>
@@ -90,15 +92,49 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
             <TableRow key={order.id}>
               <TableCell className="font-medium">{order.name}</TableCell>
               {showIndentNo && (
-                <TableCell className="font-medium">
-                  {outward?.eaushadhi_indent_no ?? "—"}
+                <TableCell>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-900">
+                      {outward?.eaushadhi_indent_no ?? "—"}
+                    </span>
+                    {order.care_indent_no && (
+                      <span className="text-xs text-gray-500">
+                        {t("care_indent_no")}: {order.care_indent_no}
+                      </span>
+                    )}
+                  </div>
                 </TableCell>
               )}
-              <TableCell className="font-medium">
-                {order.institute_supplier?.supplier?.name ?? "—"}
+              <TableCell>
+                <div className="flex flex-col">
+                  <span className="font-medium text-gray-900">
+                    {order.institute_store?.eaushadhi_store_name ||
+                      order.institute_store?.store?.name ||
+                      "—"}
+                  </span>
+                  {order.institute_store?.eaushadhi_store_name &&
+                    order.institute_store?.store?.name && (
+                      <span className="text-xs text-gray-500">
+                        {t("care_location")}: {order.institute_store.store.name}
+                      </span>
+                    )}
+                </div>
               </TableCell>
-              <TableCell className="font-medium">
-                {order.institute_store?.store?.name ?? "—"}
+              <TableCell>
+                <div className="flex flex-col">
+                  <span className="font-medium text-gray-900">
+                    {order.institute_supplier?.eaushadhi_warehouse_name ||
+                      order.institute_supplier?.supplier?.name ||
+                      "—"}
+                  </span>
+                  {order.institute_supplier?.eaushadhi_warehouse_name &&
+                    order.institute_supplier?.supplier?.name && (
+                      <span className="text-xs text-gray-500">
+                        {t("care_supplier")}:{" "}
+                        {order.institute_supplier.supplier.name}
+                      </span>
+                    )}
+                </div>
               </TableCell>
               <TableCell>
                 {showsDvdmsIndentStatus(order.status) &&

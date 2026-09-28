@@ -227,6 +227,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
               emptyMessage={t(EMPTY_MESSAGE_KEYS[tab.value])}
               showIndentNo={tab.value === "tracking"}
               outwardByOrderId={outwardByOrderId}
+              skeletonCount={PAGE_SIZE}
             />
             <Pagination
               page={page}

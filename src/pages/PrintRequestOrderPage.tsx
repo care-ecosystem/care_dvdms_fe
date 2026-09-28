@@ -1,7 +1,7 @@
 import { FC } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, FileWarning, Printer } from "lucide-react";
+import { ChevronLeft, FileWarning, Loader2Icon, Printer } from "lucide-react";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
@@ -132,7 +132,12 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
     isSupplyRequestsLoading ||
     isRecordItemsLoading
   ) {
-    return <div className="p-6 text-sm text-gray-500">{t("loading")}</div>;
+    return (
+      <div className="flex items-center gap-2 p-6 text-sm text-gray-500">
+        <Loader2Icon className="size-4 animate-spin" />
+        {t("loading")}
+      </div>
+    );
   }
 
   if (!order) {

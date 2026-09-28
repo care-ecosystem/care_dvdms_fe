@@ -76,6 +76,12 @@ export interface RecordOrderOutward {
   created_date: string;
   modified_date: string;
 }
+const STATUSES_WITHOUT_INDENT = ["draft", "pending", "failed", "cancelled"];
+
+export const hasDvdmsIndent = (status: string) =>
+  !STATUSES_WITHOUT_INDENT.includes(status);
+
+export const showsDvdmsIndentStatus = (status: string) => status === "approved";
 
 /** How far DVDMS has got with issuing against the indent. */
 export enum DvdmsIndentStatus {

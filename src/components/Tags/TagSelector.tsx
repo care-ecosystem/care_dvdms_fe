@@ -207,7 +207,8 @@ const TagSelector: FC<TagSelectorProps> = ({
           )}
 
           {isLoadingRoot ? (
-            <div className="px-2 py-4 text-sm text-gray-500 text-center">
+            <div className="flex items-center justify-center gap-2 px-2 py-4 text-sm text-gray-500">
+              <Loader2 className="size-4 animate-spin" />
               {t("loading")}
             </div>
           ) : !rootTags?.results.length ? (
@@ -256,7 +257,8 @@ const TagSelector: FC<TagSelectorProps> = ({
                           </div>
                         </div>
                         {isLoadingChildren ? (
-                          <div className="p-2 text-sm text-gray-500">
+                          <div className="flex items-center gap-2 p-2 text-sm text-gray-500">
+                            <Loader2 className="size-4 animate-spin" />
                             {t("loading")}
                           </div>
                         ) : childTags?.results.length ? (

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
 import { useForm } from "react-hook-form";
-import { XIcon } from "lucide-react";
+import { Loader2Icon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
@@ -385,6 +385,7 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
                   </Button>
                   {confirmedSupplierId && confirmedStoreId ? (
                     <Button type="submit" disabled={isUpdating}>
+                      {isUpdating && <Loader2Icon className="size-4 animate-spin" />}
                       {isUpdating ? t("saving") : t("save")}
                       <ShortcutBadge actionId="enter-action" />
                     </Button>
@@ -394,6 +395,7 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
                       disabled={!selectedOrder || isConfirming}
                       onClick={() => confirmSupplier()}
                     >
+                      {isConfirming && <Loader2Icon className="size-4 animate-spin" />}
                       {isConfirming ? t("confirming") : t("confirm")}
                     </Button>
                   )}

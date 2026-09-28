@@ -7,6 +7,7 @@ import { I18N_NAMESPACE } from "@/lib/constants";
 import { dvdmsBasePath } from "@/lib/paths";
 import { formatDate } from "@/lib/utils";
 import { TableSkeleton } from "@/components/SkeletonLoading";
+import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -22,7 +23,11 @@ import {
   REQUEST_ORDER_PRIORITY_VARIANTS,
   REQUEST_ORDER_STATUS_VARIANTS,
 } from "@/types/requestOrder";
-import { RecordOrder } from "@/types/recordOrder";
+import {
+  RecordOrder,
+  RecordOrderOutward,
+  showsDvdmsIndentStatus,
+} from "@/types/recordOrder";
 
 type RequestOrderTableProps = {
   facilityId: string;
@@ -31,7 +36,7 @@ type RequestOrderTableProps = {
   isLoading: boolean;
   emptyMessage: string;
   showIndentNo?: boolean;
-  outwardStatusByOrderId?: Record<string, string>;
+  outwardByOrderId?: Record<string, RecordOrderOutward>;
 };
 
 const RequestOrderTable: FC<RequestOrderTableProps> = ({
@@ -41,7 +46,7 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
   isLoading,
   emptyMessage,
   showIndentNo = false,
-  outwardStatusByOrderId = {},
+  outwardByOrderId = {},
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
@@ -69,7 +74,7 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
       <TableHeader>
         <TableRow>
           <TableHead>{t("name")}</TableHead>
-          {showIndentNo && <TableHead>{t("care_indent_no")}</TableHead>}
+          {showIndentNo && <TableHead>{t("eaushadhi_indent_no")}</TableHead>}
           <TableHead>{t("supplier")}</TableHead>
           <TableHead>{t("deliver_to")}</TableHead>
           <TableHead>{t("status")}</TableHead>
@@ -80,13 +85,13 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
       </TableHeader>
       <TableBody>
         {orders.map((order) => {
-          const displayStatus = outwardStatusByOrderId[order.id] ?? order.status;
+          const outward = outwardByOrderId[order.id];
           return (
             <TableRow key={order.id}>
               <TableCell className="font-medium">{order.name}</TableCell>
               {showIndentNo && (
                 <TableCell className="font-medium">
-                  {order.care_indent_no ?? "—"}
+                  {outward?.eaushadhi_indent_no ?? "—"}
                 </TableCell>
               )}
               <TableCell className="font-medium">
@@ -96,13 +101,20 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
                 {order.institute_store?.store?.name ?? "—"}
               </TableCell>
               <TableCell>
-                <Badge
-                  variant={
-                    REQUEST_ORDER_STATUS_VARIANTS[displayStatus] ?? "secondary"
-                  }
-                >
-                  {t(displayStatus)}
-                </Badge>
+                {showsDvdmsIndentStatus(order.status) &&
+                outward?.eaushadhi_indent_status ? (
+                  <DvdmsIssueStatusBadge
+                    status={outward.eaushadhi_indent_status}
+                  />
+                ) : (
+                  <Badge
+                    variant={
+                      REQUEST_ORDER_STATUS_VARIANTS[order.status] ?? "secondary"
+                    }
+                  >
+                    {t(order.status)}
+                  </Badge>
+                )}
               </TableCell>
               <TableCell>
                 <Badge

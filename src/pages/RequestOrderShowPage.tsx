@@ -9,6 +9,7 @@ import {
   Edit,
   EllipsisVertical,
   Inbox,
+  Loader2Icon,
   Plus,
   Printer,
   RefreshCw,
@@ -1032,7 +1033,13 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               }
               disabled={fetchInwardsMutation.isPending}
             >
-              <RefreshCw className="size-4" /> {t("sync_dvdms_status")}
+              <RefreshCw
+                className={cn(
+                  "size-4",
+                  fetchInwardsMutation.isPending && "animate-spin",
+                )}
+              />{" "}
+              {t("sync_dvdms_status")}
             </Button>
           )}
           {canMarkAsCompleted && (
@@ -1040,6 +1047,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               onClick={() => completeRecordOrderMutation.mutate()}
               disabled={completeRecordOrderMutation.isPending}
             >
+              {completeRecordOrderMutation.isPending && (
+                <Loader2Icon className="size-4 animate-spin" />
+              )}
               {completeRecordOrderMutation.isPending
                 ? t("saving")
                 : t("mark_as_completed")}
@@ -1582,12 +1592,16 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                         {" "}
                                       </div>
                                     </TableCell>
-                                    <TableCell className="align-top">
+                                    <TableCell className="align-top whitespace-normal">
                                       <div className="text-xs text-gray-500 mb-3">
                                         {" "}
                                       </div>
-                                      {formatQuantity(item.quantity)}{" "}
-                                      {item.item.base_unit?.display}
+                                      <span className="whitespace-nowrap">
+                                        {formatQuantity(item.quantity)}
+                                      </span>{" "}
+                                      <span className="break-words">
+                                        {item.item.base_unit?.display}
+                                      </span>
                                       <div className="text-xs text-gray-500 mt-1">
                                         {" "}
                                       </div>

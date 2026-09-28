@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate, useQueryParams } from "raviger";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
-import { ChevronLeftIcon } from "lucide-react";
+import { ChevronLeftIcon, Loader2Icon } from "lucide-react";
 
 import { apis } from "@/apis";
 import { BatchError, performSuperBatchRequest } from "@/apis/query";
@@ -419,6 +419,9 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
                             : t("no_issues_found_description")
                         }
                       >
+                        {isCreating && (
+                          <Loader2Icon className="size-4 animate-spin" />
+                        )}
                         {isCreating ? t("creating") : t("create")}
                         <ShortcutBadge actionId="enter-action" />
                       </Button>

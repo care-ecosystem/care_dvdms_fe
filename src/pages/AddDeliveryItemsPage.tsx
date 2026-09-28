@@ -20,7 +20,7 @@ import {
   MAX_REQUESTS_PER_BATCH,
   MAX_REQUESTS_PER_SUPER_BATCH,
 } from "@/lib/constants";
-import { dvdmsBasePath } from "@/lib/paths";
+import { dvdmsRecordPath } from "@/lib/paths";
 import {
   chunk,
   cn,
@@ -815,7 +815,12 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           <BackButton
             size="icon"
             className="shrink-0"
-            fallback={`${dvdmsBasePath(facilityId, locationId)}/${requestOrderId}/record/${recordOrderId}`}
+            fallback={dvdmsRecordPath(
+              facilityId,
+              locationId,
+              requestOrderId,
+              recordOrderId,
+            )}
           >
             <ChevronLeftIcon className="size-4" />
             <span className="sr-only">{t("back")}</span>

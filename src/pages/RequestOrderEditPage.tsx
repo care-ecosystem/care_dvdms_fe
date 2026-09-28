@@ -3,13 +3,13 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
 import { useForm } from "react-hook-form";
-import { Loader2Icon, XIcon } from "lucide-react";
+import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { goBack } from "@/lib/navigation";
-import { dvdmsBasePath } from "@/lib/paths";
+import { dvdmsRecordPath } from "@/lib/paths";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -68,7 +68,12 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
 
-  const returnPath = `${dvdmsBasePath(facilityId, locationId)}/${requestOrderId}/record/${recordOrderId}`;
+  const returnPath = dvdmsRecordPath(
+    facilityId,
+    locationId,
+    requestOrderId,
+    recordOrderId,
+  );
 
   const { data: linkedOrder, isLoading: isLoadingLinkedOrder } = useQuery({
     queryKey: ["dvdms_request_order", facilityId, requestOrderId],
@@ -261,14 +266,6 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
               {t(recordOrder?.status ?? "draft")}
             </Badge>
           </h1>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => goBack(returnPath)}
-          >
-            <XIcon className="size-5" />
-            <span className="sr-only">{t("close")}</span>
-          </Button>
         </div>
         <Form {...form}>
           <form onSubmit={onSubmit} className="space-y-6">

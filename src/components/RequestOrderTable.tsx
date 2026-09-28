@@ -4,7 +4,7 @@ import { navigate } from "raviger";
 import { Eye, PackageIcon } from "lucide-react";
 
 import { I18N_NAMESPACE } from "@/lib/constants";
-import { dvdmsBasePath } from "@/lib/paths";
+import { dvdmsRecordPath } from "@/lib/paths";
 import { formatDate } from "@/lib/utils";
 import { TableSkeleton } from "@/components/SkeletonLoading";
 import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
@@ -54,7 +54,7 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
 
   const handleViewDetails = (order: RecordOrder) => {
     navigate(
-      `${dvdmsBasePath(facilityId, locationId)}/${order.order.id}/record/${order.id}`,
+      dvdmsRecordPath(facilityId, locationId, order.order.id, order.id),
     );
   };
 

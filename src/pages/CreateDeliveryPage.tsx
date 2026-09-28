@@ -11,7 +11,7 @@ import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { goBack } from "@/lib/navigation";
-import { dvdmsBasePath } from "@/lib/paths";
+import { dvdmsRecordPath } from "@/lib/paths";
 import BackButton from "@/components/BackButton";
 import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import { Badge } from "@/components/ui/badge";
@@ -78,7 +78,12 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
 
   const [{ issue: issueId }] = useQueryParams<{ issue?: string }>();
 
-  const returnPath = `${dvdmsBasePath(facilityId, locationId)}/${requestOrderId}/record/${recordOrderId}`;
+  const returnPath = dvdmsRecordPath(
+    facilityId,
+    locationId,
+    requestOrderId,
+    recordOrderId,
+  );
 
   const { data: institute } = useQuery({
     queryKey: ["dvdms_institute", facilityId],

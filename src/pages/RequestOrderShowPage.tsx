@@ -19,7 +19,7 @@ import { apis } from "@/apis";
 import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
-import { dvdmsBasePath } from "@/lib/paths";
+import { dvdmsBasePath, dvdmsRecordPath } from "@/lib/paths";
 import {
   chunk,
   cn,
@@ -170,7 +170,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
 
-  const recordBasePath = `${dvdmsBasePath(facilityId, locationId)}/${requestOrderId}/record/${recordOrderId}`;
+  const recordBasePath = dvdmsRecordPath(
+    facilityId,
+    locationId,
+    requestOrderId,
+    recordOrderId,
+  );
 
   const [currentTab, setCurrentTab] = useState<
     "requested-items" | "dvdms-issues"

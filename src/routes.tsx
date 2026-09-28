@@ -43,7 +43,7 @@ const routes = {
     facilityId: string;
     locationId: string;
   }) => <LinkOrderFormPage facilityId={facilityId} locationId={locationId} />,
-  "/facility/:facilityId/dvdms/locations/:locationId/:requestOrderId/record/:recordOrderId":
+  "/facility/:facilityId/dvdms/locations/:locationId/orders/:requestOrderId/records/:recordOrderId":
     ({
       facilityId,
       locationId,
@@ -62,7 +62,7 @@ const routes = {
         recordOrderId={recordOrderId}
       />
     ),
-  "/facility/:facilityId/dvdms/locations/:locationId/:requestOrderId/record/:recordOrderId/edit":
+  "/facility/:facilityId/dvdms/locations/:locationId/orders/:requestOrderId/records/:recordOrderId/edit":
     ({
       facilityId,
       locationId,
@@ -81,7 +81,7 @@ const routes = {
         recordOrderId={recordOrderId}
       />
     ),
-  "/facility/:facilityId/dvdms/locations/:locationId/:requestOrderId/record/:recordOrderId/print":
+  "/facility/:facilityId/dvdms/locations/:locationId/orders/:requestOrderId/records/:recordOrderId/print":
     ({
       facilityId,
       requestOrderId,
@@ -99,7 +99,7 @@ const routes = {
       />
     ),
 
-  "/facility/:facilityId/dvdms/locations/:locationId/:requestOrderId/record/:recordOrderId/create-delivery":
+  "/facility/:facilityId/dvdms/locations/:locationId/orders/:requestOrderId/records/:recordOrderId/create-delivery":
     ({
       facilityId,
       locationId,
@@ -119,7 +119,7 @@ const routes = {
       />
     ),
 
-  "/facility/:facilityId/dvdms/locations/:locationId/:requestOrderId/record/:recordOrderId/delivery/:deliveryOrderId":
+  "/facility/:facilityId/dvdms/locations/:locationId/orders/:requestOrderId/records/:recordOrderId/delivery/:deliveryOrderId":
     ({
       facilityId,
       locationId,

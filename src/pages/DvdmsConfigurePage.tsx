@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import { Loader2Icon } from "lucide-react";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE } from "@/lib/constants";
@@ -533,6 +534,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                   </Button>
                 </SheetClose>
                 <Button type="submit" variant="primary" disabled={isSaving}>
+                  {isSaving && <Loader2Icon className="size-4 animate-spin" />}
                   {isSaving ? t("saving") : t("save")}
                 </Button>
               </div>

@@ -1431,7 +1431,10 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
         </div>
 
         {mappingsLoading ? (
-          <p className="text-sm text-gray-500">{t("loading")}</p>
+          <p className="flex items-center gap-2 text-sm text-gray-500">
+            <Loader2Icon className="size-4 animate-spin" />
+            {t("loading")}
+          </p>
         ) : mappings.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-6 py-12 text-center text-gray-950 shadow-sm">
             <div className="rounded-full bg-primary/10 p-3 mb-3">

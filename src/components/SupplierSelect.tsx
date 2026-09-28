@@ -1,7 +1,7 @@
 import { FC, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDownIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, Loader2Icon, XIcon } from "lucide-react";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE } from "@/lib/constants";
@@ -125,7 +125,10 @@ const SupplierSelect: FC<SupplierSelectProps> = ({
           </div>
           <div className="max-h-60 overflow-y-auto border-t border-gray-100">
             {isLoading && (
-              <div className="p-3 text-sm text-gray-500">{t("loading")}</div>
+              <div className="flex items-center gap-2 p-3 text-sm text-gray-500">
+                <Loader2Icon className="size-4 animate-spin" />
+                {t("loading")}
+              </div>
             )}
             {!isLoading && options.length === 0 && (
               <div className="p-3 text-sm text-gray-500">
@@ -137,12 +140,15 @@ const SupplierSelect: FC<SupplierSelectProps> = ({
                 key={org.id}
                 type="button"
                 onClick={() => handleSelect(org)}
-                className={cn(
-                  "block w-full truncate px-3 py-2 text-left text-sm hover:bg-gray-100",
-                  value?.id === org.id && "bg-primary-50 text-primary-800",
-                )}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-900 hover:bg-gray-100"
               >
-                {org.name}
+                <CheckIcon
+                  className={cn(
+                    "size-4 shrink-0",
+                    value?.id === org.id ? "opacity-100" : "opacity-0",
+                  )}
+                />
+                <span className="truncate">{org.name}</span>
               </button>
             ))}
           </div>

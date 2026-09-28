@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useQueryParams } from "raviger";
 import { useFieldArray, useForm } from "react-hook-form";
-import { ChevronLeftIcon, RefreshCw } from "lucide-react";
+import { ChevronLeftIcon, Loader2Icon, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
@@ -20,8 +20,14 @@ import {
   MAX_REQUESTS_PER_BATCH,
   MAX_REQUESTS_PER_SUPER_BATCH,
 } from "@/lib/constants";
-import { dvdmsBasePath } from "@/lib/paths";
-import { chunk, formatDate, toDateInputValue, toQuantity } from "@/lib/utils";
+import { dvdmsRecordPath } from "@/lib/paths";
+import {
+  chunk,
+  cn,
+  formatDate,
+  toDateInputValue,
+  toQuantity,
+} from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -809,7 +815,12 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           <BackButton
             size="icon"
             className="shrink-0"
-            fallback={`${dvdmsBasePath(facilityId, locationId)}/${requestOrderId}/record/${recordOrderId}`}
+            fallback={dvdmsRecordPath(
+              facilityId,
+              locationId,
+              requestOrderId,
+              recordOrderId,
+            )}
           >
             <ChevronLeftIcon className="size-4" />
             <span className="sr-only">{t("back")}</span>
@@ -832,7 +843,12 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   onClick={() => retryAcknowledgementMutation.mutate()}
                   disabled={retryAcknowledgementMutation.isPending}
                 >
-                  <RefreshCw className="size-4" />
+                  <RefreshCw
+                    className={cn(
+                      "size-4",
+                      retryAcknowledgementMutation.isPending && "animate-spin",
+                    )}
+                  />
                   {retryAcknowledgementMutation.isPending
                     ? t("retrying")
                     : t("retry_acknowledgement")}
@@ -852,6 +868,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                       : undefined
                   }
                 >
+                  {approveDeliveryMutation.isPending && (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  )}
                   {approveDeliveryMutation.isPending
                     ? t("saving")
                     : t("mark_as_completed")}
@@ -1122,6 +1141,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                         onClick={() => approveItemsMutation.mutate()}
                         disabled={approveItemsMutation.isPending}
                       >
+                        {approveItemsMutation.isPending && (
+                          <Loader2Icon className="size-4 animate-spin" />
+                        )}
                         {approveItemsMutation.isPending
                           ? t("approving")
                           : t("mark_items_as_approved")}
@@ -1214,6 +1236,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
 
                       <div className="flex justify-end">
                         <Button type="submit" disabled={isProcessing}>
+                          {isProcessing && (
+                            <Loader2Icon className="size-4 animate-spin" />
+                          )}
                           {isProcessing ? t("saving") : t("save")}
                           <ShortcutBadge actionId="submit-action" />
                         </Button>

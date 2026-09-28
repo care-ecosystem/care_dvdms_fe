@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
-import { dvdmsBasePath } from "@/lib/paths";
+import { dvdmsBasePath, dvdmsRecordPath } from "@/lib/paths";
 import { cn, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -281,7 +281,9 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
       const hasBlockingRecordOrder =
         !!latestRecordOrder && latestRecordOrder.status !== "cancelled";
       if (hasBlockingRecordOrder) {
-        navigate(`${returnPath}/${order.id}/record/${latestRecordOrder.id}`);
+        navigate(
+          dvdmsRecordPath(facilityId, locationId, order.id, latestRecordOrder.id),
+        );
         return;
       }
       setQueryParams({ order: order.id }, { replace: true });
@@ -403,7 +405,12 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
         queryKey: ["dvdms_institute_stores", facilityId, institute?.id],
       });
       navigate(
-        `${returnPath}/${selectedOrder!.id}/record/${createdRecordOrder.id}`,
+        dvdmsRecordPath(
+          facilityId,
+          locationId,
+          selectedOrder!.id,
+          createdRecordOrder.id,
+        ),
         { replace: true },
       );
     },
@@ -460,7 +467,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
 
             {isCandidateListPending ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
-                {Array.from({ length: 3 }).map((_, i) => (
+                {Array.from({ length: PAGE_SIZE }).map((_, i) => (
                   <Skeleton key={i} className="h-48 w-full" />
                 ))}
               </div>

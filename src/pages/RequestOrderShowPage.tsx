@@ -9,6 +9,7 @@ import {
   Edit,
   EllipsisVertical,
   Inbox,
+  Loader2Icon,
   Plus,
   Printer,
   RefreshCw,
@@ -18,7 +19,7 @@ import { apis } from "@/apis";
 import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
-import { dvdmsBasePath } from "@/lib/paths";
+import { dvdmsBasePath, dvdmsRecordPath } from "@/lib/paths";
 import {
   chunk,
   cn,
@@ -169,7 +170,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
 
-  const recordBasePath = `${dvdmsBasePath(facilityId, locationId)}/${requestOrderId}/record/${recordOrderId}`;
+  const recordBasePath = dvdmsRecordPath(
+    facilityId,
+    locationId,
+    requestOrderId,
+    recordOrderId,
+  );
 
   const [currentTab, setCurrentTab] = useState<
     "requested-items" | "dvdms-issues"
@@ -1032,7 +1038,13 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               }
               disabled={fetchInwardsMutation.isPending}
             >
-              <RefreshCw className="size-4" /> {t("sync_dvdms_status")}
+              <RefreshCw
+                className={cn(
+                  "size-4",
+                  fetchInwardsMutation.isPending && "animate-spin",
+                )}
+              />{" "}
+              {t("sync_dvdms_status")}
             </Button>
           )}
           {canMarkAsCompleted && (
@@ -1040,6 +1052,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               onClick={() => completeRecordOrderMutation.mutate()}
               disabled={completeRecordOrderMutation.isPending}
             >
+              {completeRecordOrderMutation.isPending && (
+                <Loader2Icon className="size-4 animate-spin" />
+              )}
               {completeRecordOrderMutation.isPending
                 ? t("saving")
                 : t("mark_as_completed")}
@@ -1582,12 +1597,16 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                         {" "}
                                       </div>
                                     </TableCell>
-                                    <TableCell className="align-top">
+                                    <TableCell className="align-top whitespace-normal">
                                       <div className="text-xs text-gray-500 mb-3">
                                         {" "}
                                       </div>
-                                      {formatQuantity(item.quantity)}{" "}
-                                      {item.item.base_unit?.display}
+                                      <span className="whitespace-nowrap">
+                                        {formatQuantity(item.quantity)}
+                                      </span>{" "}
+                                      <span className="break-words">
+                                        {item.item.base_unit?.display}
+                                      </span>
                                       <div className="text-xs text-gray-500 mt-1">
                                         {" "}
                                       </div>

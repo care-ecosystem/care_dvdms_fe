@@ -5,7 +5,7 @@ import { navigate } from "raviger";
 import { Link2Icon } from "lucide-react";
 
 import { apis } from "@/apis";
-import { HttpMethod } from "@/apis/types";
+import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { dvdmsBasePath } from "@/lib/paths";
 import DvdmsNotConfigured from "@/components/DvdmsNotConfigured";
@@ -20,19 +20,32 @@ import {
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
 import { Organization } from "@/types/organization";
+import { hasDvdmsIndent, RecordOrderOutward } from "@/types/recordOrder";
 import useDvdmsLocation from "@/hooks/useDvdmsLocation";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 14;
 
-type TabValue = "draft" | "tracking";
+type TabValue = "unsent" | "tracking";
 
-const TABS_CONFIG: { value: TabValue; label: string; status?: string }[] = [
-  { value: "draft", label: "draft", status: "draft" },
-  { value: "tracking", label: "order_tracking" },
+const UNSENT_STATUSES = ["draft", "pending", "failed", "cancelled"];
+
+const TRACKING_STATUSES = ["approved", "rejected", "completed"];
+
+const TABS_CONFIG: { value: TabValue; label: string; status: string }[] = [
+  {
+    value: "unsent",
+    label: "unsent_orders",
+    status: UNSENT_STATUSES.join(","),
+  },
+  {
+    value: "tracking",
+    label: "order_tracking",
+    status: TRACKING_STATUSES.join(","),
+  },
 ];
 
 const EMPTY_MESSAGE_KEYS: Record<TabValue, string> = {
-  draft: "no_draft_orders",
+  unsent: "no_unsent_orders",
   tracking: "no_tracking_orders",
 };
 
@@ -53,7 +66,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   useShortcutSubContext("facility:inventory");
-  const [currentTab, setCurrentTab] = useState<TabValue>("draft");
+  const [currentTab, setCurrentTab] = useState<TabValue>("unsent");
   const [supplierFilter, setSupplierFilter] = useState<Organization>();
   const [page, setPage] = useState(1);
 
@@ -83,17 +96,12 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   )!.status;
 
   const { data, isLoading } = useQuery({
-    queryKey: [
-      "dvdms_record_orders",
-      institute?.id,
-      currentTab,
-      page,
-    ],
+    queryKey: ["dvdms_record_orders", institute?.id, currentTab, page],
     queryFn: () =>
       apis.recordOrders.list(institute!.id, {
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
-        ...(currentStatus ? { status: currentStatus } : {}),
+        status: currentStatus,
         ordering: "-created_date",
       }),
     enabled: !!institute?.id,
@@ -101,42 +109,40 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
 
   const orders = (data?.results ?? []).filter(
     (order) =>
-      (currentTab !== "tracking" || order.status !== "draft") &&
-      (!supplierFilter ||
-        order.institute_supplier?.supplier?.id === supplierFilter.id),
+      !supplierFilter ||
+      order.institute_supplier?.supplier?.id === supplierFilter.id,
   );
 
-  const approvedOrders = orders.filter((order) => order.status === "approved");
-  const approvedOrderIds = approvedOrders.map((order) => order.id);
+  const indentOrders = orders.filter((order) => hasDvdmsIndent(order.status));
+  const indentOrderIds = indentOrders.map((order) => order.id);
 
   const { data: outwardBatchResponse, isPending: isOutwardBatchPending } =
     useQuery({
       queryKey: [
         "dvdms_record_order_outward_batch",
         institute?.id,
-        approvedOrderIds,
+        indentOrderIds,
       ],
       queryFn: () =>
         apis.batchRequests.createChunked({
-          requests: approvedOrders.map((order) => ({
+          requests: indentOrders.map((order) => ({
             url: apis.recordOrderOutward.path(institute!.id, order.id),
             method: HttpMethod.GET,
             body: { limit: 1 },
             reference_id: order.id,
           })),
         }),
-      enabled: !!institute?.id && approvedOrders.length > 0,
+      enabled: !!institute?.id && indentOrders.length > 0,
     });
 
-  const outwardStatusByOrderId: Record<string, string> = {};
+  const outwardByOrderId: Record<string, RecordOrderOutward> = {};
   outwardBatchResponse?.results.forEach((result) => {
-    const status = (
-      result.data as { results?: { status?: string }[] } | undefined
-    )?.results?.[0]?.status;
-    if (status) outwardStatusByOrderId[result.reference_id] = status;
+    const outward = (
+      result.data as PaginatedResponse<RecordOrderOutward> | undefined
+    )?.results?.[0];
+    if (outward) outwardByOrderId[result.reference_id] = outward;
   });
-  const isOutwardStatusLoading =
-    approvedOrders.length > 0 && isOutwardBatchPending;
+  const isOutwardLoading = indentOrders.length > 0 && isOutwardBatchPending;
 
   const renderFilters = () => (
     <div className="flex flex-col md:flex-row gap-4">
@@ -180,9 +186,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
           <Button
             variant="primary"
             onClick={() =>
-              navigate(
-  `${dvdmsBasePath(facilityId, locationId)}/new`
-              )
+              navigate(`${dvdmsBasePath(facilityId, locationId)}/new`)
             }
           >
             <Link2Icon />
@@ -219,10 +223,11 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
               facilityId={facilityId}
               locationId={locationId}
               orders={orders}
-              isLoading={isLoading || isOutwardStatusLoading}
+              isLoading={isLoading || isOutwardLoading}
               emptyMessage={t(EMPTY_MESSAGE_KEYS[tab.value])}
               showIndentNo={tab.value === "tracking"}
-              outwardStatusByOrderId={outwardStatusByOrderId}
+              outwardByOrderId={outwardByOrderId}
+              skeletonCount={PAGE_SIZE}
             />
             <Pagination
               page={page}

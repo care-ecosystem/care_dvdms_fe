@@ -4,14 +4,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate, useQueryParams } from "raviger";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
-import { ChevronLeftIcon } from "lucide-react";
+import { ChevronLeftIcon, Loader2Icon } from "lucide-react";
 
 import { apis } from "@/apis";
 import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { goBack } from "@/lib/navigation";
-import { dvdmsBasePath } from "@/lib/paths";
+import { dvdmsRecordPath } from "@/lib/paths";
 import BackButton from "@/components/BackButton";
 import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import { Badge } from "@/components/ui/badge";
@@ -78,7 +78,12 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
 
   const [{ issue: issueId }] = useQueryParams<{ issue?: string }>();
 
-  const returnPath = `${dvdmsBasePath(facilityId, locationId)}/${requestOrderId}/record/${recordOrderId}`;
+  const returnPath = dvdmsRecordPath(
+    facilityId,
+    locationId,
+    requestOrderId,
+    recordOrderId,
+  );
 
   const { data: institute } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
@@ -419,6 +424,9 @@ const CreateDeliveryPageContent: FC<CreateDeliveryPageProps> = ({
                             : t("no_issues_found_description")
                         }
                       >
+                        {isCreating && (
+                          <Loader2Icon className="size-4 animate-spin" />
+                        )}
                         {isCreating ? t("creating") : t("create")}
                         <ShortcutBadge actionId="enter-action" />
                       </Button>

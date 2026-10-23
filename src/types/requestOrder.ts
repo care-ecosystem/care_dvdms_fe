@@ -30,6 +30,38 @@ export interface RequestOrder {
   created_date: string;
 }
 
+export type RequestOrderCreatePayload = {
+  name: string;
+  note: string;
+  intent: string;
+  category: string;
+  priority: string;
+  reason: string;
+  supplier: string;
+  destination: string;
+  tags: string[];
+  status: string;
+};
+
+/**
+ * Orders raised from the DVDMS screens only vary by supplier and destination —
+ * the supplier comes from the institute mapping, the destination is the DVDMS
+ * store location already in the URL.
+ */
+export const DVDMS_REQUEST_ORDER_DEFAULTS: Omit<
+  RequestOrderCreatePayload,
+  "supplier" | "destination"
+> = {
+  name: "Send Order to DVDMS",
+  note: "",
+  intent: "order",
+  category: "nonstock",
+  priority: "routine",
+  reason: "ward_stock",
+  tags: [],
+  status: "draft",
+};
+
 export interface AvailableRequestOrderLocation {
   id: string;
   name: string;

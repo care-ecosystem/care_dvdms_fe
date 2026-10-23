@@ -1,13 +1,14 @@
 import { FC, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
 import { Link2Icon, PlusIcon } from "lucide-react";
+import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
-import { careExternalOrderCreatePath, dvdmsBasePath } from "@/lib/paths";
+import { careExternalOrderPath, dvdmsBasePath } from "@/lib/paths";
 import DvdmsNotConfigured from "@/components/DvdmsNotConfigured";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import {
 } from "@/context/ShortcutContext";
 import { Organization } from "@/types/organization";
 import { hasDvdmsIndent, RecordOrderOutward } from "@/types/recordOrder";
+import { DVDMS_REQUEST_ORDER_DEFAULTS } from "@/types/requestOrder";
 import useDvdmsLocation from "@/hooks/useDvdmsLocation";
 
 const PAGE_SIZE = 14;
@@ -66,6 +68,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   useShortcutSubContext("facility:inventory");
+  const queryClient = useQueryClient();
   const [currentTab, setCurrentTab] = useState<TabValue>("unsent");
   const [supplierFilter, setSupplierFilter] = useState<Organization>();
   const [page, setPage] = useState(1);
@@ -90,6 +93,40 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
     locationId: configuredLocationId,
     isLoading: isConfigLoading,
   } = useDvdmsLocation(facilityId);
+
+  const { data: supplierMappingsResponse } = useQuery({
+    queryKey: ["dvdms_supplier_mappings", institute?.id],
+    queryFn: () => apis.supplierMappings.list(institute!.id),
+    enabled: !!institute?.id,
+  });
+
+  const { mutate: createOrder, isPending: isCreatingOrder } = useMutation({
+    mutationFn: () => {
+      const mappings = supplierMappingsResponse?.results ?? [];
+      const mapping = mappings.find((item) => item.is_default) ?? mappings[0];
+      if (!mapping?.supplier) {
+        return Promise.reject(new Error("no_supplier_mapping"));
+      }
+      return apis.requestOrders.create(facilityId, {
+        ...DVDMS_REQUEST_ORDER_DEFAULTS,
+        supplier: mapping.supplier.id,
+        destination: locationId,
+      });
+    },
+    onSuccess: (order) => {
+      toast.success(t("order_created_successfully"));
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_available_request_orders"],
+      });
+      navigate(careExternalOrderPath(facilityId, locationId, order.id));
+    },
+    onError: (error) =>
+      toast.error(
+        error.message === "no_supplier_mapping"
+          ? t("dvdms_supplier_not_configured")
+          : t("failed_to_create_order"),
+      ),
+  });
 
   const currentStatus = TABS_CONFIG.find(
     (tab) => tab.value === currentTab,
@@ -185,12 +222,11 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
-            onClick={() =>
-              navigate(careExternalOrderCreatePath(facilityId, locationId))
-            }
+            onClick={() => createOrder()}
+            disabled={isCreatingOrder}
           >
             <PlusIcon />
-            {t("create_order")}
+            {isCreatingOrder ? t("creating") : t("create_order")}
           </Button>
           <Button
             variant="primary"

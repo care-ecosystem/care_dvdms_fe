@@ -8,7 +8,11 @@ import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
-import { dvdmsBasePath, dvdmsRecordPath } from "@/lib/paths";
+import {
+  careExternalOrderPath,
+  dvdmsBasePath,
+  dvdmsRecordPath,
+} from "@/lib/paths";
 import { cn, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -72,9 +76,15 @@ type OrderCardProps = {
   order: AvailableRequestOrder;
   isChecking: boolean;
   onSelect: () => void;
+  onOpen: () => void;
 };
 
-const OrderCard: FC<OrderCardProps> = ({ order, isChecking, onSelect }) => {
+const OrderCard: FC<OrderCardProps> = ({
+  order,
+  isChecking,
+  onSelect,
+  onOpen,
+}) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
   const isSelectable = order.status === "pending";
@@ -88,11 +98,24 @@ const OrderCard: FC<OrderCardProps> = ({ order, isChecking, onSelect }) => {
     <Card className="bg-white h-full flex flex-col">
       <CardContent className="space-y-3 pt-6 flex flex-col flex-1">
         <div className="flex items-start justify-between gap-2">
-          <div className={cn("min-w-0", !isSelectable && "opacity-50")}>
-            <h3 className="text-base sm:text-lg font-semibold text-gray-950 wrap-break-word">
-              {order.name}
-            </h3>
-            <p className="text-sm text-gray-500 wrap-break-word">
+          {/* Stays clickable for orders that cannot be sent yet, so the order
+              can still be opened and approved in CARE. */}
+          <div className="min-w-0">
+            <button
+              type="button"
+              onClick={onOpen}
+              className="block max-w-full text-left"
+            >
+              <h3 className="text-base sm:text-lg font-semibold text-gray-950 wrap-break-word hover:text-primary-700 hover:underline">
+                {order.name}
+              </h3>
+            </button>
+            <p
+              className={cn(
+                "text-sm text-gray-500 wrap-break-word",
+                !isSelectable && "opacity-50",
+              )}
+            >
               {order.supplier?.name ?? "—"}
             </p>
           </div>
@@ -479,6 +502,11 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                     order={order}
                     isChecking={checkingOrderId === order.id}
                     onSelect={() => handleSelectOrder(order)}
+                    onOpen={() =>
+                      navigate(
+                        careExternalOrderPath(facilityId, locationId, order.id),
+                      )
+                    }
                   />
                 ))}
               </div>

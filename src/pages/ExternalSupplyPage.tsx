@@ -2,12 +2,12 @@ import { FC, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { navigate } from "raviger";
-import { Link2Icon } from "lucide-react";
+import { Link2Icon, PlusIcon } from "lucide-react";
 
 import { apis } from "@/apis";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
-import { dvdmsBasePath } from "@/lib/paths";
+import { careExternalOrderCreatePath, dvdmsBasePath } from "@/lib/paths";
 import DvdmsNotConfigured from "@/components/DvdmsNotConfigured";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -183,6 +183,15 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() =>
+              navigate(careExternalOrderCreatePath(facilityId, locationId))
+            }
+          >
+            <PlusIcon />
+            {t("create_order")}
+          </Button>
           <Button
             variant="primary"
             onClick={() =>

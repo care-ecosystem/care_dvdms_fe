@@ -22,7 +22,7 @@ import {
 } from "@/context/ShortcutContext";
 import { Organization } from "@/types/organization";
 import { hasDvdmsIndent, RecordOrderOutward } from "@/types/recordOrder";
-import { DVDMS_REQUEST_ORDER_DEFAULTS } from "@/types/requestOrder";
+import { buildDvdmsRequestOrder } from "@/types/requestOrder";
 import useDvdmsLocation from "@/hooks/useDvdmsLocation";
 
 const PAGE_SIZE = 14;
@@ -107,11 +107,10 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
       if (!mapping?.supplier) {
         return Promise.reject(new Error("no_supplier_mapping"));
       }
-      return apis.requestOrders.create(facilityId, {
-        ...DVDMS_REQUEST_ORDER_DEFAULTS,
-        supplier: mapping.supplier.id,
-        destination: locationId,
-      });
+      return apis.requestOrders.create(
+        facilityId,
+        buildDvdmsRequestOrder(mapping.supplier.id, locationId),
+      );
     },
     onSuccess: (order) => {
       toast.success(t("order_created_successfully"));

@@ -5,7 +5,11 @@ import { navigate, useQueryParams } from "raviger";
 import { ArrowRight, BadgeCheck, Send } from "lucide-react";
 
 import { apis } from "@/apis";
-import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
+import {
+  I18N_NAMESPACE,
+  LIST_FETCH_LIMIT,
+  REQUEST_ORDER_STATUS_POLL_INTERVAL_MS,
+} from "@/lib/constants";
 import { dvdmsLinkOrderPath, dvdmsRecordPath } from "@/lib/paths";
 import { Button } from "@/components/ui/button";
 // import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
@@ -51,10 +55,22 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
 
   const isDvdmsFlow = flow === "dvdms";
 
+  // Core's query key, deliberately: the core page invalidates
+  // ["requestOrders", requestOrderId] when the order's status changes.
+  //
+  // The approval itself happens in core's own components, and that
+  // invalidation has not proved reliable across the plugin boundary, so the
+  // order is also polled until it is submitted — the button then unlocks a few
+  // seconds after approval instead of waiting for a page refresh. Polling
+  // stops as soon as the order is out of draft.
   const { data: requestOrder } = useQuery({
-    queryKey: ["request_order", facilityId, requestOrderId],
+    queryKey: ["requestOrders", requestOrderId],
     queryFn: () => apis.requestOrders.retrieve(facilityId, requestOrderId),
     enabled: isDvdmsFlow,
+    refetchInterval: (query) =>
+      query.state.data?.status === "pending"
+        ? false
+        : REQUEST_ORDER_STATUS_POLL_INTERVAL_MS,
   });
 
   if (!isDvdmsFlow) {

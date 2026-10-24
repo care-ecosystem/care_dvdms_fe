@@ -33,6 +33,12 @@
       "when": "always"
     },
     {
+      "key": "f",
+      "action": "fetch-dvdms-status",
+      "description": "Fetch DVDMS Status",
+      "when": "always"
+    },
+    {
       "key": "e",
       "action": "edit-order",
       "description": "Edit Order",

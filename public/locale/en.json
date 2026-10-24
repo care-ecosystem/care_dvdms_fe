@@ -20,6 +20,7 @@
   "apply_updates_selected": "Apply the update to {{count}} selected item(s)",
   "approve_delivery_items": "Approve Received Items",
   "approve_delivery_items_description": "Approving confirms {{count}} received item(s) into this location's stock and marks them active.",
+  "approve_order_before_sending": "Approve this order before sending it to DVDMS",
   "approved": "Approved",
   "approving": "Approving...",
   "asap": "ASAP",

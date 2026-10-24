@@ -39,6 +39,12 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
 
   const isDvdmsFlow = flow === "dvdms";
 
+  const { data: requestOrder } = useQuery({
+    queryKey: ["request_order", facilityId, requestOrderId],
+    queryFn: () => apis.requestOrders.retrieve(facilityId, requestOrderId),
+    enabled: isDvdmsFlow,
+  });
+
   const { data: institute } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
     queryFn: () => apis.institutes.get(facilityId),
@@ -62,6 +68,11 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
   if (!isDvdmsFlow) {
     return <Base {...props} />;
   }
+
+  // DVDMS only accepts an order the facility has already approved; a draft or
+  // pending order has to go through the core approval first.
+  const isApproved = requestOrder?.status === "approved";
+  const canSend = !!recordOrder || isApproved;
 
   const handleClick = () =>
     navigate(
@@ -105,7 +116,9 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
               >
                 {recordOrder
                   ? t("order_sent_to_dvdms")
-                  : t("confirm_and_send_to_dvdms")}
+                  : isApproved
+                    ? t("confirm_and_send_to_dvdms")
+                    : t("approve_order_before_sending")}
               </span>
             </div>
             <div className="flex items-center rounded-r-lg bg-white p-2 pl-0">
@@ -114,6 +127,7 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
                 variant="primary"
                 className="ml-2 shadow"
                 onClick={handleClick}
+                disabled={!canSend}
               >
                 {recordOrder ? (
                   <ArrowRight className="mr-2 size-4" />

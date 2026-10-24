@@ -13,6 +13,7 @@ import {
 } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
 import { TableSkeleton } from "@/components/SkeletonLoading";
+import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -171,6 +172,17 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
     return <TableSkeleton count={issues.length} />;
   }
 
+  /**
+   * The shortcut clicks the first element carrying its id, so only the first
+   * row that can create a delivery advertises the key — every row showing it
+   * would promise a shortcut that lands somewhere else.
+   */
+  const firstCreatableIssueId = issues.find(
+    (issue) =>
+      !deliveriesByIssueId.get(issue.id)?.[0] &&
+      issue.eaushadhi_issue_status === RecordInwardStatus.fetched,
+  )?.id;
+
   return (
     <Table className="min-w-[48rem]">
       <TableHeader>
@@ -263,6 +275,11 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
                     }
                   >
                     <Plus className="size-4" /> {t("create_delivery")}
+                    {issue.id === firstCreatableIssueId && (
+                      <ShortcutBadge
+                        actionId="create-delivery"
+                      />
+                    )}
                   </Button>
                 ) : (
                   "—"

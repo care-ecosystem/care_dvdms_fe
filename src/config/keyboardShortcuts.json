@@ -39,6 +39,12 @@
       "when": "always"
     },
     {
+      "key": "n",
+      "action": "create-delivery",
+      "description": "Create Delivery",
+      "when": "always"
+    },
+    {
       "key": "e",
       "action": "edit-order",
       "description": "Edit Order",

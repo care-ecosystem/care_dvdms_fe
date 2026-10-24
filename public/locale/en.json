@@ -272,6 +272,7 @@
   "order": "Order",
   "order_created_successfully": "Order created successfully",
   "order_name": "Order Name",
+  "order_sent_to_dvdms": "Order sent to DVDMS",
   "order_tracking": "Order Tracking",
   "origin": "Origin",
   "other_tags": "Other tags",
@@ -393,6 +394,7 @@
   "urgent": "Urgent",
   "view_deliveries": "View Deliveries",
   "view_delivery": "View Delivery",
+  "view_in_dvdms": "View in DVDMS",
   "ward_stock": "Ward Stock",
   "warehouse": "Warehouse"
 }

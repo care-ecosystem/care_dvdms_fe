@@ -90,9 +90,10 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
 
   const {
     institute,
+    store,
     locationId: configuredLocationId,
     isLoading: isConfigLoading,
-  } = useDvdmsLocation(facilityId);
+  } = useDvdmsLocation(facilityId, locationId);
 
   const { data: supplierMappingsResponse } = useQuery({
     queryKey: ["dvdms_supplier_mappings", institute?.id],
@@ -180,6 +181,26 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   });
   const isOutwardLoading = indentOrders.length > 0 && isOutwardBatchPending;
 
+  const renderHeading = () => (
+    <div>
+      <h1 className="text-xl font-semibold text-gray-900">
+        {t("dvdms_external_supply")}
+      </h1>
+      <p className="text-sm text-gray-500">
+        {t("manage_external_supply_for")}{" "}
+        <strong>{facility?.name ?? facilityId}</strong>
+      </p>
+      {store && (
+        <p className="text-sm text-gray-500">
+          <strong>{store.store.name}</strong>
+          {store.eaushadhi_store_name &&
+            `(·${t("dvdms_store")}: ${store.eaushadhi_store_name})`}
+            
+        </p>
+      )}
+    </div>
+  );
+
   const renderFilters = () => (
     <div className="flex flex-col md:flex-row gap-4">
       <SupplierSelect
@@ -192,15 +213,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   if (!isConfigLoading && !configuredLocationId) {
     return (
       <div className="md:px-6 py-0 space-y-4 min-w-0">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">
-            {t("dvdms_external_supply")}
-          </h1>
-          <p className="text-sm text-gray-500">
-            {t("manage_external_supply_for")}{" "}
-            <strong>{facility?.name ?? facilityId}</strong>
-          </p>
-        </div>
+        {renderHeading()}
         <DvdmsNotConfigured hasInstitute={!!institute} />
       </div>
     );
@@ -209,26 +222,10 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   return (
     <div className="md:px-6 py-0 space-y-4 min-w-0">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">
-            {t("dvdms_external_supply")}
-          </h1>
-          <p className="text-sm text-gray-500">
-            {t("manage_external_supply_for")}{" "}
-            <strong>{facility?.name ?? facilityId}</strong>
-          </p>
-        </div>
+        {renderHeading()}
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
-            onClick={() => createOrder()}
-            disabled={isCreatingOrder}
-          >
-            <PlusIcon />
-            {isCreatingOrder ? t("creating") : t("create_order")}
-          </Button>
-          <Button
-            variant="primary"
             onClick={() =>
               navigate(`${dvdmsBasePath(facilityId, locationId)}/new`)
             }
@@ -236,6 +233,14 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
             <Link2Icon />
             {t("send_order_to_dvdms")}
             <ShortcutBadge actionId="link-order-eaushadhi" />
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => createOrder()}
+            disabled={isCreatingOrder}
+          >
+            <PlusIcon />
+            {isCreatingOrder ? t("creating") : t("create_order")}
           </Button>
         </div>
       </div>

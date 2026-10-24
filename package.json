@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite preview & vite build --watch",
     "start": "vite build --watch & vite preview --port 5177",
-    "build": "vite build",
+    "build": "node scripts/build-version.cjs && vite build",
+    "build:version": "node scripts/build-version.cjs",
     "preview": "vite preview"
   },
   "repository": {

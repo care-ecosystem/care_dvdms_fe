@@ -241,6 +241,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
           >
             <PlusIcon />
             {isCreatingOrder ? t("creating") : t("create_order")}
+            <ShortcutBadge actionId="create-order" variant="primary" />
           </Button>
         </div>
       </div>

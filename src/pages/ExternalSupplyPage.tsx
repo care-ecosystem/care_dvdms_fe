@@ -2,7 +2,7 @@ import { FC, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
-import { Link2Icon, PlusIcon } from "lucide-react";
+import { PlusIcon, SendIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
@@ -230,7 +230,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
               navigate(`${dvdmsBasePath(facilityId, locationId)}/new`)
             }
           >
-            <Link2Icon />
+            <SendIcon />
             {t("send_order_to_dvdms")}
             <ShortcutBadge actionId="link-order-eaushadhi" />
           </Button>
@@ -241,7 +241,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
           >
             <PlusIcon />
             {isCreatingOrder ? t("creating") : t("create_order")}
-            <ShortcutBadge actionId="create-order" variant="primary" />
+            <ShortcutBadge actionId="create-order"  />
           </Button>
         </div>
       </div>

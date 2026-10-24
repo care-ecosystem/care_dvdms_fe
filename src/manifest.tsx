@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { Pill } from "lucide-react";
+import { Truck } from "lucide-react";
 
 import en from "../public/locale/en.json";
 import routes from "./routes";
@@ -35,7 +35,7 @@ const manifest = {
     {
       name: "DVDMS",
       url: "dvdms",
-      icon: <Pill />,
+      icon: <Truck />,
     },
   ],
   adminNavItems: [],

@@ -63,7 +63,11 @@ import {
   RecordItemOrderPayload,
 } from "@/types/recordOrderItem";
 import { RecordOrderProductMapping } from "@/types/productMapping";
-import { AvailableRequestOrder, RequestOrder } from "@/types/requestOrder";
+import {
+  AvailableRequestOrder,
+  RequestOrder,
+  RequestOrderCreatePayload,
+} from "@/types/requestOrder";
 import {
   SUPPLY_DELIVERY_ITEM_TYPE,
   SupplyDeliveryCreatePayload,
@@ -117,6 +121,12 @@ export const apis = {
         `/api/v1/facility/${facilityId}/order/request/`,
         HttpMethod.GET,
         params,
+      ),
+    create: (facilityId: string, payload: RequestOrderCreatePayload) =>
+      request<RequestOrder>(
+        `/api/v1/facility/${facilityId}/order/request/`,
+        HttpMethod.POST,
+        payload,
       ),
     path: (facilityId: string, requestOrderId: string) =>
       `/api/v1/facility/${facilityId}/order/request/${requestOrderId}/`,

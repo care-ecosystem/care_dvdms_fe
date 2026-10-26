@@ -1,13 +1,14 @@
 import { FC, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
-import { Link2Icon } from "lucide-react";
+import { PlusIcon, SendIcon } from "lucide-react";
+import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
-import { dvdmsBasePath } from "@/lib/paths";
+import { careExternalOrderPath, dvdmsBasePath } from "@/lib/paths";
 import DvdmsNotConfigured from "@/components/DvdmsNotConfigured";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import {
 } from "@/context/ShortcutContext";
 import { Organization } from "@/types/organization";
 import { hasDvdmsIndent, RecordOrderOutward } from "@/types/recordOrder";
+import { buildDvdmsRequestOrder } from "@/types/requestOrder";
 import useDvdmsLocation from "@/hooks/useDvdmsLocation";
 
 const PAGE_SIZE = 14;
@@ -66,6 +68,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   useShortcutSubContext("facility:inventory");
+  const queryClient = useQueryClient();
   const [currentTab, setCurrentTab] = useState<TabValue>("unsent");
   const [supplierFilter, setSupplierFilter] = useState<Organization>();
   const [page, setPage] = useState(1);
@@ -87,9 +90,43 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
 
   const {
     institute,
+    store,
     locationId: configuredLocationId,
     isLoading: isConfigLoading,
-  } = useDvdmsLocation(facilityId);
+  } = useDvdmsLocation(facilityId, locationId);
+
+  const { data: supplierMappingsResponse } = useQuery({
+    queryKey: ["dvdms_supplier_mappings", institute?.id],
+    queryFn: () => apis.supplierMappings.list(institute!.id),
+    enabled: !!institute?.id,
+  });
+
+  const { mutate: createOrder, isPending: isCreatingOrder } = useMutation({
+    mutationFn: () => {
+      const mappings = supplierMappingsResponse?.results ?? [];
+      const mapping = mappings.find((item) => item.is_default) ?? mappings[0];
+      if (!mapping?.supplier) {
+        return Promise.reject(new Error("no_supplier_mapping"));
+      }
+      return apis.requestOrders.create(
+        facilityId,
+        buildDvdmsRequestOrder(mapping.supplier.id, locationId),
+      );
+    },
+    onSuccess: (order) => {
+      toast.success(t("order_created_successfully"));
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_available_request_orders"],
+      });
+      navigate(careExternalOrderPath(facilityId, locationId, order.id));
+    },
+    onError: (error) =>
+      toast.error(
+        error.message === "no_supplier_mapping"
+          ? t("dvdms_supplier_not_configured")
+          : t("failed_to_create_order"),
+      ),
+  });
 
   const currentStatus = TABS_CONFIG.find(
     (tab) => tab.value === currentTab,
@@ -144,6 +181,26 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   });
   const isOutwardLoading = indentOrders.length > 0 && isOutwardBatchPending;
 
+  const renderHeading = () => (
+    <div>
+      <h1 className="text-xl font-semibold text-gray-900">
+        {t("dvdms_external_supply")}
+      </h1>
+      <p className="text-sm text-gray-500">
+        {t("manage_external_supply_for")}{" "}
+        <strong>{facility?.name ?? facilityId}</strong>
+      </p>
+      {store && (
+        <p className="text-sm text-gray-500">
+          <strong>{store.store.name}</strong>
+          {store.eaushadhi_store_name &&
+            `(·${t("dvdms_store")}: ${store.eaushadhi_store_name})`}
+            
+        </p>
+      )}
+    </div>
+  );
+
   const renderFilters = () => (
     <div className="flex flex-col md:flex-row gap-4">
       <SupplierSelect
@@ -156,15 +213,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   if (!isConfigLoading && !configuredLocationId) {
     return (
       <div className="md:px-6 py-0 space-y-4 min-w-0">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">
-            {t("dvdms_external_supply")}
-          </h1>
-          <p className="text-sm text-gray-500">
-            {t("manage_external_supply_for")}{" "}
-            <strong>{facility?.name ?? facilityId}</strong>
-          </p>
-        </div>
+        {renderHeading()}
         <DvdmsNotConfigured hasInstitute={!!institute} />
       </div>
     );
@@ -173,25 +222,26 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   return (
     <div className="md:px-6 py-0 space-y-4 min-w-0">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">
-            {t("dvdms_external_supply")}
-          </h1>
-          <p className="text-sm text-gray-500">
-            {t("manage_external_supply_for")}{" "}
-            <strong>{facility?.name ?? facilityId}</strong>
-          </p>
-        </div>
+        {renderHeading()}
         <div className="flex items-center gap-2">
           <Button
-            variant="primary"
+            variant="outline"
             onClick={() =>
               navigate(`${dvdmsBasePath(facilityId, locationId)}/new`)
             }
           >
-            <Link2Icon />
+            <SendIcon />
             {t("send_order_to_dvdms")}
             <ShortcutBadge actionId="link-order-eaushadhi" />
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => createOrder()}
+            disabled={isCreatingOrder}
+          >
+            <PlusIcon />
+            {isCreatingOrder ? t("creating") : t("create_order")}
+            <ShortcutBadge actionId="create-order"  />
           </Button>
         </div>
       </div>

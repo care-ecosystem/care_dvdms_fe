@@ -1029,7 +1029,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
           )}
           {canSyncDvdmsStatus && (
             <Button
-              variant="outline"
+              variant="primary"
               onClick={() =>
                 fetchInwardsMutation.mutate(undefined, {
                   onSuccess: () => toast.success(t("eaushadhi_status_synced")),
@@ -1044,7 +1044,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                   fetchInwardsMutation.isPending && "animate-spin",
                 )}
               />{" "}
-              {t("sync_dvdms_status")}
+              {t("fetch_dvdms_status")}
+              <ShortcutBadge actionId="fetch-dvdms-status"  />
             </Button>
           )}
           {canMarkAsCompleted && (
@@ -1111,6 +1112,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                 <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                   {recordOrder.institute_supplier.eaushadhi_warehouse_name}
                 </div>
+                {recordOrder.institute_supplier.eaushadhi_warehouse_id && (
+                  <p className="text-xs text-gray-500 wrap-break-word">
+                    {t("eaushadhi_warehouse_id")}:{" "}
+                    {recordOrder.institute_supplier.eaushadhi_warehouse_id}
+                  </p>
+                )}
               </div>
             )}
 
@@ -1122,6 +1129,12 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                 <div className="text-lg font-semibold text-gray-950 wrap-break-word">
                   {recordOrder.institute_store.eaushadhi_store_name}
                 </div>
+                {recordOrder.institute_store.eaushadhi_store_id && (
+                  <p className="text-xs text-gray-500 wrap-break-word">
+                    {t("eaushadhi_store_id")}:{" "}
+                    {recordOrder.institute_store.eaushadhi_store_id}
+                  </p>
+                )}
               </div>
             )}
 

@@ -3,7 +3,17 @@ import { useQuery } from "@tanstack/react-query";
 import { apis } from "@/apis";
 import { LIST_FETCH_LIMIT } from "@/lib/constants";
 
-export default function useDvdmsLocation(facilityId: string) {
+/**
+ * Resolves the DVDMS store mapping a facility works through.
+ *
+ * Pass `locationId` — the location in the URL — to resolve that store instead
+ * of the default one, so pages titled by location stay in step with the page
+ * they are on.
+ */
+export default function useDvdmsLocation(
+  facilityId: string,
+  locationId?: string,
+) {
   const { data: institute, isLoading: isInstituteLoading } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
     queryFn: () => apis.institutes.get(facilityId),
@@ -20,10 +30,14 @@ export default function useDvdmsLocation(facilityId: string) {
 
   const stores = storesResponse?.results ?? [];
   /** Defensive: a second mapping should not change which location is used. */
-  const store = stores.find((item) => item.is_default) ?? stores[0];
+  const store =
+    (locationId && stores.find((item) => item.store.id === locationId)) ||
+    stores.find((item) => item.is_default) ||
+    stores[0];
 
   return {
     institute,
+    store,
     locationId: store?.store.id,
     isLoading: isInstituteLoading || isStoresLoading,
   };

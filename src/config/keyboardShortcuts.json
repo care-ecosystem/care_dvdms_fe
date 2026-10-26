@@ -27,6 +27,24 @@
       "when": "always"
     },
     {
+      "key": "c",
+      "action": "create-order",
+      "description": "Create Order",
+      "when": "always"
+    },
+    {
+      "key": "f",
+      "action": "fetch-dvdms-status",
+      "description": "Fetch DVDMS Status",
+      "when": "always"
+    },
+    {
+      "key": "n",
+      "action": "create-delivery",
+      "description": "Create Delivery",
+      "when": "always"
+    },
+    {
       "key": "e",
       "action": "edit-order",
       "description": "Edit Order",

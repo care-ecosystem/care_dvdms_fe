@@ -380,8 +380,8 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
         eaushadhi_batch: item.batch,
         eaushadhi_expiry: toDateInputValue(item.expiry_date),
         expiry_date: toDateInputValue(item.expiry_date),
-        received_quantity: item.received_quantity,
-        quantity_dispatched: item.received_quantity,
+        received_quantity: String(toQuantity(item.received_quantity)),
+        quantity_dispatched: String(toQuantity(item.received_quantity)),
         quantity_damaged: "0",
         quantity_short: "0",
         product_knowledge: productKnowledgeByDrugId.get(item.drug_id),
@@ -1089,16 +1089,24 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                     : undefined) || "—"}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-right tabular-nums">
-                                  {item.quantity_dispatched ?? "—"}
+                                  {item.quantity_dispatched != null
+                                    ? toQuantity(item.quantity_dispatched)
+                                    : "—"}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-right tabular-nums">
-                                  {item.quantity_damaged ?? "—"}
+                                  {item.quantity_damaged != null
+                                    ? toQuantity(item.quantity_damaged)
+                                    : "—"}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-right tabular-nums">
-                                  {item.quantity_accepted ?? "—"}
+                                  {item.quantity_accepted != null
+                                    ? toQuantity(item.quantity_accepted)
+                                    : "—"}
                                 </TableCell>
                                 <TableCell className="p-2 text-sm text-right tabular-nums">
-                                  {item.quantity_short ?? "—"}
+                                  {item.quantity_short != null
+                                    ? toQuantity(item.quantity_short)
+                                    : "—"}
                                 </TableCell>
                                 <TableCell className="p-2">
                                   <Badge
@@ -1162,7 +1170,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     <form onSubmit={onSubmit} className="space-y-6">
                       <div className="rounded-md border border-gray-200 bg-white shadow overflow-hidden">
                         <div className="overflow-x-auto">
-                          <Table className="min-w-[52rem]">
+                          <Table>
                             <TableHeader className="bg-gray-100">
                               <TableRow className="divide-x divide-gray-200">
                                 <TableHead
@@ -1173,49 +1181,49 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-[21%] text-xs font-semibold"
+                                  className="min-w-[200px] text-xs font-semibold"
                                 >
                                   {t("product_knowledge")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-[12%] text-xs font-semibold"
+                                  className="min-w-[120px] text-xs font-semibold"
                                 >
                                   {t("category")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-[7%] text-xs font-semibold"
+                                  className="min-w-[100px] text-xs font-semibold"
                                 >
                                   {t("dispatched")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-[7%] text-xs font-semibold"
+                                  className="min-w-[100px] text-xs font-semibold"
                                 >
                                   {t("damaged")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-[7%] text-xs font-semibold"
+                                  className="min-w-[100px] text-xs font-semibold"
                                 >
                                   {t("received_qty")}
                                 </TableHead>
                                 <TableHead
                                   rowSpan={2}
-                                  className="w-[7%] text-xs font-semibold"
+                                  className="min-w-[100px] text-xs font-semibold"
                                 >
                                   {t("short")}
                                 </TableHead>
                               </TableRow>
                               <TableRow className="divide-x divide-gray-200">
-                                <TableHead className="w-[18%] text-xs font-semibold">
+                                <TableHead className="min-w-[180px] text-xs font-semibold">
                                   {t("drug")}
                                 </TableHead>
-                                <TableHead className="w-[9%] text-xs font-semibold">
+                                <TableHead className="min-w-[100px] text-xs font-semibold">
                                   {t("batch")}
                                 </TableHead>
-                                <TableHead className="w-[12%] text-xs font-semibold border-r">
+                                <TableHead className="min-w-[140px] text-xs font-semibold border-r">
                                   {t("expiry")}
                                 </TableHead>
                               </TableRow>

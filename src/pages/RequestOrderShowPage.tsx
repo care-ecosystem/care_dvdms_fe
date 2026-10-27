@@ -386,9 +386,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       : recordOrder?.status;
 
   const canSyncDvdmsStatus =
+    !!outward?.eaushadhi_indent_no &&
     !!recordOrder?.status &&
-    !["draft", "pending", "cancelled"].includes(recordOrder.status) &&
-    !!outward?.eaushadhi_indent_no;
+    !["rejected", "completed", "cancelled"].includes(recordOrder.status);
 
   const {
     inwardRecords: dvdmsIssues,

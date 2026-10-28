@@ -5,7 +5,12 @@ import { ChevronLeft, FileWarning, Loader2Icon, Printer } from "lucide-react";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
-import { formatDate, formatLookupId, formatQuantity } from "@/lib/utils";
+import {
+  formatDate,
+  formatLookupId,
+  formatQuantity,
+  formatUserName,
+} from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import BackButton from "@/components/BackButton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -309,10 +314,7 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
             <div className="flex justify-between text-xs text-gray-500 pt-4 mt-4 border-t border-gray-200">
               <span>
                 {t("created_by")}:{" "}
-                {order.created_by
-                  ? `${order.created_by.first_name} ${order.created_by.last_name}`.trim() ||
-                    order.created_by.username
-                  : "—"}
+                {formatUserName(order.created_by)}
               </span>
               <span>{formatDate(order.created_date)}</span>
             </div>

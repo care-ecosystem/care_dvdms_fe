@@ -24,6 +24,7 @@ import {
   downloadProductMappingUploadReport,
   downloadProductMappingValidationReport,
   formatDate,
+  formatUserName,
   getProductKnowledgeSlugValue,
   getProgressPercent,
   hasExplicitSlugScope,
@@ -1486,10 +1487,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                       </div>
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
-                      {mapping.created_by
-                        ? `${mapping.created_by.first_name} ${mapping.created_by.last_name}`.trim() ||
-                          mapping.created_by.username
-                        : "—"}
+                      {formatUserName(mapping.created_by)}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
                       {formatDate(mapping.created_date)}

@@ -5,7 +5,7 @@ import { Eye, PackageIcon } from "lucide-react";
 
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { dvdmsRecordPath } from "@/lib/paths";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatUserName } from "@/lib/utils";
 import { TableSkeleton } from "@/components/SkeletonLoading";
 import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import { Badge } from "@/components/ui/badge";
@@ -165,10 +165,7 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
               <TableCell>
                 <div className="flex flex-col">
                   <span className="font-medium text-gray-900">
-                    {order.created_by
-                      ? `${order.created_by.first_name} ${order.created_by.last_name}`.trim() ||
-                        order.created_by.username
-                      : "—"}
+                    {formatUserName(order.created_by)}
                   </span>
                   <span className="text-xs text-gray-500">
                     {formatDate(order.created_date)}

@@ -49,6 +49,16 @@ export function formatDate(dateStr: string | null | undefined): string {
   return `${day}/${month}/${date.getFullYear()}`;
 }
 
+export function formatUserName(
+  user:
+    | { first_name: string; last_name: string; username: string }
+    | null
+    | undefined,
+): string {
+  if (!user) return "—";
+  return `${user.first_name} ${user.last_name}`.trim() || user.username;
+}
+
 /** Trims an ISO date or datetime down to the `yyyy-mm-dd` a date input expects. */
 export function toDateInputValue(value: string | null | undefined): string {
   return value?.slice(0, 10) ?? "";

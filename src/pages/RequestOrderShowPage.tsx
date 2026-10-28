@@ -1270,12 +1270,18 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                               <TableRow>
                                 <TableHead className="w-[17%]">
                                   {t("group")}
+                                  {!isViewOnlyStatus && (
+                                    <span className="text-red-500">*</span>
+                                  )}
                                 </TableHead>
                                 <TableHead className="w-[17%]">
                                   {t("subgroup")}
                                 </TableHead>
                                 <TableHead className="w-[17%]">
                                   {t("drug_name")}
+                                  {!isViewOnlyStatus && (
+                                    <span className="text-red-500">*</span>
+                                  )}
                                 </TableHead>
                               </TableRow>
                             </TableHeader>

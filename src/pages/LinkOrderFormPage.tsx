@@ -13,7 +13,7 @@ import {
   dvdmsBasePath,
   dvdmsRecordPath,
 } from "@/lib/paths";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatDate, formatUserName } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -89,10 +89,7 @@ const OrderCard: FC<OrderCardProps> = ({
 
   const isSelectable = order.status === "pending";
 
-  const createdByName = order.created_by
-    ? `${order.created_by.first_name} ${order.created_by.last_name}`.trim() ||
-      order.created_by.username
-    : "—";
+  const createdByName = formatUserName(order.created_by);
 
   return (
     <Card className="bg-white h-full flex flex-col">

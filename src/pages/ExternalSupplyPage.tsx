@@ -225,7 +225,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
         <p className="text-sm text-gray-500">
           <strong>{store.store.name}</strong>
           {store.eaushadhi_store_name &&
-            `(·${t("dvdms_store")}: ${store.eaushadhi_store_name})`}
+            ` (${t("dvdms_store")}: ${store.eaushadhi_store_name})`}
             
         </p>
       )}

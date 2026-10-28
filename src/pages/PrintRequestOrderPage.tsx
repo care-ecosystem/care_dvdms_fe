@@ -10,6 +10,7 @@ import {
   formatLookupId,
   formatQuantity,
   formatUserName,
+  parseLookupId,
 } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import BackButton from "@/components/BackButton";
@@ -102,25 +103,6 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
         apis.item.list(institute!.id, recordOrder!.id, { limit: 100 }),
       enabled: isPrintable && !!institute?.id && !!recordOrder?.id,
     });
-
-  const { data: productKnowledgeData } = useQuery({
-    queryKey: ["dvdms_product_knowledge", facilityId],
-    queryFn: () =>
-      apis.productKnowledge.list({
-        facility: facilityId,
-        status: "active",
-        include_instance: true,
-        limit: 100,
-      }),
-    enabled: isPrintable,
-  });
-
-  const categoryByProductId = new Map(
-    (productKnowledgeData?.results ?? []).map((product) => [
-      product.id,
-      product.category?.title,
-    ]),
-  );
 
   const drugBySupplyRequestId = new Map(
     (recordItemOrdersData?.results ?? []).map((item) => [
@@ -286,7 +268,7 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
                       <TableRow key={item.id}>
                         <TableCell>{item.item.name}</TableCell>
                         <TableCell>
-                          {categoryByProductId.get(item.item.id) ?? "—"}
+                          {item.item.category?.title ?? "—"}
                         </TableCell>
                         <TableCell>
                           {formatQuantity(item.quantity)}{" "}
@@ -294,7 +276,8 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
                         </TableCell>
                         <TableCell>{formatLookupId(drug?.group_id)}</TableCell>
                         <TableCell>
-                          {formatLookupId(drug?.sub_group_id)}
+                          {/* DVDMS sends "0" for a drug with no subgroup. */}
+                          {parseLookupId(drug?.sub_group_id) ?? "—"}
                         </TableCell>
                         <TableCell className="align-top break-words">
                           {drug?.name ?? "—"}
@@ -313,8 +296,7 @@ const PrintRequestOrderPage: FC<PrintRequestOrderPageProps> = ({
 
             <div className="flex justify-between text-xs text-gray-500 pt-4 mt-4 border-t border-gray-200">
               <span>
-                {t("created_by")}:{" "}
-                {formatUserName(order.created_by)}
+                {t("created_by")}: {formatUserName(order.created_by)}
               </span>
               <span>{formatDate(order.created_date)}</span>
             </div>

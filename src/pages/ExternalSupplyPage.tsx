@@ -13,6 +13,7 @@ import DvdmsNotConfigured from "@/components/DvdmsNotConfigured";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
+import DraftOrderTable from "@/components/DraftOrderTable";
 import RequestOrderTable from "@/components/RequestOrderTable";
 import SupplierSelect from "@/components/SupplierSelect";
 import { Pagination } from "@/components/ui/pagination";
@@ -27,28 +28,33 @@ import useDvdmsLocation from "@/hooks/useDvdmsLocation";
 
 const PAGE_SIZE = 14;
 
-type TabValue = "unsent" | "tracking";
+type TabValue = "unsent" | "tracking" | "draft";
 
 const UNSENT_STATUSES = ["draft", "pending", "failed", "cancelled"];
 
 const TRACKING_STATUSES = ["approved", "rejected", "completed"];
 
-const TABS_CONFIG: { value: TabValue; label: string; status: string }[] = [
+const TABS_CONFIG: { value: TabValue; label: string; status?: string }[] = [
+  {
+    value: "tracking",
+    label: "order_tracking",
+    status: TRACKING_STATUSES.join(","),
+  },
   {
     value: "unsent",
     label: "unsent_orders",
     status: UNSENT_STATUSES.join(","),
   },
   {
-    value: "tracking",
-    label: "order_tracking",
-    status: TRACKING_STATUSES.join(","),
+    value: "draft",
+    label: "draft_orders",
   },
 ];
 
 const EMPTY_MESSAGE_KEYS: Record<TabValue, string> = {
   unsent: "no_unsent_orders",
   tracking: "no_tracking_orders",
+  draft: "no_draft_orders",
 };
 
 type ExternalSupplyPageProps = {
@@ -69,7 +75,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   const { t } = useTranslation(I18N_NAMESPACE);
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
-  const [currentTab, setCurrentTab] = useState<TabValue>("unsent");
+  const [currentTab, setCurrentTab] = useState<TabValue>("tracking");
   const [supplierFilter, setSupplierFilter] = useState<Organization>();
   const [page, setPage] = useState(1);
 
@@ -132,23 +138,48 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
     (tab) => tab.value === currentTab,
   )!.status;
 
+  const isDraftTab = currentTab === "draft";
+
+  const { data: draftData, isLoading: isDraftLoading } = useQuery({
+    queryKey: [
+      "dvdms_available_request_orders",
+      institute?.id,
+      locationId,
+      supplierFilter?.id,
+      page,
+    ],
+    queryFn: () =>
+      apis.availableRequestOrders.list(institute!.id, {
+        location: locationId,
+        status: "draft",
+        limit: PAGE_SIZE,
+        offset: (page - 1) * PAGE_SIZE,
+        ordering: "-created_date",
+        ...(supplierFilter ? { supplier: supplierFilter.id } : {}),
+      }),
+    enabled: !!institute?.id && isDraftTab,
+  });
+
   const { data, isLoading } = useQuery({
-    queryKey: ["dvdms_record_orders", institute?.id, currentTab, page],
+    queryKey: [
+      "dvdms_record_orders",
+      institute?.id,
+      currentTab,
+      supplierFilter?.id,
+      page,
+    ],
     queryFn: () =>
       apis.recordOrders.list(institute!.id, {
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
         status: currentStatus,
         ordering: "-created_date",
+        ...(supplierFilter ? { supplier: supplierFilter.id } : {}),
       }),
-    enabled: !!institute?.id,
+    enabled: !!institute?.id && !isDraftTab,
   });
 
-  const orders = (data?.results ?? []).filter(
-    (order) =>
-      !supplierFilter ||
-      order.institute_supplier?.supplier?.id === supplierFilter.id,
-  );
+  const orders = data?.results ?? [];
 
   const indentOrders = orders.filter((order) => hasDvdmsIndent(order.status));
   const indentOrderIds = indentOrders.map((order) => order.id);
@@ -269,20 +300,31 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
             className="mt-2 space-y-4"
           >
             {renderFilters()}
-            <RequestOrderTable
-              facilityId={facilityId}
-              locationId={locationId}
-              orders={orders}
-              isLoading={isLoading || isOutwardLoading}
-              emptyMessage={t(EMPTY_MESSAGE_KEYS[tab.value])}
-              showIndentNo={tab.value === "tracking"}
-              outwardByOrderId={outwardByOrderId}
-              skeletonCount={PAGE_SIZE}
-            />
+            {tab.value === "draft" ? (
+              <DraftOrderTable
+                facilityId={facilityId}
+                locationId={locationId}
+                orders={draftData?.results ?? []}
+                isLoading={isDraftLoading}
+                emptyMessage={t(EMPTY_MESSAGE_KEYS[tab.value])}
+                skeletonCount={PAGE_SIZE}
+              />
+            ) : (
+              <RequestOrderTable
+                facilityId={facilityId}
+                locationId={locationId}
+                orders={orders}
+                isLoading={isLoading || isOutwardLoading}
+                emptyMessage={t(EMPTY_MESSAGE_KEYS[tab.value])}
+                showIndentNo={tab.value === "tracking"}
+                outwardByOrderId={outwardByOrderId}
+                skeletonCount={PAGE_SIZE}
+              />
+            )}
             <Pagination
               page={page}
               pageSize={PAGE_SIZE}
-              totalCount={data?.count ?? 0}
+              totalCount={(isDraftTab ? draftData : data)?.count ?? 0}
               onPageChange={setPage}
             />
           </TabsContent>

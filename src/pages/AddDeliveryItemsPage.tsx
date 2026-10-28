@@ -641,7 +641,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     [savedItems],
   );
 
-  const approveItemsMutation = useMutation({
+  const approveDeliveryMutation = useMutation({
     mutationFn: async () => {
       if (!institute?.id || !inwardRecord?.id || !recordDelivery?.id) {
         throw new Error("Missing institute, inward record or record delivery");
@@ -649,10 +649,12 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       const instituteId = institute.id;
       const inwardRecordId = inwardRecord.id;
       const recordDeliveryId = recordDelivery.id;
+      const deliveryOrder = recordDelivery.delivery_order;
 
       const chunks = chunk(pendingSavedItems, MAX_ITEMS_PER_APPROVAL_BATCH);
 
-      await Promise.all(
+      // Wait for every batch so the refetch after an error shows final statuses.
+      const approvalResults = await Promise.allSettled(
         chunks.map((itemChunk) =>
           performSuperBatchRequest({
             requests: [
@@ -685,72 +687,46 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           }),
         ),
       );
-    },
-    onSuccess: () => {
-      toast.success(
-        t("delivery_items_approved", { count: pendingSavedItems.length }),
+      const failedApproval = approvalResults.find(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
       );
-    },
-    onError: (error: unknown) => {
-      const message =
-        error instanceof BatchError
-          ? error.errorMessages[0]
-          : (error as { message?: string })?.message;
-      toast.error(message || t("delivery_items_approve_failed"));
-    },
-    onSettled: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ["dvdms_record_delivery_detail"],
-        }),
-        queryClient.invalidateQueries({ queryKey: ["dvdms_products"] }),
-      ]);
-    },
-  });
+      if (failedApproval) throw failedApproval.reason;
 
-  const approveDeliveryMutation = useMutation({
-    mutationFn: () => {
-      if (!institute?.id || !inwardRecord?.id || !recordDelivery?.id) {
-        throw new Error("Missing institute, inward record or record delivery");
-      }
-      const deliveryOrder = recordDelivery.delivery_order;
-
-      return performSuperBatchRequest({
-        requests: [
-          {
-            reference_id: "record-delivery",
-            url: apis.recordInwards.deliveryPath(
-              institute.id,
-              inwardRecord.id,
-              recordDelivery.id,
-            ),
-            method: HttpMethod.PATCH,
-            body: { status: RecordDeliveryStatus.received },
-          },
-          {
-            reference_id: "delivery-order",
-            url: apis.deliveryOrders.path(facilityId, deliveryOrder.id),
-            method: HttpMethod.PATCH,
-            body: {
-              id: deliveryOrder.id,
-              status: DeliveryOrderStatus.completed,
-              name: deliveryOrder.name,
-              destination: deliveryOrder.destination,
-              supplier: deliveryOrder.supplier,
+      try {
+        return await performSuperBatchRequest({
+          requests: [
+            {
+              reference_id: "record-delivery",
+              url: apis.recordInwards.deliveryPath(
+                instituteId,
+                inwardRecordId,
+                recordDeliveryId,
+              ),
+              method: HttpMethod.PATCH,
+              body: { status: RecordDeliveryStatus.received },
             },
-          },
-        ],
-      });
+            {
+              reference_id: "delivery-order",
+              url: apis.deliveryOrders.path(facilityId, deliveryOrder.id),
+              method: HttpMethod.PATCH,
+              body: {
+                id: deliveryOrder.id,
+                status: DeliveryOrderStatus.completed,
+                name: deliveryOrder.name,
+                destination: deliveryOrder.destination,
+                supplier: deliveryOrder.supplier,
+              },
+            },
+          ],
+        });
+      } catch (error) {
+        if (pendingSavedItems.length === 0) throw error;
+        throw new Error(t("delivery_items_approved_completion_failed"));
+      }
     },
     onSuccess: () => {
       toast.success(t("record_delivery_approved"));
-      queryClient.invalidateQueries({ queryKey: ["dvdms_record_deliveries"] });
-      queryClient.invalidateQueries({
-        queryKey: ["dvdms_record_delivery_detail"],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["dvdms_record_inward_detail"],
-      });
     },
     onError: (error: unknown) => {
       const message =
@@ -758,6 +734,21 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           ? error.errorMessages[0]
           : (error as { message?: string })?.message;
       toast.error(message || t("record_delivery_approve_failed"));
+    },
+    // Items may have been approved even if completing the delivery failed.
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_record_deliveries"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_record_delivery_detail"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_record_inward_detail"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["dvdms_products"] }),
+      ]);
     },
   });
 
@@ -803,8 +794,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     savedItems.length > 0 &&
     !isProcessing;
 
-  const hasUnreceivedItems = pendingSavedItems.length > 0;
-
   const isLoadingContext =
     isRecordOrderLoading || isOutwardLoading || isRecordInwardsLoading;
 
@@ -833,50 +822,25 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
               {t("add_delivery_items_description")}
             </p>
           </div>
-          {(hasFailedAcknowledgement || canApproveDelivery) && (
+          {hasFailedAcknowledgement && (
             <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-              {hasFailedAcknowledgement && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1 sm:flex-none"
-                  onClick={() => retryAcknowledgementMutation.mutate()}
-                  disabled={retryAcknowledgementMutation.isPending}
-                >
-                  <RefreshCw
-                    className={cn(
-                      "size-4",
-                      retryAcknowledgementMutation.isPending && "animate-spin",
-                    )}
-                  />
-                  {retryAcknowledgementMutation.isPending
-                    ? t("retrying")
-                    : t("retry_acknowledgement")}
-                </Button>
-              )}
-              {canApproveDelivery && (
-                <Button
-                  type="button"
-                  className="flex-1 sm:flex-none"
-                  onClick={() => approveDeliveryMutation.mutate()}
-                  disabled={
-                    approveDeliveryMutation.isPending || hasUnreceivedItems
-                  }
-                  title={
-                    hasUnreceivedItems
-                      ? t("receive_all_items_to_approve")
-                      : undefined
-                  }
-                >
-                  {approveDeliveryMutation.isPending && (
-                    <Loader2Icon className="size-4 animate-spin" />
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 sm:flex-none"
+                onClick={() => retryAcknowledgementMutation.mutate()}
+                disabled={retryAcknowledgementMutation.isPending}
+              >
+                <RefreshCw
+                  className={cn(
+                    "size-4",
+                    retryAcknowledgementMutation.isPending && "animate-spin",
                   )}
-                  {approveDeliveryMutation.isPending
-                    ? t("saving")
-                    : t("mark_as_completed")}
-                  {!hasUnreceivedItems && <ShortcutBadge actionId="mark-as" />}
-                </Button>
-              )}
+                />
+                {retryAcknowledgementMutation.isPending
+                  ? t("retrying")
+                  : t("retry_acknowledgement")}
+              </Button>
             </div>
           )}
         </div>
@@ -1131,30 +1095,28 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                       </Table>
                     </div>
                   </div>
-                  {pendingSavedItems.length > 0 && (
-                    <div className="flex flex-col gap-3 border-t border-gray-200 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <h3 className="text-sm font-semibold text-gray-900">
-                          {t("approve_delivery_items")}
-                        </h3>
-                        <p className="text-sm text-gray-500">
-                          {t("approve_delivery_items_description", {
-                            count: pendingSavedItems.length,
-                          })}
+                  {canApproveDelivery && (
+                    <div className="flex flex-col gap-2 justify-between bg-white p-2 border border-gray-200 rounded-md sm:flex-row sm:items-center">
+                      <div className="flex flex-col gap-2">
+                        <p className="font-bold">
+                          {t("review_and_complete_delivery")}
                         </p>
+                        <span className="text-sm text-gray-500">
+                          {t("review_and_complete_delivery_description")}
+                        </span>
                       </div>
                       <Button
                         type="button"
                         className="shrink-0"
-                        onClick={() => approveItemsMutation.mutate()}
-                        disabled={approveItemsMutation.isPending}
+                        onClick={() => approveDeliveryMutation.mutate()}
+                        disabled={approveDeliveryMutation.isPending}
                       >
-                        {approveItemsMutation.isPending && (
+                        {approveDeliveryMutation.isPending && (
                           <Loader2Icon className="size-4 animate-spin" />
                         )}
-                        {approveItemsMutation.isPending
-                          ? t("approving")
-                          : t("mark_items_as_approved")}
+                        {approveDeliveryMutation.isPending
+                          ? t("saving")
+                          : t("mark_as_completed")}
                         <ShortcutBadge actionId="mark-as" />
                       </Button>
                     </div>

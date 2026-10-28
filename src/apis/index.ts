@@ -207,6 +207,7 @@ export const apis = {
         offset?: number;
         order?: string;
         status?: string;
+        supplier?: string;
         ordering?: string;
       } = {},
     ) =>

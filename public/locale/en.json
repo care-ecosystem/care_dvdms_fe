@@ -10,7 +10,7 @@
   "active": "Active",
   "add_another": "Add Another",
   "add_delivery_items": "Add Delivery Items",
-``  "add_delivery_items_description": "Items received from DVDMS are loaded automatically below",
+  "add_delivery_items_description": "Items received from DVDMS are loaded automatically below",
   "add_mapping_manually": "Add Mapping Manually",
   "add_supplier": "Add Supplier",
   "add_tags": "Add Tags",

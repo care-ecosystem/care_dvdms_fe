@@ -1,10 +1,12 @@
 import { FC } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
-import { Eye, Plus } from "lucide-react";
+import { Eye, Loader2Icon, Plus } from "lucide-react";
+import { toast } from "sonner";
 
 import { apis } from "@/apis";
+import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import {
   ACKNOWLEDGEMENT_POLL_INTERVAL_MS,
@@ -24,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { DeliveryOrderStatus } from "@/types/deliveryOrder";
 import {
   RecordDelivery,
   RecordDeliveryDetail,
@@ -32,6 +35,7 @@ import {
   RecordInwardItem,
   RecordDeliveryStatus,
   RecordInwardStatus,
+  RecordOrder,
   RECORD_DELIVERY_STATUS_LABELS,
   RECORD_DELIVERY_STATUS_VARIANTS,
   RECORD_INWARD_STATUS_LABELS,
@@ -39,17 +43,98 @@ import {
 } from "@/types/recordOrder";
 
 type DvdmsIssuesTableProps = {
+  facilityId: string;
+  locationId: string;
   instituteId?: string;
+  recordOrder?: RecordOrder;
   issues: RecordInward[];
   recordBasePath: string;
 };
 
+const DELIVERY_ORDER_REF = "delivery-order";
+const RECORD_DELIVERY_REF = "record-delivery";
+
 const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
+  facilityId,
+  locationId,
   instituteId,
+  recordOrder,
   issues,
   recordBasePath,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
+  const queryClient = useQueryClient();
+
+  // Creates the CARE delivery order and its DVDMS record delivery in one
+  // transaction, with the record order's name and supplier, then opens the
+  // delivery's Add Delivery Items page.
+  const {
+    mutate: createDelivery,
+    isPending: isCreatingDelivery,
+    variables: creatingIssueId,
+  } = useMutation({
+    mutationFn: async (issueId: string) => {
+      const results = await performSuperBatchRequest({
+        requests: [
+          {
+            reference_id: DELIVERY_ORDER_REF,
+            url: apis.deliveryOrders.listPath(facilityId),
+            method: HttpMethod.POST,
+            body: {
+              status: DeliveryOrderStatus.draft,
+              name: recordOrder!.name,
+              supplier: recordOrder!.institute_supplier?.supplier.id,
+              destination: locationId,
+              extensions: {},
+            },
+          },
+          {
+            reference_id: RECORD_DELIVERY_REF,
+            url: apis.recordInwards.deliveriesPath(instituteId!, issueId),
+            method: HttpMethod.POST,
+            body: {
+              delivery_order: "",
+              record_order: recordOrder!.id,
+              status: RecordDeliveryStatus.pending,
+            },
+            replacements: [
+              {
+                source_path: { reference_id: DELIVERY_ORDER_REF, path: "id" },
+                value_path: {
+                  reference_id: RECORD_DELIVERY_REF,
+                  path: "delivery_order",
+                },
+              },
+            ],
+          },
+        ],
+      });
+      const deliveryOrderId = (
+        results.find((result) => result.reference_id === DELIVERY_ORDER_REF)
+          ?.data as { id?: string } | undefined
+      )?.id;
+      if (!deliveryOrderId) {
+        throw new Error("Super batch did not return the created records");
+      }
+      return { deliveryOrderId, issueId };
+    },
+    onSuccess: ({ deliveryOrderId, issueId }) => {
+      toast.success(t("delivery_order_created_successfully"));
+      navigate(
+        `${recordBasePath}/delivery/${deliveryOrderId}?issue=${issueId}`,
+      );
+    },
+    onError: (error: unknown) => {
+      const message =
+        error instanceof BatchError ? error.errorMessages[0] : undefined;
+      toast.error(message || t("failed_to_create_delivery_order"));
+    },
+    // Also on failure: a delivery created elsewhere then shows as "View delivery".
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["dvdms_record_inwards"] });
+      queryClient.invalidateQueries({ queryKey: ["dvdms_record_deliveries"] });
+    },
+  });
 
   const issueIds = issues.map((issue) => issue.id);
 
@@ -268,17 +353,19 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
                 ) : isFetched ? (
                   <Button
                     size="sm"
-                    onClick={() =>
-                      navigate(
-                        `${recordBasePath}/create-delivery?issue=${issue.id}`,
-                      )
+                    onClick={() => createDelivery(issue.id)}
+                    disabled={
+                      !instituteId || !recordOrder || isCreatingDelivery
                     }
                   >
-                    <Plus className="size-4" /> {t("create_delivery")}
+                    {isCreatingDelivery && creatingIssueId === issue.id ? (
+                      <Loader2Icon className="size-4 animate-spin" />
+                    ) : (
+                      <Plus className="size-4" />
+                    )}{" "}
+                    {t("create_delivery")}
                     {issue.id === firstCreatableIssueId && (
-                      <ShortcutBadge
-                        actionId="create-delivery"
-                      />
+                      <ShortcutBadge actionId="create-delivery" />
                     )}
                   </Button>
                 ) : (

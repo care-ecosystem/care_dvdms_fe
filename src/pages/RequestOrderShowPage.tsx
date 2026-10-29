@@ -1950,7 +1950,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                       <TableSkeleton count={3} />
                     ) : dvdmsIssues.length > 0 ? (
                       <DvdmsIssuesTable
+                        facilityId={facilityId}
+                        locationId={locationId}
                         instituteId={institute?.id}
+                        recordOrder={recordOrder}
                         issues={dvdmsIssues}
                         recordBasePath={recordBasePath}
                       />

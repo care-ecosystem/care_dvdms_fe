@@ -41,6 +41,10 @@ import {
   RECORD_INWARD_STATUS_LABELS,
   RECORD_INWARD_STATUS_VARIANTS,
 } from "@/types/recordOrder";
+import {
+  getDeliveryOrderName,
+  getDeliveryOrderNote,
+} from "@/utils/pluginConfig";
 
 type DvdmsIssuesTableProps = {
   facilityId: string;
@@ -82,7 +86,8 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
             method: HttpMethod.POST,
             body: {
               status: DeliveryOrderStatus.draft,
-              name: recordOrder!.name,
+              name: getDeliveryOrderName(recordOrder!.name),
+              note: getDeliveryOrderNote() || undefined,
               supplier: recordOrder!.institute_supplier?.supplier.id,
               destination: locationId,
               extensions: {},

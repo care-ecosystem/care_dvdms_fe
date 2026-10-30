@@ -19,6 +19,7 @@ import {
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
 import { RequestOrder } from "@/types/requestOrder";
+import { getRecordOrderName } from "@/utils/pluginConfig";
 
 type RequestOrderShowProps = {
   facilityId: string;
@@ -161,7 +162,7 @@ const DvdmsFooterBar: FC<BarProps> = ({
         throw new Error("No DVDMS store mapping configured for this location.");
       }
       return apis.recordOrders.create(institute!.id, {
-        name: requestOrder!.name,
+        name: getRecordOrderName(requestOrder!.name),
         order: requestOrderId,
         institute_store: storeMapping.id,
         institute_supplier: supplierMapping.id,

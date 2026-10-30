@@ -1,8 +1,9 @@
 import { ComponentType, FC } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate, useQueryParams } from "raviger";
 import { ArrowRight, BadgeCheck, Send } from "lucide-react";
+import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import {
@@ -10,13 +11,14 @@ import {
   LIST_FETCH_LIMIT,
   REQUEST_ORDER_STATUS_POLL_INTERVAL_MS,
 } from "@/lib/constants";
-import { dvdmsLinkOrderPath, dvdmsRecordPath } from "@/lib/paths";
+import { dvdmsRecordPath } from "@/lib/paths";
 import { Button } from "@/components/ui/button";
 // import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import {
   ShortcutProvider,
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
+import { RequestOrder } from "@/types/requestOrder";
 
 type RequestOrderShowProps = {
   facilityId: string;
@@ -34,8 +36,8 @@ type BarProps = {
   facilityId: string;
   locationId: string;
   requestOrderId: string;
-  /** The core order's status — DVDMS only accepts a submitted order. */
-  orderStatus?: string;
+  /** The core order — DVDMS only accepts a submitted one. */
+  requestOrder?: RequestOrder;
 };
 
 /**
@@ -45,9 +47,10 @@ type BarProps = {
  * the same shape core uses for the "invoice created / back to appointment"
  * alert — active only on `?flow=dvdms`.
  *
- * The bar is a hand-off, not an action: it sends the user into the DVDMS link
- * order form with this order preselected, where the order is actually sent.
- * Once a record order exists, it turns into a confirmation that links to it.
+ * The bar creates the record order straight from this order — skipping the
+ * DVDMS link order form, since the supplier and store are taken from the
+ * configured mappings — and lands on its drug mapping page. Once a record
+ * order exists, it turns into a confirmation that links to it.
  */
 const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
   const [{ flow }] = useQueryParams<{ flow?: string }>();
@@ -91,7 +94,7 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
           facilityId={facilityId}
           locationId={locationId}
           requestOrderId={requestOrderId}
-          orderStatus={requestOrder?.status}
+          requestOrder={requestOrder}
         />
       </ShortcutProvider>
     </>
@@ -102,9 +105,10 @@ const DvdmsFooterBar: FC<BarProps> = ({
   facilityId,
   locationId,
   requestOrderId,
-  orderStatus,
+  requestOrder,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
+  const queryClient = useQueryClient();
   useShortcutSubContext("facility:inventory");
 
   const { data: institute } = useQuery({
@@ -129,15 +133,74 @@ const DvdmsFooterBar: FC<BarProps> = ({
   // Core has no "approved" state for a request order: `pending` is the
   // submitted order, which is what DVDMS accepts. A draft has to be submitted
   // first — the same rule the DVDMS link order form applies.
-  const isSubmitted = orderStatus === "pending";
-  const canSend = !!recordOrder || isSubmitted;
+  const isSubmitted = requestOrder?.status === "pending";
+
+  // Same mapping rules as the DVDMS link order form's submit.
+  const { mutate: createRecordOrder, isPending: isCreating } = useMutation({
+    mutationFn: async () => {
+      const [suppliers, stores] = await Promise.all([
+        apis.supplierMappings.list(institute!.id),
+        apis.dvdmsInstituteStores.list(facilityId, institute!.id, {
+          limit: LIST_FETCH_LIMIT,
+        }),
+      ]);
+      const supplierMapping = requestOrder!.supplier
+        ? suppliers.results.find(
+            (item) => item.supplier?.id === requestOrder!.supplier!.id,
+          )
+        : undefined;
+      if (!supplierMapping) {
+        throw new Error(
+          "No DVDMS supplier mapping configured for this supplier.",
+        );
+      }
+      const storeMapping = stores.results.find(
+        (item) => item.store.id === locationId,
+      );
+      if (!storeMapping) {
+        throw new Error("No DVDMS store mapping configured for this location.");
+      }
+      return apis.recordOrders.create(institute!.id, {
+        name: requestOrder!.name,
+        order: requestOrderId,
+        institute_store: storeMapping.id,
+        institute_supplier: supplierMapping.id,
+        status: "draft",
+      });
+    },
+    onSuccess: (createdRecordOrder) => {
+      toast.success(t("record_order_created_successfully"));
+      queryClient.invalidateQueries({ queryKey: ["dvdms_record_orders"] });
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+      });
+      navigate(
+        dvdmsRecordPath(
+          facilityId,
+          locationId,
+          requestOrderId,
+          createdRecordOrder.id,
+        ),
+      );
+    },
+    onError: () => toast.error(t("failed_to_create_record_order")),
+  });
+
+  const canSend =
+    !!recordOrder ||
+    (isSubmitted && !!institute && !!recordOrdersData && !isCreating);
 
   const handleClick = () =>
-    navigate(
-      recordOrder
-        ? dvdmsRecordPath(facilityId, locationId, requestOrderId, recordOrder.id)
-        : dvdmsLinkOrderPath(facilityId, locationId, requestOrderId),
-    );
+    recordOrder
+      ? navigate(
+          dvdmsRecordPath(
+            facilityId,
+            locationId,
+            requestOrderId,
+            recordOrder.id,
+          ),
+        )
+      : createRecordOrder();
 
   return (
     <div className="care-dvdms-container">
@@ -186,7 +249,11 @@ const DvdmsFooterBar: FC<BarProps> = ({
               ) : (
                 <Send className="mr-2 size-4" />
               )}
-              {recordOrder ? t("view_in_dvdms") : t("send_order_to_dvdms")}
+              {recordOrder
+                ? t("view_in_dvdms")
+                : isCreating
+                  ? t("creating")
+                  : t("send_order_to_dvdms")}
               {/* <ShortcutBadge
                 actionId="link-order-eaushadhi"
                 variant="primary"

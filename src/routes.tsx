@@ -10,10 +10,7 @@ const PrintRequestOrderPage = lazy(
   () => import("./pages/PrintRequestOrderPage"),
 );
 const ProductMappings = lazy(() => import("./pages/ProductMappings"));
-const CreateDeliveryPage = lazy(() => import("./pages/CreateDeliveryPage"));
-const AddDeliveryItemsPage = lazy(
-  () => import("./pages/AddDeliveryItemsPage"),
-);
+const AddDeliveryItemsPage = lazy(() => import("./pages/AddDeliveryItemsPage"));
 
 const routes = {
   "/facility/:facilityId/settings/general/dvdms": ({
@@ -94,26 +91,6 @@ const routes = {
     }) => (
       <PrintRequestOrderPage
         facilityId={facilityId}
-        requestOrderId={requestOrderId}
-        recordOrderId={recordOrderId}
-      />
-    ),
-
-  "/facility/:facilityId/dvdms/locations/:locationId/orders/:requestOrderId/records/:recordOrderId/create-delivery":
-    ({
-      facilityId,
-      locationId,
-      requestOrderId,
-      recordOrderId,
-    }: {
-      facilityId: string;
-      locationId: string;
-      requestOrderId: string;
-      recordOrderId: string;
-    }) => (
-      <CreateDeliveryPage
-        facilityId={facilityId}
-        locationId={locationId}
         requestOrderId={requestOrderId}
         recordOrderId={recordOrderId}
       />

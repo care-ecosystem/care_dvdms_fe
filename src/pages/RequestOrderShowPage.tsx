@@ -19,7 +19,11 @@ import { apis } from "@/apis";
 import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
-import { dvdmsBasePath, dvdmsRecordPath } from "@/lib/paths";
+import {
+  dvdmsBasePath,
+  dvdmsLinkOrderPath,
+  dvdmsRecordPath,
+} from "@/lib/paths";
 import {
   chunk,
   cn,
@@ -219,6 +223,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
 
   const [loadedSupplyRequestsCount, setLoadedSupplyRequestsCount] = useState(0);
   const [hasSavedOnce, setHasSavedOnce] = useState(false);
+  // Reopens a saved (pending) order's drug mapping before it is sent.
+  const [isEditingItems, setIsEditingItems] = useState(false);
 
   useEffect(() => {
     setTableItems(supplyRequestsData?.results ?? []);
@@ -248,24 +254,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       setLoadedSupplyRequestsCount((prev) => prev + data.results.length);
     },
   });
-
-  const { data: productKnowledgeData } = useQuery({
-    queryKey: ["dvdms_product_knowledge", facilityId],
-    queryFn: () =>
-      apis.productKnowledge.list({
-        facility: facilityId,
-        status: "active",
-        include_instance: true,
-        limit: 100,
-      }),
-  });
-
-  const categoryByProductId = new Map(
-    (productKnowledgeData?.results ?? []).map((product) => [
-      product.id,
-      product.category?.title,
-    ]),
-  );
 
   const { data: institute, isPending: isInstitutePending } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
@@ -683,7 +671,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
             !existingItemBySupplyRequestId.has(item.id),
         )
         .map((item) => ({
-          url: `/api/care_dvdms/institute/${instituteId}/record_order/${recordOrderId}/item/`,
+          url: apis.item.path(instituteId, recordOrderId),
           method: HttpMethod.POST,
           body: {
             supply_request: item.id,
@@ -692,11 +680,24 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
           reference_id: `item-${item.id}`,
         }));
 
+      tableItems.forEach((item) => {
+        const existingItem = existingItemBySupplyRequestId.get(item.id);
+        const drug = selectedDrugs[item.id];
+        if (!existingItem || !drug || existingItem.drug?.id === drug.id) return;
+        itemRequests.push({
+          url: `${apis.item.path(instituteId, recordOrderId)}${existingItem.id}/`,
+          method: HttpMethod.PATCH,
+          body: { drug_id: drug.id },
+          reference_id: `item-${item.id}`,
+        });
+      });
+
       const itemBatches = chunk(itemRequests, MAX_ITEMS_PER_BATCH);
       await Promise.all(
         itemBatches.map((requests) => apis.superBatch.create({ requests })),
       );
 
+      if (recordOrder.status !== "draft") return;
       return apis.recordOrders.update(instituteId, recordOrderId, {
         status: "pending",
       });
@@ -704,6 +705,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     onSuccess: () => {
       toast.success(t("items_saved"));
       setHasSavedOnce(true);
+      setIsEditingItems(false);
       queryClient.invalidateQueries({ queryKey: recordItemOrdersQueryKey });
       queryClient.invalidateQueries({
         queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
@@ -967,7 +969,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
 
   const recordOrderStatus = recordOrder?.status;
   const isDraftStatus = recordOrderStatus === "draft";
-  const isViewOnlyStatus = !isDraftStatus;
+  const isViewOnlyStatus = !isDraftStatus && !isEditingItems;
   const isApprovable =
     recordOrderStatus === "draft" || recordOrderStatus === "pending";
   const isPendingStatus = recordOrderStatus === "pending";
@@ -1020,7 +1022,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
             <Button
               onClick={() =>
                 navigate(
-                  `${dvdmsBasePath(facilityId, locationId)}/new?order=${requestOrderId}`,
+                  dvdmsLinkOrderPath(facilityId, locationId, requestOrderId),
                 )
               }
             >
@@ -1045,7 +1047,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                 )}
               />{" "}
               {t("fetch_dvdms_status")}
-              <ShortcutBadge actionId="fetch-dvdms-status"  />
+              <ShortcutBadge actionId="fetch-dvdms-status" />
             </Button>
           )}
           {canMarkAsCompleted && (
@@ -1610,8 +1612,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                       <div className="text-xs text-gray-500 mb-3">
                                         {" "}
                                       </div>
-                                      {categoryByProductId.get(item.item.id) ??
-                                        "—"}
+                                      {item.item.category?.title ?? "—"}
                                       <div className="text-xs text-gray-500 mt-1">
                                         {" "}
                                       </div>
@@ -1653,6 +1654,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                           <div className="text-xs text-gray-500 mb-3">
                                             {" "}
                                           </div>
+                                          {/* DVDMS sends "0" for no subgroup. */}
                                           <div className="whitespace-normal break-words">
                                             {readOnlyGroupId !== undefined &&
                                             readOnlySubgroupId !== undefined
@@ -1660,9 +1662,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                                                   readOnlyGroupId,
                                                   readOnlySubgroupId,
                                                 )
-                                              : formatLookupId(
-                                                  readOnlyDrug?.sub_group_id,
-                                                )}
+                                              : "—"}
                                           </div>
                                           <div className="text-xs text-gray-500 mt-1">
                                             {readOnlySubgroupId !== undefined
@@ -1823,7 +1823,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                             </TableBody>
                           </Table>
 
-                          {isDraftStatus && !hasSavedOnce && (
+                          {((isDraftStatus && !hasSavedOnce) ||
+                            isEditingItems) && (
                             <div className="flex justify-end">
                               <Button
                                 type="button"
@@ -1867,7 +1868,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                           </div>
                         )}
 
-                      {isPendingStatus && (
+                      {isPendingStatus && !isEditingItems && (
                         <div className="flex flex-col sm:flex-row gap-3 justify-between bg-white p-4 sm:items-center border border-gray-200 rounded-md">
                           <div className="flex flex-col gap-2">
                             <p className="font-bold">
@@ -1877,19 +1878,32 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                               {t("confirm_and_send_to_dvdms_description")}
                             </span>
                           </div>
-                          <Button
-                            type="button"
-                            className="w-full sm:w-auto shrink-0"
-                            onClick={() => approveRecordOrderMutation.mutate()}
-                            disabled={
-                              !recordItemOrdersData ||
-                              !recordItemOrdersData?.results?.length ||
-                              approveRecordOrderMutation.isPending
-                            }
-                          >
-                            {t("send_order_to_dvdms")}
-                            <ShortcutBadge actionId="link-order-eaushadhi" />
-                          </Button>
+                          <div className="flex flex-col-reverse sm:flex-row gap-2 shrink-0">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="w-full sm:w-auto"
+                              onClick={() => setIsEditingItems(true)}
+                              disabled={approveRecordOrderMutation.isPending}
+                            >
+                              <Edit className="size-4" /> {t("edit")}
+                            </Button>
+                            <Button
+                              type="button"
+                              className="w-full sm:w-auto"
+                              onClick={() =>
+                                approveRecordOrderMutation.mutate()
+                              }
+                              disabled={
+                                !recordItemOrdersData ||
+                                !recordItemOrdersData?.results?.length ||
+                                approveRecordOrderMutation.isPending
+                              }
+                            >
+                              {t("send_order_to_dvdms")}
+                              <ShortcutBadge actionId="link-order-eaushadhi" />
+                            </Button>
+                          </div>
                         </div>
                       )}
 
@@ -1936,7 +1950,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                       <TableSkeleton count={3} />
                     ) : dvdmsIssues.length > 0 ? (
                       <DvdmsIssuesTable
+                        facilityId={facilityId}
+                        locationId={locationId}
                         instituteId={institute?.id}
+                        recordOrder={recordOrder}
                         issues={dvdmsIssues}
                         recordBasePath={recordBasePath}
                       />

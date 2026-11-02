@@ -170,6 +170,8 @@ export const apis = {
         HttpMethod.POST,
         { supplied_item_type: SUPPLY_DELIVERY_ITEM_TYPE, ...payload },
       ),
+    detailPath: (supplyDeliveryId: string) =>
+      `${apis.supplyDeliveries.path}${supplyDeliveryId}/`,
     upsertPath: "/api/v1/supply_delivery/upsert/",
     upsert: (datapoints: SupplyDeliveryUpsertPayload[]) =>
       request<SupplyDeliveryRetrieve>(
@@ -673,6 +675,8 @@ export const apis = {
   },
   products: {
     path: (facilityId: string) => `/api/v1/facility/${facilityId}/product/`,
+    detailPath: (facilityId: string, productId: string) =>
+      `${apis.products.path(facilityId)}${productId}/`,
     list: (
       facilityId: string,
       params: {

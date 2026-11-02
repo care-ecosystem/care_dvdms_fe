@@ -37,6 +37,7 @@ export interface SupplyDeliveryRetrieve {
   supplied_item: { id: string; status: string; batch: { lot_number: string } };
   supplied_inventory_item: { id: string; status: string; net_content: number };
   order: { id: string; status: string };
+  extensions?: Record<string, unknown>;
   created_date: string;
   modified_date: string;
 }

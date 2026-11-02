@@ -54,6 +54,8 @@ export interface Product {
   batch?: ProductBatch;
   expiration_date?: string;
   purchase_price?: string;
+  standard_pack_size?: number | null;
+  extensions?: Record<string, unknown>;
   product_knowledge: ProductKnowledge;
   charge_item_definition?: ChargeItemDefinition;
 }

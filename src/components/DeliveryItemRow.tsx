@@ -60,7 +60,14 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
     setField("quantity_short", String(total - damaged - received));
   };
 
-  const readOnlyQuantityClass = "bg-gray-100 text-gray-600 disabled:opacity-100";
+  const readOnlyQuantityClass =
+    "bg-gray-100 text-gray-600 disabled:opacity-100";
+
+  // Product and expiry only matter for stock, so a row with nothing received skips them.
+  const requiredWhenReceived = {
+    validate: (value: unknown) =>
+      !!value || readQuantity("received_quantity") === 0,
+  };
 
   return (
     <TableRow className="divide-x divide-gray-200 hover:bg-gray-50/50">
@@ -94,7 +101,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
           <FormField
             control={form.control}
             name={`items.${index}.expiry_date`}
-            rules={{ required: true }}
+            rules={requiredWhenReceived}
             render={({ field }) => (
               <>
                 <FormControl>
@@ -121,7 +128,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         <FormField
           control={form.control}
           name={`items.${index}.product_knowledge`}
-          rules={{ required: true }}
+          rules={requiredWhenReceived}
           render={({ field }) => (
             <>
               <FormControl>
@@ -212,14 +219,14 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         <FormField
           control={form.control}
           name={`items.${index}.received_quantity`}
-          rules={{ required: true, min: 1 }}
+          rules={{ required: true, min: 0 }}
           render={({ field }) => (
             <>
               <FormControl>
                 <Input
                   {...field}
                   type="number"
-                  min={1}
+                  min={0}
                   max={receivedLimit}
                   onChange={(event) => {
                     field.onChange(event);

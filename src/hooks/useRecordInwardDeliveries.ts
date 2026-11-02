@@ -5,10 +5,6 @@ import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { LIST_FETCH_LIMIT } from "@/lib/constants";
 import { RecordDelivery, RecordInward } from "@/types/recordOrder";
 
-/** DVDMS raises issues against an indent only once it reaches this indent status. */
-const DVDMS_INDENT_ISSUED_STATUS = "Issued";
-const DVDMS_ISSUE_POLL_INTERVAL_MS = 30_000;
-
 /**
  * The issue list can't be filtered by outward record server side, so every page
  * is needed before filtering here. The first page reports the total count; the
@@ -51,23 +47,18 @@ const listAllRecordInwards = async (instituteId: string) => {
 };
 
 type UseRecordInwardDeliveriesOptions = {
-  indentStatus?: string | null;
   inwardRecordId?: string;
 };
 
 export default function useRecordInwardDeliveries(
   instituteId: string | undefined,
   outwardId: string | undefined,
-  { indentStatus, inwardRecordId }: UseRecordInwardDeliveriesOptions = {},
+  { inwardRecordId }: UseRecordInwardDeliveriesOptions = {},
 ) {
   const { data: allInwardRecords, isLoading: isInwardLoading } = useQuery({
     queryKey: ["dvdms_record_inwards", instituteId],
     queryFn: () => listAllRecordInwards(instituteId!),
     enabled: !!instituteId && !!outwardId,
-    refetchInterval:
-      indentStatus === DVDMS_INDENT_ISSUED_STATUS
-        ? DVDMS_ISSUE_POLL_INTERVAL_MS
-        : false,
   });
 
   const inwardRecords: RecordInward[] = (allInwardRecords ?? [])

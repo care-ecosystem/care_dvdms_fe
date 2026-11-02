@@ -190,6 +190,8 @@
   "failed_to_update_tags": "Failed to update tags",
   "fetch_dvdms_status": "Fetch DVDMS Status",
   "fetched": "Fetched",
+  "fetching_issues": "Fetching issues from DVDMS",
+  "fetching_issues_description": "The indent has been issued. Issues will appear here once they are fetched.",
   "filler_order": "Filler Order",
   "filter": "Filter",
   "general": "General",

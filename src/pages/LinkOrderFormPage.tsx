@@ -1,8 +1,10 @@
-import { FC, useEffect, useState } from "react";
+import { FC, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate, useQueryParams } from "raviger";
 import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { Box, ChevronLeftIcon, InfoIcon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -53,14 +55,6 @@ import { getRecordOrderName } from "@/utils/pluginConfig";
 import { Organization } from "@/types/organization";
 
 const PAGE_SIZE = 9;
-
-type RecordOrderFormValues = {
-  name: string;
-  eaushadhiWarehouseId: string;
-  eaushadhiWarehouseName: string;
-  eaushadhiStoreId: string;
-  eaushadhiStoreName: string;
-};
 
 type LinkOrderFormPageProps = {
   facilityId: string;
@@ -200,7 +194,22 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
 
   const returnPath = dvdmsBasePath(facilityId, locationId);
 
-  const form = useForm<RecordOrderFormValues>({
+  const formSchema = useMemo(
+    () =>
+      z.object({
+        name: z.string().trim().min(1, t("name_required")),
+        eaushadhiWarehouseId: z
+          .string()
+          .min(1, t("eaushadhi_supplier_required")),
+        eaushadhiWarehouseName: z.string(),
+        eaushadhiStoreId: z.string().min(1, t("eaushadhi_store_required")),
+        eaushadhiStoreName: z.string(),
+      }),
+    [t],
+  );
+
+  const form = useForm({
+    resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
       eaushadhiWarehouseId: "",
@@ -377,7 +386,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
   }, [selectedOrder?.id, instituteStoresResponse, form]);
 
   const { mutate: createRecordOrder, isPending: isCreating } = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (name: string) => {
       if (!selectedOrder || !institute || !selectedWarehouseId || !selectedStoreId) {
         return Promise.reject(new Error("Select a supplier and store first."));
       }
@@ -405,7 +414,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
       const storeMappingId = existingStoreMapping.id;
 
       return apis.recordOrders.create(institute.id, {
-        name: form.getValues("name"),
+        name,
         order: selectedOrder.id,
         institute_store: storeMappingId,
         institute_supplier: supplierMappingId,
@@ -441,7 +450,7 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
     onError: () => toast.error(t("failed_to_create_record_order")),
   });
 
-  const onSubmit = form.handleSubmit(() => createRecordOrder());
+  const onSubmit = form.handleSubmit(({ name }) => createRecordOrder(name));
 
   return (
     <div className="md:px-6 py-0 min-w-0">
@@ -575,7 +584,6 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                     <FormField
                       control={form.control}
                       name="name"
-                      rules={{ required: true }}
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>{t("name")}</FormLabel>
@@ -594,7 +602,6 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                     <FormField
                       control={form.control}
                       name="eaushadhiWarehouseId"
-                      rules={{ required: true }}
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel aria-required>
@@ -632,7 +639,6 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                     <FormField
                       control={form.control}
                       name="eaushadhiStoreId"
-                      rules={{ required: true }}
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel aria-required>

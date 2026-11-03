@@ -1,8 +1,10 @@
-import { FC, useEffect, useState } from "react";
+import { FC, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
 import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -38,12 +40,6 @@ import {
 import { REQUEST_ORDER_STATUS_VARIANTS } from "@/types/requestOrder";
 
 const PAGE_SIZE = 14;
-
-type RecordOrderEditFormValues = {
-  name: string;
-  order: string;
-  supplierName: string;
-};
 
 type RequestOrderEditPageProps = {
   facilityId: string;
@@ -118,7 +114,18 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
   if (linkedOrder) orderOptionsMap.set(linkedOrder.id, linkedOrder);
   const orderOptions = Array.from(orderOptionsMap.values());
 
-  const form = useForm<RecordOrderEditFormValues>({
+  const formSchema = useMemo(
+    () =>
+      z.object({
+        name: z.string().trim().min(1, t("name_required")),
+        order: z.string().min(1, t("order_required")),
+        supplierName: z.string(),
+      }),
+    [t],
+  );
+
+  const form = useForm({
+    resolver: zodResolver(formSchema),
     defaultValues: { name: "", order: "", supplierName: "" },
   });
 
@@ -207,7 +214,7 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
   });
 
   const { mutate: updateRecordOrder, isPending: isUpdating } = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (name: string) => {
       if (
         !recordOrder ||
         !institute ||
@@ -218,7 +225,7 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
         return Promise.reject(new Error("Confirm the supplier first."));
       }
       return apis.recordOrders.update(institute.id, recordOrder.id, {
-        name: form.getValues("name"),
+        name,
         order: selectedOrder.id,
         institute_store: confirmedStoreId,
         institute_supplier: confirmedSupplierId,
@@ -235,7 +242,7 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
     onError: () => toast.error(t("failed_to_update_record_order")),
   });
 
-  const onSubmit = form.handleSubmit(() => updateRecordOrder());
+  const onSubmit = form.handleSubmit(({ name }) => updateRecordOrder(name));
 
   const isLoading =
     isLoadingLinkedOrder || isLoadingInstitute || isLoadingRecordOrder;
@@ -276,7 +283,6 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
                   <FormField
                     control={form.control}
                     name="name"
-                    rules={{ required: true }}
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>{t("name")}</FormLabel>
@@ -297,7 +303,6 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
                     <FormField
                       control={form.control}
                       name="order"
-                      rules={{ required: true }}
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>{t("order")}</FormLabel>
@@ -321,6 +326,7 @@ const RequestOrderEditPageContent: FC<RequestOrderEditPageProps> = ({
                               ))}
                             </SelectContent>
                           </Select>
+                          <FormMessage />
                         </FormItem>
                       )}
                     />

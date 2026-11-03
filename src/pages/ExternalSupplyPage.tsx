@@ -25,6 +25,7 @@ import { Organization } from "@/types/organization";
 import { hasDvdmsIndent, RecordOrderOutward } from "@/types/recordOrder";
 import { buildDvdmsRequestOrder } from "@/types/requestOrder";
 import useDvdmsLocation from "@/hooks/useDvdmsLocation";
+import { getRequestOrderTags } from "@/utils/pluginConfig";
 
 const PAGE_SIZE = 14;
 
@@ -108,16 +109,24 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   });
 
   const { mutate: createOrder, isPending: isCreatingOrder } = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const mappings = supplierMappingsResponse?.results ?? [];
       const mapping = mappings.find((item) => item.is_default) ?? mappings[0];
       if (!mapping?.supplier) {
-        return Promise.reject(new Error("no_supplier_mapping"));
+        throw new Error("no_supplier_mapping");
       }
-      return apis.requestOrders.create(
+      const order = await apis.requestOrders.create(
         facilityId,
         buildDvdmsRequestOrder(mapping.supplier.id, locationId),
       );
+      const tags = getRequestOrderTags();
+      if (tags.length > 0) {
+        // The order already exists; a tag failure must not report it as uncreated.
+        await apis.requestOrders
+          .setTags(facilityId, order.id, tags)
+          .catch(() => toast.error(t("failed_to_update_tags")));
+      }
+      return order;
     },
     onSuccess: (order) => {
       toast.success(t("order_created_successfully"));

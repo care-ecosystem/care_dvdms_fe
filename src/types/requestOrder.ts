@@ -1,5 +1,5 @@
-import { formatDate } from "@/lib/utils";
 import { TagConfig } from "@/types/tagConfig";
+import { getRequestOrderDefaults } from "@/utils/pluginConfig";
 
 export interface RequestOrderOrganization {
   id: string;
@@ -40,29 +40,21 @@ export type RequestOrderCreatePayload = {
   reason: string;
   supplier: string;
   destination: string;
-  tags: string[];
   status: string;
 };
 
 /**
- * Orders raised from the DVDMS screens only vary by supplier and destination —
- * the supplier comes from the institute mapping, the destination is the DVDMS
- * store location already in the URL. The creation date keeps the generated
- * names apart in the order lists.
+ * Field defaults come from plugin meta (see utils/pluginConfig). Supplier comes
+ * from the institute mapping, destination is the DVDMS store location in the
+ * URL, and status must stay draft for the send flow.
  */
 export const buildDvdmsRequestOrder = (
   supplier: string,
   destination: string,
 ): RequestOrderCreatePayload => ({
-  name: `Send Order to DVDMS - ${formatDate(new Date().toISOString())}`,
-  note: "",
-  intent: "order",
-  category: "nonstock",
-  priority: "routine",
-  reason: "ward_stock",
+  ...getRequestOrderDefaults(),
   supplier,
   destination,
-  tags: [],
   status: "draft",
 });
 

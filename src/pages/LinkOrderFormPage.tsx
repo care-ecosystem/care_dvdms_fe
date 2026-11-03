@@ -49,6 +49,7 @@ import {
   REQUEST_ORDER_PRIORITY_VARIANTS,
   REQUEST_ORDER_STATUS_VARIANTS,
 } from "@/types/requestOrder";
+import { getRecordOrderName } from "@/utils/pluginConfig";
 import { Organization } from "@/types/organization";
 
 const PAGE_SIZE = 9;
@@ -340,7 +341,10 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
   const selectedStoreName = form.watch("eaushadhiStoreName");
 
   useEffect(() => {
-    form.setValue("name", selectedOrder?.name ?? "");
+    form.setValue(
+      "name",
+      selectedOrder ? getRecordOrderName(selectedOrder.name) : "",
+    );
     form.setValue("eaushadhiWarehouseId", "");
     form.setValue("eaushadhiWarehouseName", "");
     form.setValue("eaushadhiStoreId", "");

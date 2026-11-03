@@ -53,6 +53,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import FileDropzone from "@/components/FileDropzone";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DvdmsProductMapping } from "@/types/dvdms_config";
 import { ProductKnowledge, ResourceCategory } from "@/types/productKnowledge";
 import { validateCSV } from "@/utils/csvValidation";
@@ -232,7 +233,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   const queryClient = useQueryClient();
 
-  const { data: institute } = useQuery({
+  const { data: institute, isLoading: instituteLoading } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
     queryFn: () => apis.institutes.get(facilityId),
   });
@@ -967,6 +968,19 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     }
   };
 
+  const mappingsTableHeader = (
+    <TableHeader>
+      <TableRow>
+        <TableHead>{t("product_knowledge")}</TableHead>
+        <TableHead>{t("category")}</TableHead>
+        <TableHead>{t("dvdms_drug")}</TableHead>
+        <TableHead>{t("created_by")}</TableHead>
+        <TableHead>{t("created_date")}</TableHead>
+        <TableHead>{t("actions")}</TableHead>
+      </TableRow>
+    </TableHeader>
+  );
+
   return (
     <Page
       title={t("product_mappings")}
@@ -1431,11 +1445,40 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           </div>
         </div>
 
-        {mappingsLoading ? (
-          <p className="flex items-center gap-2 text-sm text-gray-500">
-            <Loader2Icon className="size-4 animate-spin" />
-            {t("loading")}
-          </p>
+        {instituteLoading || mappingsLoading ? (
+          <Table>
+            {mappingsTableHeader}
+            <TableBody>
+              {Array.from({ length: MAPPINGS_PAGE_SIZE }, (_, i) => (
+                <TableRow key={i}>
+                  <TableCell>
+                    <div className="flex min-w-60 flex-col gap-1">
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-3 w-24" />
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-4 w-20" />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex min-w-80 flex-col gap-1">
+                      <Skeleton className="h-4 w-56" />
+                      <Skeleton className="h-3 w-40" />
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-4 w-24" />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-4 w-20" />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-8 w-16" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         ) : mappings.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-6 py-12 text-center text-gray-950 shadow-sm">
             <div className="rounded-full bg-primary/10 p-3 mb-3">
@@ -1449,16 +1492,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
         ) : (
           <>
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("product_knowledge")}</TableHead>
-                  <TableHead>{t("category")}</TableHead>
-                  <TableHead>{t("dvdms_drug")}</TableHead>
-                  <TableHead>{t("created_by")}</TableHead>
-                  <TableHead>{t("created_date")}</TableHead>
-                  <TableHead>{t("actions")}</TableHead>
-                </TableRow>
-              </TableHeader>
+              {mappingsTableHeader}
               <TableBody>
                 {mappings.map((mapping) => (
                   <TableRow key={mapping.id}>

@@ -1,8 +1,10 @@
-import { FC, useEffect } from "react";
+import { FC, useEffect, useMemo } from "react";
 import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { toast } from "sonner";
 import { Loader2Icon } from "lucide-react";
 
@@ -43,6 +45,7 @@ import {
   DvdmsLookupStore,
   DvdmsSupplierMapping,
 } from "@/types/dvdms_config";
+import { LocationRead } from "@/types/location";
 import { Organization } from "@/types/organization";
 
 const getErrorMessage = (error: unknown) =>
@@ -183,7 +186,43 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       toast.error(error?.message || t("dvdms_mapping_save_error")),
   });
 
+  const formSchema = useMemo(() => {
+    const requiredIfInstitute = (value: unknown) => !hasInstitute || !!value;
+    return z.object({
+      eaushadhi_institute_id: z
+        .string()
+        .trim()
+        .min(1, t("eaushadhi_institute_id_required")),
+      eaushadhi_user_ref_id: z
+        .string()
+        .trim()
+        .min(1, t("eaushadhi_user_ref_id_required")),
+      eaushadhi_institute_name: z
+        .string()
+        .trim()
+        .min(1, t("eaushadhi_institute_name_required")),
+      mapping: z.object({
+        eaushadhi_store_id: z
+          .string()
+          .refine(requiredIfInstitute, t("eaushadhi_store_required")),
+        eaushadhi_store_name: z.custom<string>(),
+        eaushadhi_warehouse_id: z.custom<string>(),
+        eaushadhi_warehouse_name: z.custom<string>(),
+        location: z.custom<LocationRead | null>(
+          requiredIfInstitute,
+          t("location_required"),
+        ),
+        supplier_id: z
+          .string()
+          .refine(requiredIfInstitute, t("supplier_required")),
+        store_mapping_id: z.custom<string | undefined>(),
+        supplier_mapping_id: z.custom<string | undefined>(),
+      }),
+    });
+  }, [t, hasInstitute]);
+
   const form = useForm<DvdmsFacilityConfig>({
+    resolver: zodResolver(formSchema),
     defaultValues: {
       eaushadhi_institute_id: "",
       eaushadhi_user_ref_id: "",
@@ -235,6 +274,17 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     goBack(`/facility/${facilityId}/settings/general`);
   };
 
+  const onSubmit = form.handleSubmit((values) =>
+    saveInstitute(
+      {
+        eaushadhi_institute_id: values.eaushadhi_institute_id,
+        eaushadhi_user_ref_id: values.eaushadhi_user_ref_id,
+        eaushadhi_institute_name: values.eaushadhi_institute_name,
+      },
+      hasInstitute ? { onSuccess: goBackToFacility } : undefined,
+    ),
+  );
+
   const onOpenChange = (next: boolean) => {
     if (!next) {
       goBackToFacility();
@@ -258,13 +308,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         <div className="px-1 py-5">
           <Form {...form}>
             <form
-              onSubmit={form.handleSubmit((values) => {
-                saveInstitute({
-                  eaushadhi_institute_id: values.eaushadhi_institute_id,
-                  eaushadhi_user_ref_id: values.eaushadhi_user_ref_id,
-                  eaushadhi_institute_name: values.eaushadhi_institute_name,
-                });
-              })}
+              onSubmit={onSubmit}
               className="space-y-8"
             >
               <div>
@@ -279,7 +323,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                   <FormField
                     control={form.control}
                     name="eaushadhi_institute_id"
-                    rules={{ required: t("eaushadhi_institute_id_required") }}
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel aria-required>
@@ -306,7 +349,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                   <FormField
                     control={form.control}
                     name="eaushadhi_user_ref_id"
-                    rules={{ required: t("eaushadhi_user_ref_id_required") }}
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel aria-required>
@@ -331,7 +373,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                   <FormField
                     control={form.control}
                     name="eaushadhi_institute_name"
-                    rules={{ required: t("eaushadhi_institute_name_required") }}
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel aria-required>
@@ -372,7 +413,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                           <FormField
                             control={form.control}
                             name="mapping.eaushadhi_store_id"
-                            rules={{ required: t("eaushadhi_store_required") }}
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel
@@ -439,7 +479,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                           <FormField
                             control={form.control}
                             name="mapping.location"
-                            rules={{ required: t("location_required") }}
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel
@@ -464,7 +503,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                           <FormField
                             control={form.control}
                             name="mapping.supplier_id"
-                            rules={{ required: t("supplier_required") }}
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel
@@ -535,7 +573,11 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 </SheetClose>
                 <Button type="submit" variant="primary" disabled={isSaving}>
                   {isSaving && <Loader2Icon className="size-4 animate-spin" />}
-                  {isSaving ? t("saving") : t("save")}
+                  {isSaving
+                    ? t("saving")
+                    : hasInstitute
+                      ? t("save_and_close")
+                      : t("save")}
                 </Button>
               </div>
             </form>

@@ -2,8 +2,8 @@ import { FC, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useQueryParams } from "raviger";
-import { useFieldArray, useForm } from "react-hook-form";
-import { ChevronLeftIcon, Loader2Icon, RefreshCw } from "lucide-react";
+import { UseFormReturn, useFieldArray, useForm } from "react-hook-form";
+import { ChevronLeftIcon, Edit, Loader2Icon, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
@@ -26,6 +26,7 @@ import {
   cn,
   formatDate,
   toDateInputValue,
+  toLocalDateInputValue,
   toQuantity,
 } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +57,7 @@ import {
 } from "@/types/deliveryItemForm";
 import { DeliveryOrderStatus } from "@/types/deliveryOrder";
 import { DvdmsProductMapping } from "@/types/dvdms_config";
-import { ProductStatus } from "@/types/inventory";
+import { Product, ProductStatus } from "@/types/inventory";
 import { ProductKnowledge } from "@/types/productKnowledge";
 import { RecordItemOrder } from "@/types/recordOrderItem";
 import {
@@ -77,6 +78,7 @@ import {
   SUPPLY_DELIVERY_ITEM_TYPE,
   SupplyDeliveryCondition,
   SupplyDeliveryStatus,
+  SupplyDeliveryRetrieve,
   SupplyDeliveryUpsertPayload,
 } from "@/types/supplyDelivery";
 import useRecordInwardDeliveries from "@/hooks/useRecordInwardDeliveries";
@@ -85,8 +87,59 @@ const MAX_ROWS_PER_SUPER_BATCH = Math.floor(MAX_REQUESTS_PER_SUPER_BATCH / 3);
 
 const MAX_ITEMS_PER_APPROVAL_BATCH = MAX_REQUESTS_PER_SUPER_BATCH - 1;
 
+/** An edited row sends at most 5 requests (see `buildEditRequests`). */
+const MAX_EDIT_ROWS_PER_SUPER_BATCH = Math.floor(
+  MAX_REQUESTS_PER_SUPER_BATCH / 5,
+);
+
+/** `product` and `supplyDelivery` are null when nothing was received. */
+type EditRow = {
+  savedItem: RecordDeliveryItem;
+  product: Product | null;
+  supplyDelivery: SupplyDeliveryRetrieve | null;
+};
+
+const savedExpiryOf = ({ savedItem, product }: EditRow) =>
+  toDateInputValue(savedItem.inward_record_item.expiry_date) ||
+  toLocalDateInputValue(product?.expiration_date);
+
+/** CARE updates replace every field, so send the full product. */
+const productUpdateBody = (
+  product: Product,
+  overrides: Record<string, unknown>,
+) => ({
+  status: product.status,
+  batch: product.batch ?? {},
+  expiration_date: product.expiration_date ?? null,
+  standard_pack_size: product.standard_pack_size ?? null,
+  purchase_price: product.purchase_price ?? null,
+  extensions: product.extensions ?? {},
+  ...overrides,
+});
+
+/** One at a time, like care_fe: creating supply deliveries locks the delivery order. */
+const runSuperBatchesInOrder = async (batches: SuperBatchRequestItem[][]) => {
+  const results: PromiseSettledResult<unknown>[] = [];
+  for (const requests of batches) {
+    try {
+      results.push({
+        status: "fulfilled",
+        value: await performSuperBatchRequest({ requests }),
+      });
+    } catch (reason) {
+      results.push({ status: "rejected", reason });
+    }
+  }
+  return results;
+};
+
+const errorMessageOf = (error: unknown) =>
+  error instanceof BatchError
+    ? error.errorMessages[0]
+    : (error as { message?: string })?.message;
+
 const hasQuantity = (value: string | undefined) =>
-  !!value?.trim() && Number(value) >= 1;
+  !!value?.trim() && Number(value) >= 0;
 
 const listAllRecordOrderItems = async (
   instituteId: string,
@@ -127,7 +180,8 @@ const listAllRecordOrderItems = async (
 
 const isPendingReceipt = (item: RecordDeliveryItem) =>
   item.status === RecordDeliveryItemStatus.draft &&
-  item.supply_delivery.status === SupplyDeliveryStatus.in_progress;
+  (!item.supply_delivery ||
+    item.supply_delivery.status === SupplyDeliveryStatus.in_progress);
 
 type AddDeliveryItemsPageProps = {
   facilityId: string;
@@ -413,16 +467,18 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     for (const [index, item] of items.entries()) {
       const row = index + 1;
 
-      if (!item.product_knowledge?.slug) {
+      if (!hasQuantity(item.received_quantity)) {
+        toast.error(t("received_qty_required_at_row", { row }));
+        return false;
+      }
+      // Product and expiry are only needed for stock, so not when nothing was received.
+      const isReceived = toQuantity(item.received_quantity) > 0;
+      if (isReceived && !item.product_knowledge?.slug) {
         toast.error(t("select_product_at_row", { row }));
         return false;
       }
-      if (!item.expiry_date) {
+      if (isReceived && !item.expiry_date) {
         toast.error(t("expiry_date_required_at_row", { row }));
-        return false;
-      }
-      if (!hasQuantity(item.received_quantity)) {
-        toast.error(t("received_qty_required_at_row", { row }));
         return false;
       }
 
@@ -447,65 +503,76 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     return true;
   };
 
+  const productBody = (item: DeliveryItemFormValues) => ({
+    status: ProductStatus.active,
+    batch: item.eaushadhi_batch ? { lot_number: item.eaushadhi_batch } : {},
+    expiration_date: item.expiry_date,
+    product_knowledge: item.product_knowledge!.slug,
+    charge_item_definition: null,
+    standard_pack_size: toQuantity(item.received_quantity),
+    purchase_price: 0,
+    extensions: {},
+  });
+
+  const supplyDeliveryBody = (
+    item: DeliveryItemFormValues,
+    suppliedItem: string,
+  ) => {
+    const quantity = toQuantity(item.received_quantity);
+    return {
+      supplied_item_type: SUPPLY_DELIVERY_ITEM_TYPE,
+      status: SupplyDeliveryStatus.in_progress,
+      supplied_item_condition: SupplyDeliveryCondition.normal,
+      supplied_item_quantity: quantity,
+      supplied_item: suppliedItem,
+      supplied_item_pack_quantity: 1,
+      supplied_item_pack_size: quantity,
+      total_purchase_price: 0,
+      supply_request: supplyRequestByRecordItemId.get(
+        inwardItemById.get(item.inward_record_item)?.record_order_item ?? "",
+      ),
+      destination: locationId,
+      order: deliveryOrderId,
+      extensions: {},
+    };
+  };
+
   const buildRowRequests = (
     item: DeliveryItemFormValues,
     index: number,
     recordDeliveryId: string,
   ): SuperBatchRequestItem[] => {
-    const quantity = toQuantity(item.received_quantity);
+    const isReceived = toQuantity(item.received_quantity) > 0;
     const productRef = `product-${index}`;
     const supplyDeliveryRef = `supply-delivery-${index}`;
 
-    const requests: SuperBatchRequestItem[] = [
-      {
-        reference_id: productRef,
-        url: apis.products.path(facilityId),
-        method: HttpMethod.POST,
-        body: {
-          status: ProductStatus.active,
-          batch: item.eaushadhi_batch
-            ? { lot_number: item.eaushadhi_batch }
-            : {},
-          expiration_date: item.expiry_date,
-          product_knowledge: item.product_knowledge!.slug,
-          charge_item_definition: null,
-          standard_pack_size: quantity,
-          purchase_price: 0,
-          extensions: {},
-        },
-      },
-      {
-        reference_id: supplyDeliveryRef,
-        url: apis.supplyDeliveries.path,
-        method: HttpMethod.POST,
-        body: {
-          supplied_item_type: SUPPLY_DELIVERY_ITEM_TYPE,
-          status: SupplyDeliveryStatus.in_progress,
-          supplied_item_condition: SupplyDeliveryCondition.normal,
-          supplied_item_quantity: quantity,
-          supplied_item: "",
-          supplied_item_pack_quantity: 1,
-          supplied_item_pack_size: quantity,
-          total_purchase_price: 0,
-          supply_request: supplyRequestByRecordItemId.get(
-            inwardItemById.get(item.inward_record_item)?.record_order_item ??
-              "",
-          ),
-          destination: locationId,
-          order: deliveryOrderId,
-          extensions: {},
-        },
-        replacements: [
+    // CARE supply deliveries need a quantity of at least 1, so a row with
+    // nothing received is recorded on DVDMS only.
+    const requests: SuperBatchRequestItem[] = isReceived
+      ? [
           {
-            source_path: { reference_id: productRef, path: "id" },
-            value_path: {
-              reference_id: supplyDeliveryRef,
-              path: "supplied_item",
-            },
+            reference_id: productRef,
+            url: apis.products.path(facilityId),
+            method: HttpMethod.POST,
+            body: productBody(item),
           },
-        ],
-      },
-    ];
+          {
+            reference_id: supplyDeliveryRef,
+            url: apis.supplyDeliveries.path,
+            method: HttpMethod.POST,
+            body: supplyDeliveryBody(item, ""),
+            replacements: [
+              {
+                source_path: { reference_id: productRef, path: "id" },
+                value_path: {
+                  reference_id: supplyDeliveryRef,
+                  path: "supplied_item",
+                },
+              },
+            ],
+          },
+        ]
+      : [];
 
     // Rows added by hand have no eAushadhi item to record against.
     if (!item.inward_record_item) return requests;
@@ -521,25 +588,39 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       method: HttpMethod.POST,
       body: {
         inward_record_item: item.inward_record_item,
-        supply_delivery: "",
+        ...(isReceived && { supply_delivery: "" }),
         quantity_dispatched: toQuantity(item.quantity_dispatched),
-        quantity_accepted: quantity,
+        quantity_accepted: toQuantity(item.received_quantity),
         quantity_damaged: toQuantity(item.quantity_damaged),
         quantity_short: toQuantity(item.quantity_short),
       },
-      replacements: [
-        {
-          source_path: { reference_id: supplyDeliveryRef, path: "id" },
-          value_path: {
-            reference_id: deliveryItemRef,
-            path: "supply_delivery",
-          },
-        },
-      ],
+      replacements: isReceived
+        ? [
+            {
+              source_path: { reference_id: supplyDeliveryRef, path: "id" },
+              value_path: {
+                reference_id: deliveryItemRef,
+                path: "supply_delivery",
+              },
+            },
+          ]
+        : undefined,
     });
 
     return requests;
   };
+
+  const invalidateDeliveryQueries = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["dvdms_record_deliveries"] }),
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_delivery_detail"],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_inward_detail"],
+      }),
+      queryClient.invalidateQueries({ queryKey: ["dvdms_products"] }),
+    ]);
 
   const onSubmit = form.handleSubmit(async (data) => {
     if (!institute?.id || !inwardRecord?.id) {
@@ -575,12 +656,8 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       // A batch is one transaction, so chunk by row to keep each product and
       // supply delivery together with the item that references them.
       const rowChunks = chunk(rows, MAX_ROWS_PER_SUPER_BATCH);
-      const chunkResults = await Promise.allSettled(
-        rowChunks.map((rowChunk) =>
-          performSuperBatchRequest({
-            requests: rowChunk.flatMap((row) => row.requests),
-          }),
-        ),
+      const chunkResults = await runSuperBatchesInOrder(
+        rowChunks.map((rowChunk) => rowChunk.flatMap((row) => row.requests)),
       );
 
       const savedIndices: number[] = [];
@@ -602,18 +679,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           t("delivery_items_saved", { count: savedIndices.length }),
         );
 
-        await Promise.all([
-          queryClient.invalidateQueries({
-            queryKey: ["dvdms_record_deliveries"],
-          }),
-          queryClient.invalidateQueries({
-            queryKey: ["dvdms_record_delivery_detail"],
-          }),
-          queryClient.invalidateQueries({
-            queryKey: ["dvdms_record_inward_detail"],
-          }),
-          queryClient.invalidateQueries({ queryKey: ["dvdms_products"] }),
-        ]);
+        await invalidateDeliveryQueries();
 
         [...savedIndices]
           .sort((a, b) => b - a)
@@ -641,6 +707,273 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     [savedItems],
   );
 
+  const editForm = useForm<DeliveryItemsFormValues>({
+    defaultValues: { items: [] },
+  });
+  const { fields: editFields, replace: replaceEditFields } = useFieldArray({
+    control: editForm.control,
+    name: "items",
+  });
+  const [editRows, setEditRows] = useState<EditRow[] | null>(null);
+  const isEditingSaved = editRows !== null;
+
+  const startEditMutation = useMutation({
+    mutationFn: async (): Promise<EditRow[]> => {
+      const receivedItems = pendingSavedItems.filter(
+        (item) => item.supply_delivery,
+      );
+      if (receivedItems.some((item) => !item.product?.id)) {
+        throw new Error(t("delivery_items_edit_load_failed"));
+      }
+      const results = await Promise.all(
+        chunk(receivedItems, MAX_REQUESTS_PER_BATCH / 2).map((items) =>
+          performBatchRequest({
+            requests: items.flatMap((item) => [
+              {
+                reference_id: `product-${item.id}`,
+                url: apis.products.detailPath(facilityId, item.product!.id),
+                method: HttpMethod.GET,
+              },
+              {
+                reference_id: `supply-delivery-${item.id}`,
+                url: apis.supplyDeliveries.detailPath(item.supply_delivery!.id),
+                method: HttpMethod.GET,
+              },
+            ]),
+          }),
+        ),
+      );
+      const dataByReference = new Map(
+        results.flat().map((result) => [result.reference_id, result.data]),
+      );
+      return pendingSavedItems.map((savedItem) => ({
+        savedItem,
+        product:
+          (dataByReference.get(`product-${savedItem.id}`) as Product) ?? null,
+        supplyDelivery:
+          (dataByReference.get(
+            `supply-delivery-${savedItem.id}`,
+          ) as SupplyDeliveryRetrieve) ?? null,
+      }));
+    },
+    onSuccess: (rows) => {
+      replaceEditFields(
+        rows.map((row) => {
+          const drugId =
+            inwardItemById.get(row.savedItem.inward_record_item.id)?.drug_id ??
+            "";
+          return {
+            ...createEmptyDeliveryItem(),
+            inward_record_item: row.savedItem.inward_record_item.id,
+            drug_id: drugId,
+            drug_name: row.savedItem.inward_record_item.item_name,
+            eaushadhi_batch: row.savedItem.inward_record_item.batch_number,
+            eaushadhi_expiry: toDateInputValue(
+              row.savedItem.inward_record_item.expiry_date,
+            ),
+            expiry_date: savedExpiryOf(row),
+            quantity_dispatched: String(
+              toQuantity(row.savedItem.quantity_dispatched),
+            ),
+            quantity_damaged: String(
+              toQuantity(row.savedItem.quantity_damaged),
+            ),
+            received_quantity: String(
+              toQuantity(row.savedItem.quantity_accepted),
+            ),
+            quantity_short: String(toQuantity(row.savedItem.quantity_short)),
+            product_knowledge:
+              row.product?.product_knowledge ??
+              productKnowledgeByDrugId.get(drugId),
+            is_manually_edited: true,
+          };
+        }),
+      );
+      setEditRows(rows);
+    },
+    onError: (error: unknown) => {
+      toast.error(
+        errorMessageOf(error) || t("delivery_items_edit_load_failed"),
+      );
+    },
+  });
+
+  const buildEditRequests = (
+    row: EditRow,
+    item: DeliveryItemFormValues,
+    index: number,
+  ): SuperBatchRequestItem[] => {
+    const { savedItem, product, supplyDelivery } = row;
+    const received = toQuantity(item.received_quantity);
+    const counts = {
+      quantity_accepted: received,
+      quantity_damaged: toQuantity(item.quantity_damaged),
+      quantity_short: toQuantity(item.quantity_short),
+    };
+    const areCountsChanged =
+      received !== toQuantity(savedItem.quantity_accepted) ||
+      counts.quantity_damaged !== toQuantity(savedItem.quantity_damaged) ||
+      counts.quantity_short !== toQuantity(savedItem.quantity_short);
+
+    // A row only has a CARE product and supply delivery while something is received.
+    const wasReceived = !!product && !!supplyDelivery;
+    const isReceived = received > 0;
+    const isKept = wasReceived && isReceived;
+    const isProductKnowledgeChanged =
+      isKept &&
+      item.product_knowledge?.slug !== product?.product_knowledge.slug;
+    const isReceivedChanged =
+      isKept && received !== toQuantity(savedItem.quantity_accepted);
+    const isExpiryChanged = isKept && item.expiry_date !== savedExpiryOf(row);
+
+    const needsNewProduct =
+      isReceived && (!wasReceived || isProductKnowledgeChanged);
+    const needsNewSupplyDelivery = needsNewProduct || isReceivedChanged;
+
+    const requests: SuperBatchRequestItem[] = [];
+    const newProductRef = `edit-product-${index}`;
+    const newSupplyDeliveryRef = `edit-supply-delivery-${index}`;
+
+    if (needsNewProduct) {
+      requests.push({
+        reference_id: newProductRef,
+        url: apis.products.path(facilityId),
+        method: HttpMethod.POST,
+        body: productBody(item),
+      });
+    }
+
+    if (product && (!isReceived || isProductKnowledgeChanged)) {
+      requests.push({
+        reference_id: `retire-product-${index}`,
+        url: apis.products.detailPath(facilityId, product.id),
+        method: HttpMethod.PUT,
+        body: productUpdateBody(product, {
+          status: ProductStatus.entered_in_error,
+        }),
+      });
+    } else if (product && (isReceivedChanged || isExpiryChanged)) {
+      requests.push({
+        reference_id: `update-product-${index}`,
+        url: apis.products.detailPath(facilityId, product.id),
+        method: HttpMethod.PUT,
+        body: productUpdateBody(product, {
+          standard_pack_size: received,
+          ...(isExpiryChanged && { expiration_date: item.expiry_date }),
+        }),
+      });
+    }
+
+    if (supplyDelivery && (!isReceived || needsNewSupplyDelivery)) {
+      requests.push({
+        reference_id: `abandon-supply-delivery-${index}`,
+        url: apis.supplyDeliveries.detailPath(supplyDelivery.id),
+        method: HttpMethod.PUT,
+        body: {
+          status: SupplyDeliveryStatus.abandoned,
+          supplied_item_condition: supplyDelivery.supplied_item_condition,
+          total_purchase_price: supplyDelivery.total_purchase_price,
+          extensions: supplyDelivery.extensions ?? {},
+        },
+      });
+    }
+
+    if (needsNewSupplyDelivery) {
+      requests.push({
+        reference_id: newSupplyDeliveryRef,
+        url: apis.supplyDeliveries.path,
+        method: HttpMethod.POST,
+        body: supplyDeliveryBody(item, needsNewProduct ? "" : product!.id),
+        replacements: needsNewProduct
+          ? [
+              {
+                source_path: { reference_id: newProductRef, path: "id" },
+                value_path: {
+                  reference_id: newSupplyDeliveryRef,
+                  path: "supplied_item",
+                },
+              },
+            ]
+          : undefined,
+      });
+    }
+
+    const deliveryItemPath = apis.recordInwards.deliveryItemPath(
+      institute!.id,
+      inwardRecord!.id,
+      recordDelivery!.id,
+      savedItem.id,
+    );
+    const deliveryItemRef = `edit-delivery-item-${index}`;
+    if (needsNewSupplyDelivery) {
+      requests.push({
+        reference_id: deliveryItemRef,
+        url: deliveryItemPath,
+        method: HttpMethod.PATCH,
+        body: { supply_delivery: "", ...counts },
+        replacements: [
+          {
+            source_path: { reference_id: newSupplyDeliveryRef, path: "id" },
+            value_path: {
+              reference_id: deliveryItemRef,
+              path: "supply_delivery",
+            },
+          },
+        ],
+      });
+    } else if (areCountsChanged) {
+      // With nothing received, the backend unlinks the abandoned supply delivery.
+      requests.push({
+        reference_id: deliveryItemRef,
+        url: deliveryItemPath,
+        method: HttpMethod.PATCH,
+        body: counts,
+      });
+    }
+
+    return requests;
+  };
+
+  const saveEditMutation = useMutation({
+    mutationFn: async (items: DeliveryItemFormValues[]) => {
+      const rows = (editRows ?? [])
+        .map((row, index) => buildEditRequests(row, items[index], index))
+        .filter((requests) => requests.length > 0);
+      if (rows.length === 0) {
+        setEditRows(null);
+        return 0;
+      }
+
+      const results = await runSuperBatchesInOrder(
+        chunk(rows, MAX_EDIT_ROWS_PER_SUPER_BATCH).map((rowChunk) =>
+          rowChunk.flat(),
+        ),
+      );
+      // Refetch before leaving edit mode, so nothing acts on retired supply deliveries.
+      if (results.some((result) => result.status === "fulfilled")) {
+        await invalidateDeliveryQueries();
+        setEditRows(null);
+      }
+      const failed = results.find(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
+      );
+      if (failed) throw failed.reason;
+      return rows.length;
+    },
+    onSuccess: (count) => {
+      if (count > 0) toast.success(t("delivery_items_updated", { count }));
+    },
+    onError: (error: unknown) => {
+      toast.error(errorMessageOf(error) || t("delivery_items_update_failed"));
+    },
+  });
+
+  const onSaveEdit = editForm.handleSubmit((data) => {
+    if (!validateItems(data.items)) return;
+    saveEditMutation.mutate(data.items);
+  });
+
   const approveDeliveryMutation = useMutation({
     mutationFn: async () => {
       if (!institute?.id || !inwardRecord?.id || !recordDelivery?.id) {
@@ -655,23 +988,32 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
 
       // Wait for every batch so the refetch after an error shows final statuses.
       const approvalResults = await Promise.allSettled(
-        chunks.map((itemChunk) =>
-          performSuperBatchRequest({
-            requests: [
-              {
-                reference_id: "supply-delivery-upsert",
-                url: apis.supplyDeliveries.upsertPath,
-                method: HttpMethod.POST,
-                body: {
-                  datapoints: itemChunk.map(
-                    (item): SupplyDeliveryUpsertPayload => ({
+        chunks.map((itemChunk) => {
+          // Rows with nothing received have no supply delivery to complete.
+          const datapoints = itemChunk.flatMap(
+            (item): SupplyDeliveryUpsertPayload[] =>
+              item.supply_delivery
+                ? [
+                    {
                       id: item.supply_delivery.id,
                       status: SupplyDeliveryStatus.completed,
                       supplied_item_condition: SupplyDeliveryCondition.normal,
-                    }),
-                  ),
-                },
-              },
+                    },
+                  ]
+                : [],
+          );
+          return performSuperBatchRequest({
+            requests: [
+              ...(datapoints.length > 0
+                ? [
+                    {
+                      reference_id: "supply-delivery-upsert",
+                      url: apis.supplyDeliveries.upsertPath,
+                      method: HttpMethod.POST,
+                      body: { datapoints },
+                    },
+                  ]
+                : []),
               ...itemChunk.map((item) => ({
                 reference_id: `delivery-item-${item.id}`,
                 url: apis.recordInwards.deliveryItemPath(
@@ -684,8 +1026,8 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                 body: { status: RecordDeliveryItemStatus.active },
               })),
             ],
-          }),
-        ),
+          });
+        }),
       );
       const failedApproval = approvalResults.find(
         (result): result is PromiseRejectedResult =>
@@ -729,27 +1071,10 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       toast.success(t("record_delivery_approved"));
     },
     onError: (error: unknown) => {
-      const message =
-        error instanceof BatchError
-          ? error.errorMessages[0]
-          : (error as { message?: string })?.message;
-      toast.error(message || t("record_delivery_approve_failed"));
+      toast.error(errorMessageOf(error) || t("record_delivery_approve_failed"));
     },
     // Items may have been approved even if completing the delivery failed.
-    onSettled: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ["dvdms_record_deliveries"],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["dvdms_record_delivery_detail"],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["dvdms_record_inward_detail"],
-        }),
-        queryClient.invalidateQueries({ queryKey: ["dvdms_products"] }),
-      ]);
-    },
+    onSettled: invalidateDeliveryQueries,
   });
 
   const retryAcknowledgementMutation = useMutation({
@@ -793,6 +1118,101 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     fields.length === 0 &&
     savedItems.length > 0 &&
     !isProcessing;
+
+  const canEditSavedItems =
+    canApproveDelivery && pendingSavedItems.length === savedItems.length;
+
+  const renderItemsForm = (
+    tableForm: UseFormReturn<DeliveryItemsFormValues>,
+    rows: { id: string }[],
+    onFormSubmit: ReturnType<typeof form.handleSubmit>,
+    isSaving: boolean,
+  ) => (
+    <Form {...tableForm}>
+      <form onSubmit={onFormSubmit} className="space-y-6">
+        <div className="rounded-md border border-gray-200 bg-white shadow overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader className="bg-gray-100">
+                <TableRow className="divide-x divide-gray-200">
+                  <TableHead
+                    colSpan={3}
+                    className="text-xs font-semibold text-center border-b"
+                  >
+                    {t("eaushadhi")}
+                  </TableHead>
+                  <TableHead
+                    rowSpan={2}
+                    className="min-w-[200px] text-xs font-semibold"
+                  >
+                    {t("product_knowledge")}
+                  </TableHead>
+                  <TableHead
+                    rowSpan={2}
+                    className="min-w-[120px] text-xs font-semibold"
+                  >
+                    {t("category")}
+                  </TableHead>
+                  <TableHead
+                    rowSpan={2}
+                    className="min-w-[100px] text-xs font-semibold"
+                  >
+                    {t("dispatched")}
+                  </TableHead>
+                  <TableHead
+                    rowSpan={2}
+                    className="min-w-[100px] text-xs font-semibold"
+                  >
+                    {t("damaged")}
+                  </TableHead>
+                  <TableHead
+                    rowSpan={2}
+                    className="min-w-[100px] text-xs font-semibold"
+                  >
+                    {t("received_qty")}
+                  </TableHead>
+                  <TableHead
+                    rowSpan={2}
+                    className="min-w-[100px] text-xs font-semibold"
+                  >
+                    {t("short")}
+                  </TableHead>
+                </TableRow>
+                <TableRow className="divide-x divide-gray-200">
+                  <TableHead className="min-w-[180px] text-xs font-semibold">
+                    {t("drug")}
+                  </TableHead>
+                  <TableHead className="min-w-[100px] text-xs font-semibold">
+                    {t("batch")}
+                  </TableHead>
+                  <TableHead className="min-w-[140px] text-xs font-semibold border-r">
+                    {t("expiry")}
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((field, index) => (
+                  <DeliveryItemRow
+                    key={field.id}
+                    form={tableForm}
+                    index={index}
+                    facilityId={facilityId}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Button type="submit" disabled={isSaving}>
+            {isSaving && <Loader2Icon className="size-4 animate-spin" />}
+            {isSaving ? t("saving") : t("save")}
+            <ShortcutBadge actionId="submit-action" />
+          </Button>
+        </div>
+      </form>
+    </Form>
+  );
 
   const isLoadingContext =
     isRecordOrderLoading || isOutwardLoading || isRecordInwardsLoading;
@@ -974,128 +1394,139 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                       {t("items_already_added_description")}
                     </p>
                   </div>
-                  <div className="rounded-md border border-gray-200 bg-white overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader className="bg-gray-100">
-                          <TableRow className="divide-x divide-gray-200">
-                            <TableHead className="min-w-[170px] text-xs font-semibold">
-                              {t("drug")}
-                            </TableHead>
-                            <TableHead className="text-xs font-semibold">
-                              {t("batch")}
-                            </TableHead>
-                            <TableHead className="text-xs font-semibold">
-                              {t("expiry")}
-                            </TableHead>
-                            <TableHead className="min-w-[170px] text-xs font-semibold">
-                              {t("product_knowledge")}
-                            </TableHead>
-                            <TableHead className="text-xs font-semibold">
-                              {t("category")}
-                            </TableHead>
-                            <TableHead className="text-xs font-semibold text-right">
-                              {t("dispatched")}
-                            </TableHead>
-                            <TableHead className="text-xs font-semibold text-right">
-                              {t("damaged")}
-                            </TableHead>
-                            <TableHead className="text-xs font-semibold text-right">
-                              {t("received")}
-                            </TableHead>
-                            <TableHead className="text-xs font-semibold text-right">
-                              {t("short")}
-                            </TableHead>
-                            <TableHead className="text-xs font-semibold">
-                              {t("status")}
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {savedItems.map((item) => {
-                            const inwardItem = inwardItemById.get(
-                              item.inward_record_item.id,
-                            );
+                  {isEditingSaved ? (
+                    renderItemsForm(
+                      editForm,
+                      editFields,
+                      onSaveEdit,
+                      saveEditMutation.isPending,
+                    )
+                  ) : (
+                    <div className="rounded-md border border-gray-200 bg-white overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader className="bg-gray-100">
+                            <TableRow className="divide-x divide-gray-200">
+                              <TableHead className="min-w-[170px] text-xs font-semibold">
+                                {t("drug")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold">
+                                {t("batch")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold">
+                                {t("expiry")}
+                              </TableHead>
+                              <TableHead className="min-w-[170px] text-xs font-semibold">
+                                {t("product_knowledge")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold">
+                                {t("category")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold text-right">
+                                {t("dispatched")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold text-right">
+                                {t("damaged")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold text-right">
+                                {t("received")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold text-right">
+                                {t("short")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold">
+                                {t("status")}
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {savedItems.map((item) => {
+                              const inwardItem = inwardItemById.get(
+                                item.inward_record_item.id,
+                              );
 
-                            return (
-                              <TableRow
-                                key={item.id}
-                                className="divide-x divide-gray-200"
-                              >
-                                <TableCell className="p-2 text-sm text-gray-900">
-                                  <div className="flex flex-col whitespace-normal">
-                                    <span>
-                                      {item.inward_record_item.item_name || "—"}
-                                    </span>
-                                    {inwardItem?.drug_id && (
-                                      <span className="text-xs text-gray-500">
-                                        {t("drug_id")}: {inwardItem.drug_id}
+                              return (
+                                <TableRow
+                                  key={item.id}
+                                  className="divide-x divide-gray-200"
+                                >
+                                  <TableCell className="p-2 text-sm text-gray-900">
+                                    <div className="flex flex-col whitespace-normal">
+                                      <span>
+                                        {item.inward_record_item.item_name ||
+                                          "—"}
                                       </span>
+                                      {inwardItem?.drug_id && (
+                                        <span className="text-xs text-gray-500">
+                                          {t("drug_id")}: {inwardItem.drug_id}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
+                                    {item.inward_record_item.batch_number ||
+                                      "—"}
+                                  </TableCell>
+                                  <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
+                                    {formatDate(
+                                      item.inward_record_item.expiry_date,
                                     )}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
-                                  {item.inward_record_item.batch_number || "—"}
-                                </TableCell>
-                                <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
-                                  {formatDate(
-                                    item.inward_record_item.expiry_date,
-                                  )}
-                                </TableCell>
-                                <TableCell className="p-2 text-sm text-gray-900">
-                                  {item.product_knowledge?.name || "—"}
-                                </TableCell>
-                                <TableCell className="p-2 text-sm text-gray-900 capitalize whitespace-nowrap">
-                                  {(inwardItem?.drug_id
-                                    ? productKnowledgeByDrugId.get(
-                                        inwardItem.drug_id,
-                                      )?.product_type
-                                    : undefined) || "—"}
-                                </TableCell>
-                                <TableCell className="p-2 text-sm text-right tabular-nums">
-                                  {item.quantity_dispatched != null
-                                    ? toQuantity(item.quantity_dispatched)
-                                    : "—"}
-                                </TableCell>
-                                <TableCell className="p-2 text-sm text-right tabular-nums">
-                                  {item.quantity_damaged != null
-                                    ? toQuantity(item.quantity_damaged)
-                                    : "—"}
-                                </TableCell>
-                                <TableCell className="p-2 text-sm text-right tabular-nums">
-                                  {item.quantity_accepted != null
-                                    ? toQuantity(item.quantity_accepted)
-                                    : "—"}
-                                </TableCell>
-                                <TableCell className="p-2 text-sm text-right tabular-nums">
-                                  {item.quantity_short != null
-                                    ? toQuantity(item.quantity_short)
-                                    : "—"}
-                                </TableCell>
-                                <TableCell className="p-2">
-                                  <Badge
-                                    className="rounded-sm"
-                                    variant={
-                                      RECORD_DELIVERY_ITEM_STATUS_VARIANTS[
-                                        item.status
-                                      ] ?? "secondary"
-                                    }
-                                  >
-                                    {t(
-                                      RECORD_DELIVERY_ITEM_STATUS_LABELS[
-                                        item.status
-                                      ] ?? item.status,
-                                    )}
-                                  </Badge>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
+                                  </TableCell>
+                                  <TableCell className="p-2 text-sm text-gray-900">
+                                    {item.product_knowledge?.name || "—"}
+                                  </TableCell>
+                                  <TableCell className="p-2 text-sm text-gray-900 capitalize whitespace-nowrap">
+                                    {(inwardItem?.drug_id
+                                      ? productKnowledgeByDrugId.get(
+                                          inwardItem.drug_id,
+                                        )?.product_type
+                                      : undefined) || "—"}
+                                  </TableCell>
+                                  <TableCell className="p-2 text-sm text-right tabular-nums">
+                                    {item.quantity_dispatched != null
+                                      ? toQuantity(item.quantity_dispatched)
+                                      : "—"}
+                                  </TableCell>
+                                  <TableCell className="p-2 text-sm text-right tabular-nums">
+                                    {item.quantity_damaged != null
+                                      ? toQuantity(item.quantity_damaged)
+                                      : "—"}
+                                  </TableCell>
+                                  <TableCell className="p-2 text-sm text-right tabular-nums">
+                                    {item.quantity_accepted != null
+                                      ? toQuantity(item.quantity_accepted)
+                                      : "—"}
+                                  </TableCell>
+                                  <TableCell className="p-2 text-sm text-right tabular-nums">
+                                    {item.quantity_short != null
+                                      ? toQuantity(item.quantity_short)
+                                      : "—"}
+                                  </TableCell>
+                                  <TableCell className="p-2">
+                                    <Badge
+                                      className="rounded-sm"
+                                      variant={
+                                        RECORD_DELIVERY_ITEM_STATUS_VARIANTS[
+                                          item.status
+                                        ] ?? "secondary"
+                                      }
+                                    >
+                                      {t(
+                                        RECORD_DELIVERY_ITEM_STATUS_LABELS[
+                                          item.status
+                                        ] ?? item.status,
+                                      )}
+                                    </Badge>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
-                  </div>
-                  {canApproveDelivery && (
+                  )}
+                  {canApproveDelivery && !isEditingSaved && (
                     <div className="flex flex-col gap-2 justify-between bg-white p-2 border border-gray-200 rounded-md sm:flex-row sm:items-center">
                       <div className="flex flex-col gap-2">
                         <p className="font-bold">
@@ -1105,20 +1536,42 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                           {t("review_and_complete_delivery_description")}
                         </span>
                       </div>
-                      <Button
-                        type="button"
-                        className="shrink-0"
-                        onClick={() => approveDeliveryMutation.mutate()}
-                        disabled={approveDeliveryMutation.isPending}
-                      >
-                        {approveDeliveryMutation.isPending && (
-                          <Loader2Icon className="size-4 animate-spin" />
+                      <div className="flex flex-col-reverse gap-2 shrink-0 sm:flex-row">
+                        {canEditSavedItems && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => startEditMutation.mutate()}
+                            disabled={
+                              startEditMutation.isPending ||
+                              approveDeliveryMutation.isPending
+                            }
+                          >
+                            {startEditMutation.isPending ? (
+                              <Loader2Icon className="size-4 animate-spin" />
+                            ) : (
+                              <Edit className="size-4" />
+                            )}
+                            {t("edit")}
+                          </Button>
                         )}
-                        {approveDeliveryMutation.isPending
-                          ? t("saving")
-                          : t("mark_as_completed")}
-                        <ShortcutBadge actionId="mark-as" />
-                      </Button>
+                        <Button
+                          type="button"
+                          onClick={() => approveDeliveryMutation.mutate()}
+                          disabled={
+                            approveDeliveryMutation.isPending ||
+                            startEditMutation.isPending
+                          }
+                        >
+                          {approveDeliveryMutation.isPending && (
+                            <Loader2Icon className="size-4 animate-spin" />
+                          )}
+                          {approveDeliveryMutation.isPending
+                            ? t("saving")
+                            : t("mark_as_completed")}
+                          <ShortcutBadge actionId="mark-as" />
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -1128,93 +1581,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
             {fields.length > 0 && (
               <Card className="bg-gray-50 py-4 rounded-md">
                 <CardContent className="space-y-4">
-                  <Form {...form}>
-                    <form onSubmit={onSubmit} className="space-y-6">
-                      <div className="rounded-md border border-gray-200 bg-white shadow overflow-hidden">
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader className="bg-gray-100">
-                              <TableRow className="divide-x divide-gray-200">
-                                <TableHead
-                                  colSpan={3}
-                                  className="text-xs font-semibold text-center border-b"
-                                >
-                                  {t("eaushadhi")}
-                                </TableHead>
-                                <TableHead
-                                  rowSpan={2}
-                                  className="min-w-[200px] text-xs font-semibold"
-                                >
-                                  {t("product_knowledge")}
-                                </TableHead>
-                                <TableHead
-                                  rowSpan={2}
-                                  className="min-w-[120px] text-xs font-semibold"
-                                >
-                                  {t("category")}
-                                </TableHead>
-                                <TableHead
-                                  rowSpan={2}
-                                  className="min-w-[100px] text-xs font-semibold"
-                                >
-                                  {t("dispatched")}
-                                </TableHead>
-                                <TableHead
-                                  rowSpan={2}
-                                  className="min-w-[100px] text-xs font-semibold"
-                                >
-                                  {t("damaged")}
-                                </TableHead>
-                                <TableHead
-                                  rowSpan={2}
-                                  className="min-w-[100px] text-xs font-semibold"
-                                >
-                                  {t("received_qty")}
-                                </TableHead>
-                                <TableHead
-                                  rowSpan={2}
-                                  className="min-w-[100px] text-xs font-semibold"
-                                >
-                                  {t("short")}
-                                </TableHead>
-                              </TableRow>
-                              <TableRow className="divide-x divide-gray-200">
-                                <TableHead className="min-w-[180px] text-xs font-semibold">
-                                  {t("drug")}
-                                </TableHead>
-                                <TableHead className="min-w-[100px] text-xs font-semibold">
-                                  {t("batch")}
-                                </TableHead>
-                                <TableHead className="min-w-[140px] text-xs font-semibold border-r">
-                                  {t("expiry")}
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {fields.map((field, index) => (
-                                <DeliveryItemRow
-                                  key={field.id}
-                                  form={form}
-                                  index={index}
-                                  facilityId={facilityId}
-                                />
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-end">
-                        <Button type="submit" disabled={isProcessing}>
-                          {isProcessing && (
-                            <Loader2Icon className="size-4 animate-spin" />
-                          )}
-                          {isProcessing ? t("saving") : t("save")}
-                          <ShortcutBadge actionId="submit-action" />
-                        </Button>
-                      </div>
-                    </form>
-                  </Form>
+                  {renderItemsForm(form, fields, onSubmit, isProcessing)}
                 </CardContent>
               </Card>
             )}

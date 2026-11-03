@@ -64,6 +64,16 @@ export function toDateInputValue(value: string | null | undefined): string {
   return value?.slice(0, 10) ?? "";
 }
 
+/** CARE returns date-only values as UTC datetimes; slicing would land a day early. */
+export function toLocalDateInputValue(
+  value: string | null | undefined,
+): string {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export function toQuantity(value: string | number | undefined): number {
   return Math.max(0, Math.round(Number(value) || 0));
 }

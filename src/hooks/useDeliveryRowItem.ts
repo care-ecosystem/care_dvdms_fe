@@ -4,7 +4,7 @@ import { UseFormReturn, useWatch } from "react-hook-form";
 
 import { apis } from "@/apis";
 import { LIST_FETCH_LIMIT } from "@/lib/constants";
-import { toDateInputValue } from "@/lib/utils";
+import { toLocalDateInputValue } from "@/lib/utils";
 import {
   DeliveryItemFormValues,
   DeliveryItemsFormValues,
@@ -75,7 +75,7 @@ export function useDeliveryRowItem({
         limit: LIST_FETCH_LIMIT,
         status: "active",
       }),
-    enabled: !!productKnowledge?.slug,
+    enabled: !!productKnowledge?.slug && !item?.is_manually_edited,
   });
   const products = useMemo(() => productsData?.results ?? [], [productsData]);
 
@@ -85,7 +85,7 @@ export function useDeliveryRowItem({
 
       setField("supplied_item", product);
       if (!eaushadhiExpiry && product.expiration_date) {
-        setField("expiry_date", toDateInputValue(product.expiration_date));
+        setField("expiry_date", toLocalDateInputValue(product.expiration_date));
       }
       if (product.purchase_price != null) {
         setField("purchase_price", product.purchase_price);

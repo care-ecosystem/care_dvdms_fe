@@ -63,9 +63,11 @@ import {
 } from "@/context/ShortcutContext";
 import { REQUEST_ORDER_STATUS_VARIANTS } from "@/types/requestOrder";
 import {
+  DvdmsIndentStatus,
   RecordOrder,
   RecordOrderOutward,
   isRecordDeliveryReceived,
+  toDvdmsIndentStatusKey,
 } from "@/types/recordOrder";
 import { SupplyRequest } from "@/types/supplyRequest";
 import {
@@ -97,6 +99,8 @@ const DVDMS_SUBMISSION_POLL_INTERVAL_MS = 5_000;
 const DVDMS_SUBMISSION_POLL_WINDOW_MS = 2 * 60 * 1_000;
 
 const DVDMS_INDENT_STATUS_POLL_INTERVAL_MS = 15_000;
+const DVDMS_INDENT_STATUS_POLL_MAX_INTERVAL_MS = 2 * 60 * 1_000;
+const DVDMS_INDENT_STATUS_POLL_WINDOW_MS = 10 * 60 * 1_000;
 const DVDMS_INDENT_STATUS_POLL_MAX_FAILURES = 2;
 
 const drugsKey = (groupId: number, subgroupId?: number) =>
@@ -382,9 +386,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     inwardRecords: dvdmsIssues,
     deliveriesByInwardId,
     isLoading: isInwardsLoading,
-  } = useRecordInwardDeliveries(institute?.id, outward?.id, {
-    indentStatus: outward?.eaushadhi_indent_status,
-  });
+  } = useRecordInwardDeliveries(institute?.id, outward?.id);
 
   const isIssuesLoading =
     isInstitutePending ||
@@ -851,6 +853,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   });
 
   const [indentStatusPollFailures, setIndentStatusPollFailures] = useState(0);
+  const [hasPollWindowElapsed, setHasPollWindowElapsed] = useState(false);
   const isFetchingInwardsRef = useRef(false);
 
   const fetchInwardsMutation = useMutation({
@@ -884,28 +887,55 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       setIndentStatusPollFailures((previous) => previous + 1);
     },
   });
-  const isAwaitingIndentStatus =
-    !!outward?.eaushadhi_indent_no &&
-    !outward.eaushadhi_indent_status &&
-    outward.status !== "failed" &&
-    !!recordOrder?.status &&
-    !["cancelled", "completed"].includes(recordOrder.status) &&
-    indentStatusPollFailures < DVDMS_INDENT_STATUS_POLL_MAX_FAILURES;
+  const indentStatus = outward?.eaushadhi_indent_status
+    ? toDvdmsIndentStatusKey(outward.eaushadhi_indent_status)
+    : undefined;
+  const isAwaitingFirstIssue =
+    indentStatus === DvdmsIndentStatus.issued &&
+    !isInwardsLoading &&
+    dvdmsIssues.length === 0;
+  /**
+   * Pull while the indent is pending or in process, then until the first issue
+   * is fetched. Any other indent status is final.
+   */
+  const shouldPollDvdms =
+    canSyncDvdmsStatus &&
+    outward?.status !== "failed" &&
+    (!indentStatus ||
+      indentStatus === DvdmsIndentStatus.issue_in_process ||
+      isAwaitingFirstIssue) &&
+    indentStatusPollFailures < DVDMS_INDENT_STATUS_POLL_MAX_FAILURES &&
+    !hasPollWindowElapsed;
 
   const { mutate: fetchInwards } = fetchInwardsMutation;
 
+  /**
+   * Issuing can take long, so the wait doubles after every pull up to a cap.
+   * Polling gives up after a window; the manual sync button still works.
+   */
   useEffect(() => {
-    if (!isAwaitingIndentStatus) return;
+    if (!shouldPollDvdms) return;
 
+    const deadline = Date.now() + DVDMS_INDENT_STATUS_POLL_WINDOW_MS;
+    let delay = DVDMS_INDENT_STATUS_POLL_INTERVAL_MS;
+    let timer: ReturnType<typeof setTimeout>;
     const pull = () => {
-      if (isFetchingInwardsRef.current) return;
-      fetchInwards();
+      if (Date.now() >= deadline) {
+        setHasPollWindowElapsed(true);
+        return;
+      }
+      // A tick skipped for an in-flight fetch retries without backing off.
+      const skipped = isFetchingInwardsRef.current;
+      if (!skipped) fetchInwards();
+      timer = setTimeout(pull, delay);
+      if (!skipped) {
+        delay = Math.min(delay * 2, DVDMS_INDENT_STATUS_POLL_MAX_INTERVAL_MS);
+      }
     };
 
     pull();
-    const timer = setInterval(pull, DVDMS_INDENT_STATUS_POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [isAwaitingIndentStatus, fetchInwards]);
+    return () => clearTimeout(timer);
+  }, [shouldPollDvdms, fetchInwards]);
 
   const handleSupplyDeliveryAction = (action: string) => {
     if (action !== "save") return;
@@ -1956,6 +1986,14 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                         recordOrder={recordOrder}
                         issues={dvdmsIssues}
                         recordBasePath={recordBasePath}
+                      />
+                    ) : isAwaitingFirstIssue && shouldPollDvdms ? (
+                      <EmptyState
+                        icon={
+                          <Loader2Icon className="text-primary size-6 animate-spin" />
+                        }
+                        title={t("fetching_issues")}
+                        description={t("fetching_issues_description")}
                       />
                     ) : (
                       <EmptyState

@@ -338,7 +338,7 @@ export interface RecordDeliveryItemProduct {
 export interface RecordDeliveryItem {
   id: string;
   inward_record_item: RecordDeliveryItemInwardRecordItem;
-  supply_delivery: RecordDeliveryItemSupplyDelivery;
+  supply_delivery: RecordDeliveryItemSupplyDelivery | null;
   record_delivery: RecordDeliveryItemRecordDeliveryRef;
   product: RecordDeliveryItemProduct | null;
   product_knowledge: RecordDeliveryItemProduct | null;

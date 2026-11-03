@@ -326,6 +326,7 @@
   "root": "Root",
   "routine": "Routine",
   "save": "Save",
+  "save_and_close": "Save & Close",
   "save_failed": "Failed to save items",
   "saving": "Saving...",
   "search_by_supplier": "Search by supplier",

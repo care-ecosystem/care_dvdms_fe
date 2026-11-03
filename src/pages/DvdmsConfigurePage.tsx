@@ -235,6 +235,17 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     goBack(`/facility/${facilityId}/settings/general`);
   };
 
+  const onSubmit = form.handleSubmit((values) =>
+    saveInstitute(
+      {
+        eaushadhi_institute_id: values.eaushadhi_institute_id,
+        eaushadhi_user_ref_id: values.eaushadhi_user_ref_id,
+        eaushadhi_institute_name: values.eaushadhi_institute_name,
+      },
+      hasInstitute ? { onSuccess: goBackToFacility } : undefined,
+    ),
+  );
+
   const onOpenChange = (next: boolean) => {
     if (!next) {
       goBackToFacility();
@@ -258,13 +269,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         <div className="px-1 py-5">
           <Form {...form}>
             <form
-              onSubmit={form.handleSubmit((values) => {
-                saveInstitute({
-                  eaushadhi_institute_id: values.eaushadhi_institute_id,
-                  eaushadhi_user_ref_id: values.eaushadhi_user_ref_id,
-                  eaushadhi_institute_name: values.eaushadhi_institute_name,
-                });
-              })}
+              onSubmit={onSubmit}
               className="space-y-8"
             >
               <div>
@@ -535,7 +540,11 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 </SheetClose>
                 <Button type="submit" variant="primary" disabled={isSaving}>
                   {isSaving && <Loader2Icon className="size-4 animate-spin" />}
-                  {isSaving ? t("saving") : t("save")}
+                  {isSaving
+                    ? t("saving")
+                    : hasInstitute
+                      ? t("save_and_close")
+                      : t("save")}
                 </Button>
               </div>
             </form>

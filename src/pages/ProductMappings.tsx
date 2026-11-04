@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  AlertCircleIcon,
   ArrowLeftIcon,
   DownloadIcon,
   FolderOpenIcon,
@@ -241,7 +242,11 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
 
   const [mappingsPage, setMappingsPage] = useState(1);
 
-  const { data: mappingsData, isLoading: mappingsLoading } = useQuery({
+  const {
+    data: mappingsData,
+    isLoading: mappingsLoading,
+    error: mappingsError,
+  } = useQuery({
     queryKey: ["dvdms_product_mappings", instituteId, mappingsPage],
     queryFn: () =>
       apis.productMappings.list(instituteId!, {
@@ -326,7 +331,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
       : list;
   }, [productKnowledgeSearchData, mappingForm.productKnowledge]);
 
-  const { data: groups = [] } = useQuery({
+  const { data: groups = [], error: groupsError } = useQuery({
     queryKey: ["dvdms_lookup_groups", instituteId],
     queryFn: () => apis.institutes.lookupGroups(instituteId!),
     enabled: !!instituteId,
@@ -347,6 +352,15 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
       }),
     enabled: !!instituteId && !!groupId,
   });
+
+  const groupsErrorMessage =
+    groupsError && (getErrorMessage(groupsError) || t("dvdms_groups_fetch_error"));
+
+  useEffect(() => {
+    if (groupsErrorMessage) {
+      toast.error(groupsErrorMessage, { id: "dvdms_groups_fetch_error" });
+    }
+  }, [groupsErrorMessage]);
 
   const handleCategoryChange = (id: string) => {
     const category = categories.find((c) => c.id === id) ?? null;
@@ -1379,7 +1393,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                       onChange={handleGroupChange}
                       placeholder={t("dvdms_group_placeholder")}
                       inputPlaceholder={t("search_dvdms_group")}
-                      noOptionsMessage={t("no_dvdms_group_found")}
+                      noOptionsMessage={groupsErrorMessage || t("no_dvdms_group_found")}
                       disabled={!instituteId}
                       showClearButton={false}
                     />
@@ -1484,6 +1498,18 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
               ))}
             </TableBody>
           </Table>
+        ) : mappingsError || (groupsErrorMessage && mappings.length === 0) ? (
+          <div
+            role="alert"
+            className="flex flex-col items-center justify-center rounded-xl border border-dashed border-red-200 bg-white px-6 py-12 text-center text-red-700 shadow-sm"
+          >
+            <AlertCircleIcon className="size-6 mb-3" />
+            <p className="text-sm">
+              {mappingsError
+                ? getErrorMessage(mappingsError) || t("dvdms_product_mappings_fetch_error")
+                : groupsErrorMessage}
+            </p>
+          </div>
         ) : mappings.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-6 py-12 text-center text-gray-950 shadow-sm">
             <div className="rounded-full bg-primary/10 p-3 mb-3">

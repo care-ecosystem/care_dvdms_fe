@@ -307,6 +307,7 @@ export const apis = {
     list: (
       instituteId: string,
       params: {
+        outward_record?: string;
         limit?: number;
         offset?: number;
         ordering?: string;
@@ -639,6 +640,7 @@ export const apis = {
       offset?: number;
       category?: string;
       status?: string;
+      product_type?: string;
       include_instance?: boolean;
     }) =>
       request<PaginatedResponse<ProductKnowledge>>(

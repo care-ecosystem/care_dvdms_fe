@@ -230,6 +230,11 @@ const getErrorMessage = (error: unknown) =>
 
 const MAPPINGS_PAGE_SIZE = 10;
 
+const useErrorToast = (message: string | null | undefined, id: string) =>
+  useEffect(() => {
+    if (message) toast.error(message, { id });
+  }, [message, id]);
+
 const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   const queryClient = useQueryClient();
@@ -337,13 +342,13 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     enabled: !!instituteId,
   });
 
-  const { data: subgroups = [] } = useQuery({
+  const { data: subgroups = [], error: subgroupsError } = useQuery({
     queryKey: ["dvdms_lookup_subgroups", instituteId, groupId],
     queryFn: () => apis.institutes.lookupSubgroups(instituteId!, groupId!),
     enabled: !!instituteId && !!groupId,
   });
 
-  const { data: drugs = [] } = useQuery({
+  const { data: drugs = [], error: drugsError } = useQuery({
     queryKey: ["dvdms_lookup_drugs", instituteId, groupId, subgroupId],
     queryFn: () =>
       apis.institutes.lookupDrugs(instituteId!, {
@@ -355,12 +360,15 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
 
   const groupsErrorMessage =
     groupsError && (getErrorMessage(groupsError) || t("dvdms_groups_fetch_error"));
+  const subgroupsErrorMessage =
+    subgroupsError &&
+    (getErrorMessage(subgroupsError) || t("dvdms_subgroups_fetch_error"));
+  const drugsErrorMessage =
+    drugsError && (getErrorMessage(drugsError) || t("dvdms_drugs_fetch_error"));
 
-  useEffect(() => {
-    if (groupsErrorMessage) {
-      toast.error(groupsErrorMessage, { id: "dvdms_groups_fetch_error" });
-    }
-  }, [groupsErrorMessage]);
+  useErrorToast(groupsErrorMessage, "dvdms_groups_fetch_error");
+  useErrorToast(subgroupsErrorMessage, "dvdms_subgroups_fetch_error");
+  useErrorToast(drugsErrorMessage, "dvdms_drugs_fetch_error");
 
   const handleCategoryChange = (id: string) => {
     const category = categories.find((c) => c.id === id) ?? null;
@@ -1410,7 +1418,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                       onChange={handleSubgroupChange}
                       placeholder={t("dvdms_subgroup_placeholder")}
                       inputPlaceholder={t("search_dvdms_group")}
-                      noOptionsMessage={t("no_dvdms_subgroup_found")}
+                      noOptionsMessage={subgroupsErrorMessage || t("no_dvdms_subgroup_found")}
                       disabled={!groupId}
                       showClearButton
                     />
@@ -1430,7 +1438,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                       onChange={handleDrugChange}
                       placeholder={t("dvdms_drug_placeholder")}
                       inputPlaceholder={t("search_dvdms_drug")}
-                      noOptionsMessage={t("no_dvdms_drug_found")}
+                      noOptionsMessage={drugsErrorMessage || t("no_dvdms_drug_found")}
                       disabled={!groupId}
                       showClearButton={false}
                     />

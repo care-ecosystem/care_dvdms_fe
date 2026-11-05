@@ -304,20 +304,18 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     useQuery({
       queryKey: [
         "dvdms_product_knowledge_search",
-        facilityId,
+        instituteId,
         mappingForm.category?.slug,
         debouncedProductKnowledgeSearch,
       ],
       queryFn: () =>
-        apis.productKnowledge.list({
-          facility: facilityId,
+        apis.productMappings.availableProductKnowledge(instituteId!, {
           name: debouncedProductKnowledgeSearch || undefined,
           category: mappingForm.category?.slug,
-          status: "active",
           product_type: "medication",
           limit: 10,
         }),
-      enabled: mappingOpen && !!mappingForm.category,
+      enabled: mappingOpen && !!instituteId && !!mappingForm.category,
     });
 
   const productKnowledgeOptions = useMemo(() => {
@@ -382,9 +380,14 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   };
 
   const invalidateMappings = () =>
-    queryClient.invalidateQueries({
-      queryKey: ["dvdms_product_mappings", instituteId],
-    });
+    Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_product_mappings", instituteId],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_product_knowledge_search", instituteId],
+      }),
+    ]);
 
   const { mutate: createMapping, isPending: isCreating } = useMutation({
     mutationFn: () =>

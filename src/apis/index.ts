@@ -582,6 +582,20 @@ export const apis = {
         HttpMethod.POST,
         payload,
       ),
+    availableProductKnowledge: (
+      instituteId: string,
+      params: {
+        name?: string;
+        category?: string;
+        product_type?: string;
+        limit?: number;
+      },
+    ) =>
+      request<PaginatedResponse<ProductKnowledge>>(
+        `${apis.productMappings.path(instituteId)}available-product-knowledge/`,
+        HttpMethod.GET,
+        params,
+      ),
     update: (
       instituteId: string,
       mappingId: string,

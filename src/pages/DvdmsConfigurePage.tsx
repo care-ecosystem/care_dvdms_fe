@@ -1,4 +1,4 @@
-import { FC, useEffect, useMemo } from "react";
+import { FC, useEffect, useMemo, useState } from "react";
 import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,11 +11,18 @@ import { Loader2Icon } from "lucide-react";
 import { apis } from "@/apis";
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { goBack } from "@/lib/navigation";
-import { cn } from "@/lib/utils";
 import { LocationPicker } from "@/components/LocationPicker";
 import { EaushadhiStorePicker } from "@/components/EaushadhiStorePicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -274,16 +281,29 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     goBack(`/facility/${facilityId}/settings/general`);
   };
 
-  const onSubmit = form.handleSubmit((values) =>
+  const [pendingPayload, setPendingPayload] =
+    useState<DvdmsInstitutePayload | null>(null);
+
+  const save = (payload: DvdmsInstitutePayload) =>
     saveInstitute(
-      {
-        eaushadhi_institute_id: values.eaushadhi_institute_id,
-        eaushadhi_user_ref_id: values.eaushadhi_user_ref_id,
-        eaushadhi_institute_name: values.eaushadhi_institute_name,
-      },
+      payload,
       hasInstitute ? { onSuccess: goBackToFacility } : undefined,
-    ),
-  );
+    );
+
+  const onSubmit = form.handleSubmit((values) => {
+    const payload = {
+      eaushadhi_institute_id: values.eaushadhi_institute_id,
+      eaushadhi_user_ref_id: values.eaushadhi_user_ref_id,
+      eaushadhi_institute_name: values.eaushadhi_institute_name,
+    };
+    // Existing orders/deliveries sync to DVDMS with these IDs, so confirm changes.
+    const idsChanged =
+      !!institute &&
+      (payload.eaushadhi_institute_id !== institute.eaushadhi_institute_id ||
+        payload.eaushadhi_user_ref_id !== institute.eaushadhi_user_ref_id);
+    if (idsChanged) setPendingPayload(payload);
+    else save(payload);
+  });
 
   const onOpenChange = (next: boolean) => {
     if (!next) {
@@ -333,11 +353,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                             placeholder={t(
                               "eaushadhi_institute_id_placeholder",
                             )}
-                            className={cn(
-                              "h-9",
-                              hasInstitute && "bg-gray-50 cursor-default",
-                            )}
-                            readOnly={hasInstitute}
+                            className="h-9"
                             {...field}
                           />
                         </FormControl>
@@ -357,11 +373,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                         <FormControl>
                           <Input
                             placeholder={t("eaushadhi_user_ref_id_placeholder")}
-                            className={cn(
-                              "h-9",
-                              hasInstitute && "bg-gray-50 cursor-default",
-                            )}
-                            readOnly={hasInstitute}
+                            className="h-9"
                             {...field}
                           />
                         </FormControl>
@@ -583,6 +595,34 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
             </form>
           </Form>
         </div>
+        <Dialog
+          open={!!pendingPayload}
+          onOpenChange={(open) => !open && setPendingPayload(null)}
+        >
+          <DialogContent closeLabel={t("close")}>
+            <DialogHeader>
+              <DialogTitle>{t("dvdms_institute_ids_change_title")}</DialogTitle>
+              <DialogDescription>
+                {t("dvdms_institute_ids_change_description")}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPendingPayload(null)}>
+                {t("cancel")}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={isSaving}
+                onClick={() => {
+                  save(pendingPayload!);
+                  setPendingPayload(null);
+                }}
+              >
+                {t("confirm")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </SheetContent>
     </Sheet>
   );

@@ -313,6 +313,8 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           facility: facilityId,
           name: debouncedProductKnowledgeSearch || undefined,
           category: mappingForm.category?.slug,
+          status: "active",
+          product_type: "medication",
           limit: 10,
         }),
       enabled: mappingOpen && !!mappingForm.category,

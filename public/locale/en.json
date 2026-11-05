@@ -170,6 +170,8 @@
   "eaushadhi_supplier": "DVDMS Supplier",
   "eaushadhi_supplier_required": "DVDMS supplier is required",
   "eaushadhi_user_ref_id": "DVDMS User Reference ID",
+  "dvdms_institute_ids_change_title": "Change DVDMS Institute IDs?",
+  "dvdms_institute_ids_change_description": "Existing orders and deliveries for this facility will sync to DVDMS using the new Institute ID and User Reference ID. Make sure the new values are correct before continuing.",
   "eaushadhi_user_ref_id_placeholder": "Enter DVDMS user reference ID",
   "eaushadhi_user_ref_id_required": "DVDMS user reference ID is required",
   "eaushadhi_warehouse_id": "DVDMS Warehouse ID",

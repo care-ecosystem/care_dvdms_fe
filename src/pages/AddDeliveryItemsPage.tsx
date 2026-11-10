@@ -1219,7 +1219,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   </TableHead>
                   <TableHead
                     rowSpan={2}
-                    className="min-w-[200px] text-xs font-semibold"
+                    className="min-w-[210px] text-xs font-semibold"
                   >
                     {t("product_knowledge")}
                   </TableHead>
@@ -1231,7 +1231,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   </TableHead>
                   <TableHead
                     rowSpan={2}
-                    className="min-w-[120px] text-xs font-semibold"
+                    className="min-w-[104px] text-xs font-semibold"
                   >
                     {t("unit_pack_size")}
                   </TableHead>
@@ -1245,13 +1245,13 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     rowSpan={2}
                     className="min-w-[100px] text-xs font-semibold"
                   >
-                    {t("dispatched")}
+                    {t("dispatched_qty")}
                   </TableHead>
                   <TableHead
                     rowSpan={2}
                     className="min-w-[100px] text-xs font-semibold"
                   >
-                    {t("damaged")}
+                    {t("damaged_qty")}
                   </TableHead>
                   <TableHead
                     rowSpan={2}
@@ -1263,7 +1263,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     rowSpan={2}
                     className="min-w-[100px] text-xs font-semibold"
                   >
-                    {t("short")}
+                    {t("lost_qty")}
                   </TableHead>
                 </TableRow>
                 <TableRow className="divide-x divide-gray-200">
@@ -1273,7 +1273,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   <TableHead className="min-w-[100px] text-xs font-semibold">
                     {t("batch")}
                   </TableHead>
-                  <TableHead className="min-w-[140px] text-xs font-semibold border-r">
+                  <TableHead className="min-w-[112px] text-xs font-semibold border-r">
                     {t("expiry")}
                   </TableHead>
                 </TableRow>
@@ -1508,7 +1508,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                               <TableHead className="text-xs font-semibold">
                                 {t("expiry")}
                               </TableHead>
-                              <TableHead className="min-w-[170px] text-xs font-semibold">
+                              <TableHead className="min-w-[210px] text-xs font-semibold">
                                 {t("product_knowledge")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold">
@@ -1521,16 +1521,16 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                 {t("requested_qty")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
-                                {t("dispatched")}
+                                {t("dispatched_qty")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
-                                {t("damaged")}
+                                {t("damaged_qty")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
-                                {t("received")}
+                                {t("received_qty")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
-                                {t("short")}
+                                {t("lost_qty")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold">
                                 {t("status")}

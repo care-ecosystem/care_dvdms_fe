@@ -131,7 +131,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         )}
       </TableCell>
 
-      {/* CARE product knowledge — its slug is shown once one is picked */}
+      {/* CARE product knowledge */}
       <TableCell className="align-top p-2">
         <FormField
           control={form.control}
@@ -152,11 +152,11 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   hideClearButton
                 />
               </FormControl>
-              {productKnowledge?.slug && (
+               {/* {productKnowledge?.slug && (
                 <span className="mt-1 block text-xs text-gray-500 break-all">
                   {t("slug")}: {productKnowledge.slug}
                 </span>
-              )}
+              )} */}
               <FormMessage />
             </>
           )}

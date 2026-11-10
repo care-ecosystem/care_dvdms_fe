@@ -13,7 +13,7 @@ import {
   I18N_NAMESPACE,
   LIST_FETCH_LIMIT,
 } from "@/lib/constants";
-import { formatDate, toQuantity } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import { TableSkeleton } from "@/components/SkeletonLoading";
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +70,8 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
   const queryClient = useQueryClient();
 
   // Creates the CARE delivery order and its DVDMS record delivery in one
+  // transaction, with the record order's name and supplier, then opens the
+  // delivery's Add Delivery Items page.
   const {
     mutate: createDelivery,
     isPending: isCreatingDelivery,
@@ -138,21 +140,6 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
       queryClient.invalidateQueries({ queryKey: ["dvdms_record_deliveries"] });
     },
   });
-
-  // Same key and fetch as RequestOrderShowPage's
-  const { data: recordItemOrdersData } = useQuery({
-    queryKey: ["dvdms_record_item_orders", instituteId, recordOrder?.id],
-    queryFn: () => apis.item.list(instituteId!, recordOrder!.id, { limit: 100 }),
-    enabled: !!instituteId && !!recordOrder?.id,
-  });
-
-  /** Requested quantity per record order item — what the indent asked for. */
-  const requestedQuantityByItemId = new Map<string, number>(
-    recordItemOrdersData?.results?.map((item) => [
-      item.id,
-      toQuantity(item.supply_request.quantity),
-    ]) ?? [],
-  );
 
   const issueIds = issues.map((issue) => issue.id);
 
@@ -287,14 +274,12 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
   )?.id;
 
   return (
-    <Table className="min-w-[56rem]">
+    <Table className="min-w-[48rem]">
       <TableHeader>
         <TableRow>
           <TableHead>{t("issue_no")}</TableHead>
           <TableHead>{t("issue_date")}</TableHead>
           <TableHead>{t("items")}</TableHead>
-          <TableHead className="text-right">{t("requested_qty")}</TableHead>
-          <TableHead className="text-right">{t("dispatched_qty")}</TableHead>
           <TableHead>{t("dvdms_status")}</TableHead>
           <TableHead>{t("delivery_status")}</TableHead>
           <TableHead>{t("actions")}</TableHead>
@@ -304,26 +289,9 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
         {issues.map((issue) => {
           const items = itemsByIssueId.get(issue.id) ?? [];
           const delivery = deliveriesByIssueId.get(issue.id)?.[0];
-          const deliveryDetail = deliveryDetailByIssueId.get(issue.id);
-          const deliveryStatus = deliveryDetail?.status;
+          const deliveryStatus = deliveryDetailByIssueId.get(issue.id)?.status;
           const isFetched =
             issue.eaushadhi_issue_status === RecordInwardStatus.fetched;
-
-          // What the indent asked for, across the order items this issue
-          // covers. Counted once per record order item: DVDMS splits a drug
-          const requestedItemIds = new Set(
-            items.map((item) => item.record_order_item),
-          );
-          const requestedQuantity = [...requestedItemIds].reduce(
-            (total, itemId) =>
-              total + (requestedQuantityByItemId.get(itemId) ?? 0),
-            0,
-          );
-          // What DVDMS actually issued against this issue
-          const dispatchedQuantity = items.reduce(
-            (total, item) => total + toQuantity(item.received_quantity),
-            0,
-          );
 
           return (
             <TableRow key={issue.id}>
@@ -335,12 +303,6 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
               </TableCell>
               <TableCell className="align-top">
                 {t("item_count", { count: items.length })}
-              </TableCell>
-              <TableCell className="align-top text-right tabular-nums">
-                {requestedItemIds.size > 0 ? requestedQuantity : "—"}
-              </TableCell>
-              <TableCell className="align-top text-right tabular-nums">
-                {items.length > 0 ? dispatchedQuantity : "—"}
               </TableCell>
               <TableCell className="align-top">
                 {issue.eaushadhi_issue_status ? (

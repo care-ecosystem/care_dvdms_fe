@@ -5,10 +5,7 @@ import {
   PaginatedResponse,
 } from "@/apis/types";
 import { request } from "@/apis/query";
-import {
-  DVDMS_SCHEMA_VERSION,
-  MAX_REQUESTS_PER_BATCH,
-} from "@/lib/constants";
+import { DVDMS_SCHEMA_VERSION, MAX_REQUESTS_PER_BATCH } from "@/lib/constants";
 import { chunk } from "@/lib/utils";
 import { Organization } from "@/types/organization";
 import { Facility } from "@/types/facility";
@@ -72,6 +69,7 @@ import {
 import {
   SUPPLY_DELIVERY_ITEM_TYPE,
   SupplyDeliveryCreatePayload,
+  SupplyDeliveryListItem,
   SupplyDeliveryRetrieve,
   SupplyDeliveryUpsertPayload,
 } from "@/types/supplyDelivery";
@@ -165,6 +163,19 @@ export const apis = {
   },
   supplyDeliveries: {
     path: "/api/v1/supply_delivery/",
+    list: (params: {
+      facility: string;
+      request_order?: string;
+      order?: string;
+      limit?: number;
+      offset?: number;
+      ordering?: string;
+    }) =>
+      request<PaginatedResponse<SupplyDeliveryListItem>>(
+        apis.supplyDeliveries.path,
+        HttpMethod.GET,
+        { ordering: "-created_date", ...params },
+      ),
     create: (payload: SupplyDeliveryCreatePayload) =>
       request<SupplyDeliveryRetrieve>(
         apis.supplyDeliveries.path,

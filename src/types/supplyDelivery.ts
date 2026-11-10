@@ -47,3 +47,34 @@ export interface SupplyDeliveryUpsertPayload {
   status: SupplyDeliveryStatus;
   supplied_item_condition: SupplyDeliveryCondition;
 }
+
+/**
+ * A supply delivery as the list endpoint returns it — the fields the order
+ * summary needs: which supply request it fulfils, and what arrived.
+ */
+export interface SupplyDeliveryListItem {
+  id: string;
+  status: SupplyDeliveryStatus;
+  supplied_item_condition?: SupplyDeliveryCondition;
+  supplied_item_quantity: string | number;
+  supplied_item_pack_quantity?: number;
+  supplied_item_pack_size?: number;
+  supplied_item?: {
+    id: string;
+    product_knowledge?: { id: string; name: string; slug?: string } | null;
+    batch?: { lot_number?: string | null } | null;
+    expiration_date?: string | null;
+  } | null;
+  supply_request?: {
+    id: string;
+    item?: { id: string; name: string } | null;
+    quantity?: string | number;
+  } | null;
+  created_date?: string;
+}
+
+/** Deliveries in these states never counted towards what was received. */
+export const VOID_SUPPLY_DELIVERY_STATUSES: SupplyDeliveryStatus[] = [
+  SupplyDeliveryStatus.abandoned,
+  SupplyDeliveryStatus.entered_in_error,
+];

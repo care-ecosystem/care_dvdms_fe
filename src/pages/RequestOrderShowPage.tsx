@@ -57,6 +57,7 @@ import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import { TableSkeleton } from "@/components/SkeletonLoading";
 import BackButton from "@/components/BackButton";
 import DvdmsIssuesTable from "@/components/DvdmsIssuesTable";
+import OrderSummaryTable from "@/components/OrderSummaryTable";
 import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import {
   ShortcutProvider,
@@ -195,7 +196,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   );
 
   const [currentTab, setCurrentTab] = useState<
-    "requested-items" | "dvdms-issues"
+    "requested-items" |  "dvdms-issues" | "order-summary" 
   >("requested-items");
 
   const [tableItems, setTableItems] = useState<SupplyRequest[]>([]);
@@ -2051,6 +2052,28 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                         description={t("no_issues_found_description")}
                       />
                     )}
+                  </CardContent>
+                </Card>
+              ),
+            },
+                        "order-summary": {
+              label: t("order_summary"),
+              component: (
+                <Card className="border-none rounded-lg">
+                  <CardContent className="space-y-4 p-4">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-950">
+                        {t("order_summary")}
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        {t("order_summary_description")}
+                      </p>
+                    </div>
+
+                    <OrderSummaryTable
+                      facilityId={facilityId}
+                      requestOrderId={requestOrderId}
+                    />
                   </CardContent>
                 </Card>
               ),

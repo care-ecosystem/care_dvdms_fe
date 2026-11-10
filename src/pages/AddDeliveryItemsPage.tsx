@@ -864,10 +864,21 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     const isReceivedChanged =
       isKept && received !== toQuantity(savedItem.quantity_accepted);
     const isExpiryChanged = isKept && item.expiry_date !== savedExpiryOf(row);
+    /**
+     * A row saved before the DVDMS unit was taken into account — or one whose
+     * mapping now resolves to a different unit — carries a pack size, and so a
+     * stocked quantity, that no longer matches. Re-saving the row corrects
+     * both, rather than leaving it to a backfill.
+     */
+    const isPackSizeChanged =
+      isKept &&
+      packSizeForDrugId(item.drug_id) !==
+        Number(product?.standard_pack_size ?? 1);
 
     const needsNewProduct =
       isReceived && (!wasReceived || isProductKnowledgeChanged);
-    const needsNewSupplyDelivery = needsNewProduct || isReceivedChanged;
+    const needsNewSupplyDelivery =
+      needsNewProduct || isReceivedChanged || isPackSizeChanged;
 
     const requests: SuperBatchRequestItem[] = [];
     const newProductRef = `edit-product-${index}`;
@@ -891,7 +902,10 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           status: ProductStatus.entered_in_error,
         }),
       });
-    } else if (product && (isReceivedChanged || isExpiryChanged)) {
+    } else if (
+      product &&
+      (isReceivedChanged || isExpiryChanged || isPackSizeChanged)
+    ) {
       requests.push({
         reference_id: `update-product-${index}`,
         url: apis.products.detailPath(facilityId, product.id),
@@ -1468,6 +1482,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                               <TableHead className="text-xs font-semibold">
                                 {t("category")}
                               </TableHead>
+                              <TableHead className="text-xs font-semibold">
+                                {t("unit_pack_size")}
+                              </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
                                 {t("dispatched")}
                               </TableHead>
@@ -1527,6 +1544,18 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                           inwardItem.drug_id,
                                         )?.product_type
                                       : undefined) || "—"}
+                                  </TableCell>
+                                  {/* The mapped DVDMS unit and the pack size
+                                      saved onto the product and delivery. */}
+                                  <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
+                                    {(() => {
+                                      const unit = inwardItem?.drug_id
+                                        ? unitForDrugId(inwardItem.drug_id)
+                                        : undefined;
+                                      return unit
+                                        ? `${unit.gstrUnitName} (${packSizeOf(unit)})`
+                                        : "—";
+                                    })()}
                                   </TableCell>
                                   <TableCell className="p-2 text-sm text-right tabular-nums">
                                     {item.quantity_dispatched != null

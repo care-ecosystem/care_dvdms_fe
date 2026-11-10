@@ -328,6 +328,7 @@
   "request_order_not_found": "Request order not found",
   "requested": "Requested",
   "requested_items": "Requested Items",
+  "requested_qty": "Requested Qty",
   "resend_to_dvdms": "Resend to DVDMS",
   "retry_acknowledgement": "Retry Acknowledgement",
   "retrying": "Retrying...",

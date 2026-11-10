@@ -426,10 +426,33 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     return byRecordItemId;
   }, [recordOrderItems]);
 
+  /** What the order asked for, from each item's CARE supply request. */
+  const requestedQuantityByRecordItemId = useMemo(() => {
+    const byRecordItemId = new Map<string, number>();
+    for (const recordItem of recordOrderItems ?? []) {
+      if (recordItem.supply_request?.quantity != null) {
+        byRecordItemId.set(
+          recordItem.id,
+          toQuantity(recordItem.supply_request.quantity),
+        );
+      }
+    }
+    return byRecordItemId;
+  }, [recordOrderItems]);
+
   const inwardItemById = useMemo(
     () => new Map(apiItems.map((item) => [item.id, item])),
     [apiItems],
   );
+
+  const requestedQuantityForInwardItem = (inwardItemId?: string) => {
+    const recordItemId = inwardItemId
+      ? inwardItemById.get(inwardItemId)?.record_order_item
+      : undefined;
+    return recordItemId
+      ? requestedQuantityByRecordItemId.get(recordItemId)
+      : undefined;
+  };
 
   const form = useForm<DeliveryItemsFormValues>({
     defaultValues: { items: [] },
@@ -1216,6 +1239,12 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     rowSpan={2}
                     className="min-w-[100px] text-xs font-semibold"
                   >
+                    {t("requested_qty")}
+                  </TableHead>
+                  <TableHead
+                    rowSpan={2}
+                    className="min-w-[100px] text-xs font-semibold"
+                  >
                     {t("dispatched")}
                   </TableHead>
                   <TableHead
@@ -1257,6 +1286,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     index={index}
                     facilityId={facilityId}
                     unit={unitForDrugId(field.drug_id)}
+                    requestedQuantity={requestedQuantityForInwardItem(
+                      field.inward_record_item,
+                    )}
                   />
                 ))}
               </TableBody>
@@ -1486,6 +1518,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                 {t("unit_pack_size")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
+                                {t("requested_qty")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold text-right">
                                 {t("dispatched")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
@@ -1556,6 +1591,11 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                         ? `${unit.gstrUnitName} (${packSizeOf(unit)})`
                                         : "—";
                                     })()}
+                                  </TableCell>
+                                  <TableCell className="p-2 text-sm text-right tabular-nums">
+                                    {requestedQuantityForInwardItem(
+                                      item.inward_record_item.id,
+                                    ) ?? "—"}
                                   </TableCell>
                                   <TableCell className="p-2 text-sm text-right tabular-nums">
                                     {item.quantity_dispatched != null

@@ -24,6 +24,8 @@ type DeliveryItemRowProps = {
   facilityId: string;
   /** The DVDMS unit the drug is mapped to — read-only, it is not the user's to pick. */
   unit?: DvdmsLookupUnit;
+  /** What the order asked for, from the item's CARE supply request. */
+  requestedQuantity?: number;
 };
 
 const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
@@ -31,6 +33,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
   index,
   facilityId,
   unit,
+  requestedQuantity,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
@@ -182,6 +185,17 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
           disabled
           readOnly
           className="w-full min-w-0 bg-gray-50 cursor-default disabled:opacity-100 disabled:text-gray-950"
+        />
+      </TableCell>
+
+      {/* What the order asked for — context for the counts, never edited here. */}
+      <TableCell className="align-top p-2">
+        <Input
+          value={requestedQuantity ?? ""}
+          placeholder="-"
+          disabled
+          readOnly
+          className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
         />
       </TableCell>
 

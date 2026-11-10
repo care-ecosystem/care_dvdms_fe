@@ -1,4 +1,4 @@
-import { ComponentType, FC } from "react";
+import { ComponentType, FC, MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate, useQueryParams } from "raviger";
@@ -54,6 +54,7 @@ type BarProps = {
  * order exists, it turns into a confirmation that links to it.
  */
 const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
+  const { t } = useTranslation(I18N_NAMESPACE);
   const [{ flow }] = useQueryParams<{ flow?: string }>();
   const { facilityId, locationId, requestOrderId } = props;
 
@@ -81,11 +82,38 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
     return <Base {...props} />;
   }
 
+  /**
+   * Blocks core's "Create Delivery Order" action while the order is being
+   * supplied through DVDMS: a delivery raised here would not be tied to a
+   * DVDMS issue, so the received quantities could never be reconciled.
+   *
+   * Core renders that action inline in `RequestOrderShow`, and only whole
+   * registered components can be overridden, so it is intercepted by its link
+   * instead — /inventory/external/deliveries/<tab>/new?supplyOrder=<id>.
+   * Capture phase, so core's own handler never runs; this also covers core's
+   * keyboard shortcut, which triggers the same link with a real click.
+   */
+  const blockCoreDeliveryCreation = (event: MouseEvent<HTMLDivElement>) => {
+    const deliveryLink = (event.target as HTMLElement).closest?.(
+      'a[href*="/deliveries/"][href*="supplyOrder="]',
+    );
+    if (!deliveryLink) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    toast.warning(t("delivery_created_from_dvdms"), {
+      description: t("delivery_created_from_dvdms_description"),
+    });
+  };
+
   return (
     <>
       {/* Inline padding, not a utility class: the core page is outside the
           plugin's Tailwind scope, so plugin utilities would not resolve here. */}
-      <div style={{ paddingBottom: "7rem" }}>
+      <div
+        style={{ paddingBottom: "7rem" }}
+        onClickCapture={blockCoreDeliveryCreation}
+      >
         <Base {...props} />
       </div>
       {/* The bar brings its own shortcut context: it renders inside core's

@@ -586,6 +586,7 @@ export const apis = {
         eaushadhi_drug_id?: string;
         product_knowledge_id?: string;
         ordering?: string;
+        archived?: boolean;
       },
     ) =>
       request<PaginatedResponse<DvdmsProductMapping>>(

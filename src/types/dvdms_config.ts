@@ -217,12 +217,19 @@ export interface DvdmsProductMappingDrugDetails {
   drug_category: string;
 }
 
+/** Why a mapping was archived, as `archived_reason` reports it. */
+export enum DvdmsProductMappingArchiveReason {
+  product_archived = "PRODUCT_ARCHIVED",
+}
+
 export interface DvdmsProductMapping {
   id: string;
   institute_id: string;
   eaushadhi_drug_details: DvdmsProductMappingDrugDetails;
   product_knowledge: ProductKnowledge | null;
   mapping_type: string | null;
+  archived?: boolean;
+  archived_reason?: string | null;
   usage_count: number | null;
   last_used_date: string | null;
   created_by: DvdmsInstituteUser | null;

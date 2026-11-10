@@ -65,12 +65,14 @@ export interface RecordOrder {
 }
 
 /**
- * What DVDMS said when a sync failed, as stored on the outward's `meta`.
+ * What DVDMS said when a sync failed, as stored on a record's `meta`. The same
+ * shape comes back for every sync type — saving an indent, acknowledging an
+ * issue — so it is shared by outwards, inwards and deliveries.
  *
  * `detail` is the raw upstream body — often an HTML error page — so it is kept
  * for support, never rendered.
  */
-export interface RecordOrderOutwardError {
+export interface DvdmsSyncError {
   code?: string;
   type?: string;
   message?: string;
@@ -82,8 +84,8 @@ export interface RecordOrderOutwardError {
   sync_type?: string;
 }
 
-export interface RecordOrderOutwardMeta {
-  error?: RecordOrderOutwardError;
+export interface DvdmsSyncMeta {
+  error?: DvdmsSyncError;
 }
 
 export interface RecordOrderOutward {
@@ -94,22 +96,41 @@ export interface RecordOrderOutward {
   eaushadhi_indent_status: string | null;
   sync_log_id: string | null;
   /** Populated when `status` is `failed`. */
-  meta?: RecordOrderOutwardMeta | null;
+  meta?: DvdmsSyncMeta | null;
   created_by: RecordOrderUser | null;
   updated_by: RecordOrderUser | null;
   created_date: string;
   modified_date: string;
 }
 /**
- * Message shown for each DVDMS failure code. Add a code here as DVDMS starts
- * reporting it — anything unmapped falls back to `dvdms_error_unknown`.
+ * Message shown for each DVDMS failure, keyed either by `<sync_type>_<code>`
+ * for wording specific to what was being synced, or by the bare `<code>` as a
+ * catch-all for that code.
+ *
+ * Add an entry as DVDMS starts reporting a code; anything unmapped falls back
+ * to `dvdms_error_unknown`.
  */
-export const DVDMS_OUTWARD_ERROR_KEYS: Record<string, string> = {
+export const DVDMS_ERROR_KEYS: Record<string, string> = {
+  save_indent_DVDMS_REJECTED: "dvdms_error_save_indent_dvdms_rejected",
+  track_indent_DVDMS_REJECTED: "dvdms_error_track_indent_dvdms_rejected",
+  fetch_issue_DVDMS_REJECTED: "dvdms_error_fetch_issue_dvdms_rejected",
+  acknowledge_issue_DVDMS_REJECTED:
+    "dvdms_error_acknowledge_issue_dvdms_rejected",
   DVDMS_REJECTED: "dvdms_error_dvdms_rejected",
 };
 
-export const dvdmsOutwardErrorKey = (code?: string | null) =>
-  (code && DVDMS_OUTWARD_ERROR_KEYS[code]) || "dvdms_error_unknown";
+/**
+ * The most specific message available: the sync type and code together, then
+ * the code on its own, then a generic failure.
+ */
+export const dvdmsErrorKey = (error?: DvdmsSyncError | null) => {
+  if (!error?.code) return "dvdms_error_unknown";
+  return (
+    (error.sync_type && DVDMS_ERROR_KEYS[`${error.sync_type}_${error.code}`]) ||
+    DVDMS_ERROR_KEYS[error.code] ||
+    "dvdms_error_unknown"
+  );
+};
 
 const STATUSES_WITHOUT_INDENT = ["draft", "pending", "failed", "cancelled"];
 
@@ -188,6 +209,8 @@ export interface RecordInward {
   eaushadhi_indent_no: string | null;
   sync_log_id: string | null;
   sync_log: RecordInwardSyncLog | null;
+  /** Populated when the last DVDMS sync against this issue failed. */
+  meta?: DvdmsSyncMeta | null;
 }
 
 export interface RecordInwardItem {
@@ -391,6 +414,8 @@ export interface RecordDeliveryItem {
 
 export interface RecordDeliveryDetail extends RecordDelivery {
   items: RecordDeliveryItem[];
+  /** Populated when acknowledging this delivery to DVDMS failed. */
+  meta?: DvdmsSyncMeta | null;
 }
 
 export interface RecordDeliveryItemPayload {

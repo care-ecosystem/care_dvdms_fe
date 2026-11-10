@@ -68,10 +68,12 @@ import {
   RECORD_DELIVERY_STATUS_VARIANTS,
   RECORD_INWARD_STATUS_LABELS,
   RECORD_INWARD_STATUS_VARIANTS,
+  DvdmsSyncType,
   RecordDeliveryItem,
   RecordDeliveryItemStatus,
   RecordDeliveryStatus,
   RecordInwardItem,
+  dvdmsErrorKey,
   isRecordDeliveryReceived,
 } from "@/types/recordOrder";
 import { SuperBatchRequestItem } from "@/types/superBatch";
@@ -1186,6 +1188,33 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
 
   const hasFailedAcknowledgement =
     recordDeliveryStatus === RecordDeliveryStatus.acknowledgement_failed;
+
+  /**
+   * Acknowledging an issue happens on the backend after the delivery is
+   * received, so a failure only shows up on a later poll — as a DVDMS error on
+   * the delivery, or on the issue it belongs to. Toast it once per failure,
+   * keyed on the sync log, so polling does not keep repeating it.
+   */
+  const acknowledgementError =
+    recordDeliveryDetail?.meta?.error ?? inwardRecord?.meta?.error;
+  const notifiedAcknowledgementErrorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (
+      !acknowledgementError ||
+      acknowledgementError.sync_type !== DvdmsSyncType.acknowledge_issue
+    ) {
+      return;
+    }
+    const errorKey =
+      acknowledgementError.sync_log_id ??
+      acknowledgementError.failed_at ??
+      acknowledgementError.code ??
+      "";
+    if (notifiedAcknowledgementErrorRef.current === errorKey) return;
+    notifiedAcknowledgementErrorRef.current = errorKey;
+    toast.error(t(dvdmsErrorKey(acknowledgementError)));
+  }, [acknowledgementError, t]);
 
   const canApproveDelivery =
     !!recordDelivery?.id &&

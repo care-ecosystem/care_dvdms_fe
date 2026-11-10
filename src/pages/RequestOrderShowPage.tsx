@@ -68,7 +68,7 @@ import {
   DvdmsIndentStatus,
   RecordOrder,
   RecordOrderOutward,
-  dvdmsOutwardErrorKey,
+  dvdmsErrorKey,
   isRecordDeliveryReceived,
   toDvdmsIndentStatusKey,
 } from "@/types/recordOrder";
@@ -379,6 +379,33 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     !hasStaleOutwardFailure
       ? outward.status
       : recordOrder?.status;
+
+  /**
+   * What DVDMS reported on the last failed sync, when it reported anything.
+   *
+   * Not gated on the outward's status: a sync can fail — fetching the issue,
+   * say — while the outward stays submitted, so the error is the only sign
+   * anything went wrong.
+   *
+   * Declared with the other top-level hooks, above this page's loading and
+   * not-found returns, so the hook order never changes between renders.
+   */
+  const outwardError = outward?.meta?.error;
+  const notifiedOutwardErrorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    // A failed outward already says this in its own panel, with a retry.
+    if (!outwardError || displayStatus === "failed") return;
+
+    const errorKey =
+      outwardError.sync_log_id ??
+      outwardError.failed_at ??
+      outwardError.code ??
+      "";
+    if (notifiedOutwardErrorRef.current === errorKey) return;
+    notifiedOutwardErrorRef.current = errorKey;
+    toast.error(t(dvdmsErrorKey(outwardError)));
+  }, [outwardError, displayStatus, t]);
 
   const canSyncDvdmsStatus =
     !!outward?.eaushadhi_indent_no &&
@@ -1008,9 +1035,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const isPendingStatus = recordOrderStatus === "pending";
   const isFailedStatus = displayStatus === "failed";
 
-  /** What DVDMS reported on the last failed sync, when it reported anything. */
-  const outwardError =
-    outward?.status === "failed" ? outward.meta?.error : undefined;
   const isCancelledStatus = recordOrderStatus === "cancelled";
 
   const canMarkAsCompleted =
@@ -1960,7 +1984,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                             </p>
                             <span className="text-sm text-red-700">
                               {outwardError
-                                ? t(dvdmsOutwardErrorKey(outwardError.code))
+                                ? t(dvdmsErrorKey(outwardError))
                                 : t("record_order_failed_description")}
                             </span>
                             {/*

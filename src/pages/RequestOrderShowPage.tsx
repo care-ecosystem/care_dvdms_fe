@@ -28,7 +28,6 @@ import {
 import {
   chunk,
   cn,
-  formatDate,
   formatLookupId,
   formatQuantity,
   parseLookupId,
@@ -164,6 +163,13 @@ const lookupDrugToSelection = (drug: DvdmsLookupDrug): RecordItemOrderDrug => ({
   unit_id: String(drug.gnum_inventory_unitid),
   drug_category: drug.sstnum_item_cat_no,
 });
+
+/**
+ * Every toast about an order failing to reach DVDMS shares this id, so the
+ * detailed message from the outward's error replaces the generic one the
+ * mutation raised rather than stacking a second toast beside it.
+ */
+const DVDMS_SYNC_ERROR_TOAST_ID = "dvdms-sync-error";
 
 const RequestOrderShowPage: FC<RequestOrderShowPageProps> = (props) => (
   <ShortcutProvider>
@@ -394,17 +400,25 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const notifiedOutwardErrorRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // A failed outward already says this in its own panel, with a retry.
-    if (!outwardError || displayStatus === "failed") return;
+    const hasFailed = displayStatus === "failed";
+    if (!outwardError && !hasFailed) return;
 
+    // One toast per failure: the outward is polled, so without this the same
+    // error would be reported every few seconds.
     const errorKey =
-      outwardError.sync_log_id ??
-      outwardError.failed_at ??
-      outwardError.code ??
-      "";
+      outwardError?.sync_log_id ??
+      outwardError?.failed_at ??
+      outwardError?.code ??
+      "failed";
     if (notifiedOutwardErrorRef.current === errorKey) return;
     notifiedOutwardErrorRef.current = errorKey;
-    toast.error(t(dvdmsErrorKey(outwardError)));
+
+    toast.error(
+      outwardError
+        ? t(dvdmsErrorKey(outwardError))
+        : t("record_order_failed_description"),
+      { id: DVDMS_SYNC_ERROR_TOAST_ID },
+    );
   }, [outwardError, displayStatus, t]);
 
   const canSyncDvdmsStatus =
@@ -783,7 +797,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       });
     },
     onError: () => {
-      toast.error(t("record_order_approve_failed"));
+      toast.error(t("record_order_approve_failed"), {
+        id: DVDMS_SYNC_ERROR_TOAST_ID,
+      });
     },
   });
 
@@ -810,7 +826,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       });
     },
     onError: () => {
-      toast.error(t("record_order_retry_failed"));
+      toast.error(t("record_order_retry_failed"), {
+        id: DVDMS_SYNC_ERROR_TOAST_ID,
+      });
     },
   });
 
@@ -1140,6 +1158,28 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
             >
               <Edit className="size-4" /> {t("edit")}
               <ShortcutBadge actionId="edit-order" />
+            </Button>
+          )}
+          {isPendingStatus && !isEditingItems && (
+            <Button
+              variant="outline"
+              onClick={() => setIsEditingItems(true)}
+              disabled={approveRecordOrderMutation.isPending}
+            >
+              <Edit className="size-4" /> {t("edit")}
+              <ShortcutBadge actionId="edit-order" />
+            </Button>
+          )}
+          {isFailedStatus && (
+            <Button
+              type="button"
+              onClick={() => retryRecordOrderMutation.mutate()}
+              disabled={retryRecordOrderMutation.isPending}
+            >
+              {retryRecordOrderMutation.isPending && (
+                <Loader2Icon className="size-4 animate-spin" />
+              )}
+              {t("resend_to_dvdms")}
             </Button>
           )}
 
@@ -1950,15 +1990,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                           <div className="flex flex-col-reverse sm:flex-row gap-2 shrink-0">
                             <Button
                               type="button"
-                              variant="outline"
-                              className="w-full sm:w-auto"
-                              onClick={() => setIsEditingItems(true)}
-                              disabled={approveRecordOrderMutation.isPending}
-                            >
-                              <Edit className="size-4" /> {t("edit")}
-                            </Button>
-                            <Button
-                              type="button"
                               className="w-full sm:w-auto"
                               onClick={() =>
                                 approveRecordOrderMutation.mutate()
@@ -1973,41 +2004,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                               <ShortcutBadge actionId="link-order-eaushadhi" />
                             </Button>
                           </div>
-                        </div>
-                      )}
-
-                      {isFailedStatus && (
-                        <div className="flex flex-col sm:flex-row gap-3 justify-between bg-red-50 p-4 sm:items-center border border-red-200 rounded-md">
-                          <div className="flex flex-col gap-2">
-                            <p className="font-bold text-red-900">
-                              {t("record_order_failed_title")}
-                            </p>
-                            <span className="text-sm text-red-700">
-                              {outwardError
-                                ? t(dvdmsErrorKey(outwardError))
-                                : t("record_order_failed_description")}
-                            </span>
-                            {/*
-                              The code and when it happened, for support to go
-                              on. The raw `detail` is an upstream HTML error
-                              page, so it stays out of the UI.
-                            */}
-                            {outwardError?.code && (
-                              <span className="text-xs text-red-600">
-                                {t("error_code")}: {outwardError.code}
-                                {outwardError.failed_at &&
-                                  ` · ${formatDate(outwardError.failed_at)}`}
-                              </span>
-                            )}
-                          </div>
-                          <Button
-                            type="button"
-                            className="w-full sm:w-auto shrink-0"
-                            onClick={() => retryRecordOrderMutation.mutate()}
-                            disabled={retryRecordOrderMutation.isPending}
-                          >
-                            {t("resend_to_dvdms")}
-                          </Button>
                         </div>
                       )}
                     </div>

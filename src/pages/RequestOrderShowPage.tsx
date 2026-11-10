@@ -20,6 +20,7 @@ import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import {
+  careExternalOrderPrintPath,
   dvdmsBasePath,
   dvdmsLinkOrderPath,
   dvdmsRecordPath,
@@ -1043,7 +1044,15 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
           <Button
             variant="outline"
-            onClick={() => navigate(`${recordBasePath}/print`)}
+            onClick={() =>
+              navigate(
+                careExternalOrderPrintPath(
+                  facilityId,
+                  locationId,
+                  requestOrderId,
+                ),
+              )
+            }
           >
             <Printer className="size-4" /> {t("print")}
             <ShortcutBadge actionId="print-button" />

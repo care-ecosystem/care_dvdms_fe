@@ -32,6 +32,7 @@ import {
   DvdmsLookupGroup,
   DvdmsLookupStore,
   DvdmsLookupSubgroup,
+  DvdmsLookupUnit,
   DvdmsProductMapping,
   DvdmsProductMappingCreatePayload,
   DvdmsProductMappingUpdatePayload,
@@ -484,6 +485,11 @@ export const apis = {
     lookupStores: (instituteId: string) =>
       request<DvdmsLookupStore[]>(
         `/api/care_dvdms/institute/${instituteId}/lookup/stores/`,
+        HttpMethod.GET,
+      ),
+    lookupUnits: (instituteId: string) =>
+      request<DvdmsLookupUnit[]>(
+        `/api/care_dvdms/institute/${instituteId}/lookup/units/`,
         HttpMethod.GET,
       ),
     lookupGroups: (instituteId: string) =>

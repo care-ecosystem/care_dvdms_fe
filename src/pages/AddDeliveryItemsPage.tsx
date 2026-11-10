@@ -45,6 +45,7 @@ import {
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import BackButton from "@/components/BackButton";
 import DeliveryItemRow from "@/components/DeliveryItemRow";
+import useDvdmsUnits, { packSizeOf } from "@/hooks/useDvdmsUnits";
 import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import {
   ShortcutProvider,
@@ -382,6 +383,39 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     return byDrugId;
   }, [orderProductKnowledgeByDrugId, mappingsByDrugId]);
 
+  const { unitById, isLoading: isUnitsLoading } = useDvdmsUnits(institute?.id);
+
+  /**
+   * The DVDMS unit of each drug — the record order's own drug details first,
+   * then whatever the product mapping lookup filled in. Both carry the
+   * `unit_id` that `lookup/units/` resolves.
+   */
+  const unitIdByDrugId = useMemo(() => {
+    const byDrugId = new Map<string, string>();
+    for (const recordItem of recordOrderItems ?? []) {
+      if (recordItem.drug?.id && recordItem.drug.unit_id) {
+        byDrugId.set(recordItem.drug.id, recordItem.drug.unit_id);
+      }
+    }
+    for (const [drugId, mapping] of mappingsByDrugId ?? []) {
+      const unitId = mapping?.eaushadhi_drug_details?.unit_id;
+      if (unitId && !byDrugId.has(drugId)) byDrugId.set(drugId, unitId);
+    }
+    return byDrugId;
+  }, [recordOrderItems, mappingsByDrugId]);
+
+  const unitForDrugId = (drugId: string) => {
+    const unitId = unitIdByDrugId.get(drugId);
+    return unitId ? unitById.get(unitId) : undefined;
+  };
+
+  /**
+   * The pack size CARE stores on the product and on the supply delivery.
+   * `packSizeOf` falls back to 1 for a missing or unusable unit.
+   */
+  const packSizeForDrugId = (drugId: string) =>
+    packSizeOf(unitForDrugId(drugId));
+
   const supplyRequestByRecordItemId = useMemo(() => {
     const byRecordItemId = new Map<string, string>();
     for (const recordItem of recordOrderItems ?? []) {
@@ -414,6 +448,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     isRecordInwardsLoading ||
     isRecordOrderItemsLoading ||
     isDrugLookupPending ||
+    isUnitsLoading ||
     isLoadingSavedItems;
 
   const balanceItems = useMemo(
@@ -509,7 +544,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     expiration_date: item.expiry_date,
     product_knowledge: item.product_knowledge!.slug,
     charge_item_definition: null,
-    standard_pack_size: toQuantity(item.received_quantity),
+    standard_pack_size: packSizeForDrugId(item.drug_id),
     purchase_price: 0,
     extensions: {},
   });
@@ -519,14 +554,18 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     suppliedItem: string,
   ) => {
     const quantity = toQuantity(item.received_quantity);
+    const packSize = packSizeForDrugId(item.drug_id);
     return {
       supplied_item_type: SUPPLY_DELIVERY_ITEM_TYPE,
       status: SupplyDeliveryStatus.in_progress,
       supplied_item_condition: SupplyDeliveryCondition.normal,
-      supplied_item_quantity: quantity,
+      // The good quantity is how many packs came in, the pack size is the
+      // mapped DVDMS unit's conversion value, so the stocked quantity is the
+      // two multiplied.
+      supplied_item_quantity: quantity * packSize,
       supplied_item: suppliedItem,
-      supplied_item_pack_quantity: 1,
-      supplied_item_pack_size: quantity,
+      supplied_item_pack_quantity: quantity,
+      supplied_item_pack_size: packSize,
       total_purchase_price: 0,
       supply_request: supplyRequestByRecordItemId.get(
         inwardItemById.get(item.inward_record_item)?.record_order_item ?? "",
@@ -858,7 +897,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
         url: apis.products.detailPath(facilityId, product.id),
         method: HttpMethod.PUT,
         body: productUpdateBody(product, {
-          standard_pack_size: received,
+          standard_pack_size: packSizeForDrugId(item.drug_id),
           ...(isExpiryChanged && { expiration_date: item.expiry_date }),
         }),
       });
@@ -1155,6 +1194,12 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   </TableHead>
                   <TableHead
                     rowSpan={2}
+                    className="min-w-[120px] text-xs font-semibold"
+                  >
+                    {t("unit_pack_size")}
+                  </TableHead>
+                  <TableHead
+                    rowSpan={2}
                     className="min-w-[100px] text-xs font-semibold"
                   >
                     {t("dispatched")}
@@ -1197,6 +1242,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     form={tableForm}
                     index={index}
                     facilityId={facilityId}
+                    unit={unitForDrugId(field.drug_id)}
                   />
                 ))}
               </TableBody>

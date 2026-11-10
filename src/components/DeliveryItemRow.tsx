@@ -9,10 +9,12 @@ import { Input } from "@/components/ui/input";
 import { TableCell, TableRow } from "@/components/ui/table";
 import ProductKnowledgeSelect from "@/components/ProductKnowledgeSelect";
 import { useDeliveryRowItem } from "@/hooks/useDeliveryRowItem";
+import { packSizeOf } from "@/hooks/useDvdmsUnits";
 import {
   DeliveryItemFormValues,
   DeliveryItemsFormValues,
 } from "@/types/deliveryItemForm";
+import { DvdmsLookupUnit } from "@/types/dvdms_config";
 
 const QUANTITY_INPUT_CLASS = "h-9 w-full min-w-[3.5rem]";
 
@@ -20,12 +22,15 @@ type DeliveryItemRowProps = {
   form: UseFormReturn<DeliveryItemsFormValues>;
   index: number;
   facilityId: string;
+  /** The DVDMS unit the drug is mapped to — read-only, it is not the user's to pick. */
+  unit?: DvdmsLookupUnit;
 };
 
 const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
   form,
   index,
   facilityId,
+  unit,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
@@ -162,6 +167,21 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
           disabled
           readOnly
           className="w-full min-w-0 bg-gray-50 capitalize cursor-default disabled:opacity-100 disabled:text-gray-950"
+        />
+      </TableCell>
+
+      {/*
+        The DVDMS unit of the mapped drug: its name, and the pack size that is
+        written to the product and the supply delivery. Read-only — it follows
+        the mapping, not an entry on this screen.
+      */}
+      <TableCell className="align-top p-2">
+        <Input
+          value={unit ? `${unit.gstrUnitName} (${packSizeOf(unit)})` : ""}
+          placeholder="-"
+          disabled
+          readOnly
+          className="w-full min-w-0 bg-gray-50 cursor-default disabled:opacity-100 disabled:text-gray-950"
         />
       </TableCell>
 

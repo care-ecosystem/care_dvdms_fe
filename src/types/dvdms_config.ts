@@ -95,6 +95,24 @@ export interface DvdmsLookupSubgroup {
   gnumIsvalid: number;
 }
 
+/**
+ * An inventory unit from DVDMS master data (`lookup/units/`). A mapped drug's
+ * `unit_id` points at one of these: the name is what the unit is called, and
+ * `gnumBaseUnitvalue` is how many base units one of them holds — the pack size.
+ */
+export interface DvdmsLookupUnit {
+  gnumUnitId: number;
+  gstrUnitName: string;
+  gnumModuleId?: number;
+  gnumBaseunitId?: number;
+  gnumUnitLevel?: number;
+  gnumDecimalAllowed?: number;
+  gnumBaseUnitvalue?: number;
+  gnumHospitalCode?: number;
+  gnumSeatid?: number;
+  gnumIsvalid?: number;
+}
+
 export interface DvdmsLookupDrug {
   hstnum_item_id: number;
   gnum_hospital_code: number;

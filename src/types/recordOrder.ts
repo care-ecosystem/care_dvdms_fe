@@ -64,6 +64,28 @@ export interface RecordOrder {
   modified_date: string;
 }
 
+/**
+ * What DVDMS said when a sync failed, as stored on the outward's `meta`.
+ *
+ * `detail` is the raw upstream body — often an HTML error page — so it is kept
+ * for support, never rendered.
+ */
+export interface RecordOrderOutwardError {
+  code?: string;
+  type?: string;
+  message?: string;
+  detail?: string;
+  status_code?: number;
+  failed_at?: string;
+  attempt?: number;
+  sync_log_id?: string;
+  sync_type?: string;
+}
+
+export interface RecordOrderOutwardMeta {
+  error?: RecordOrderOutwardError;
+}
+
 export interface RecordOrderOutward {
   id: string;
   record_order_id: string;
@@ -71,11 +93,24 @@ export interface RecordOrderOutward {
   eaushadhi_indent_no: string | null;
   eaushadhi_indent_status: string | null;
   sync_log_id: string | null;
+  /** Populated when `status` is `failed`. */
+  meta?: RecordOrderOutwardMeta | null;
   created_by: RecordOrderUser | null;
   updated_by: RecordOrderUser | null;
   created_date: string;
   modified_date: string;
 }
+/**
+ * Message shown for each DVDMS failure code. Add a code here as DVDMS starts
+ * reporting it — anything unmapped falls back to `dvdms_error_unknown`.
+ */
+export const DVDMS_OUTWARD_ERROR_KEYS: Record<string, string> = {
+  DVDMS_REJECTED: "dvdms_error_dvdms_rejected",
+};
+
+export const dvdmsOutwardErrorKey = (code?: string | null) =>
+  (code && DVDMS_OUTWARD_ERROR_KEYS[code]) || "dvdms_error_unknown";
+
 const STATUSES_WITHOUT_INDENT = ["draft", "pending", "failed", "cancelled"];
 
 export const hasDvdmsIndent = (status: string) =>

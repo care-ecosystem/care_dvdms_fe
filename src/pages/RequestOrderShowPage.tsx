@@ -28,6 +28,7 @@ import {
 import {
   chunk,
   cn,
+  formatDate,
   formatLookupId,
   formatQuantity,
   parseLookupId,
@@ -67,6 +68,7 @@ import {
   DvdmsIndentStatus,
   RecordOrder,
   RecordOrderOutward,
+  dvdmsOutwardErrorKey,
   isRecordDeliveryReceived,
   toDvdmsIndentStatusKey,
 } from "@/types/recordOrder";
@@ -1005,6 +1007,10 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     recordOrderStatus === "draft" || recordOrderStatus === "pending";
   const isPendingStatus = recordOrderStatus === "pending";
   const isFailedStatus = displayStatus === "failed";
+
+  /** What DVDMS reported on the last failed sync, when it reported anything. */
+  const outwardError =
+    outward?.status === "failed" ? outward.meta?.error : undefined;
   const isCancelledStatus = recordOrderStatus === "cancelled";
 
   const canMarkAsCompleted =
@@ -1947,14 +1953,28 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                       )}
 
                       {isFailedStatus && (
-                        <div className="flex flex-col sm:flex-row gap-3 justify-between bg-white p-4 sm:items-center border border-gray-200 rounded-md">
+                        <div className="flex flex-col sm:flex-row gap-3 justify-between bg-red-50 p-4 sm:items-center border border-red-200 rounded-md">
                           <div className="flex flex-col gap-2">
-                            <p className="font-bold">
+                            <p className="font-bold text-red-900">
                               {t("record_order_failed_title")}
                             </p>
-                            <span className="text-sm text-gray-500">
-                              {t("record_order_failed_description")}
+                            <span className="text-sm text-red-700">
+                              {outwardError
+                                ? t(dvdmsOutwardErrorKey(outwardError.code))
+                                : t("record_order_failed_description")}
                             </span>
+                            {/*
+                              The code and when it happened, for support to go
+                              on. The raw `detail` is an upstream HTML error
+                              page, so it stays out of the UI.
+                            */}
+                            {outwardError?.code && (
+                              <span className="text-xs text-red-600">
+                                {t("error_code")}: {outwardError.code}
+                                {outwardError.failed_at &&
+                                  ` · ${formatDate(outwardError.failed_at)}`}
+                              </span>
+                            )}
                           </div>
                           <Button
                             type="button"

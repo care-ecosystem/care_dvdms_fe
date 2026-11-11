@@ -196,7 +196,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   );
 
   const [currentTab, setCurrentTab] = useState<
-    "requested-items" |  "dvdms-issues" | "order-summary" 
+    "requested-items" | "dvdms-issues" | "order-summary"
   >("requested-items");
 
   const [tableItems, setTableItems] = useState<SupplyRequest[]>([]);
@@ -386,6 +386,32 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     !hasStaleOutwardFailure
       ? outward.status
       : recordOrder?.status;
+
+  /**
+   * The CARE order was voided while its DVDMS indent is still open.
+   *
+   */
+  const isOrderVoided =
+    order?.status === "entered_in_error" || order?.status === "abandoned";
+  const hasOpenIndent =
+    !!outward?.eaushadhi_indent_no &&
+    !!recordOrder?.status &&
+    !["cancelled", "completed"].includes(recordOrder.status);
+  const notifiedOpenIndentRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isOrderVoided || !hasOpenIndent) return;
+
+    const indentNo = outward?.eaushadhi_indent_no ?? "";
+    if (notifiedOpenIndentRef.current === indentNo) return;
+    notifiedOpenIndentRef.current = indentNo;
+
+    toast.error(t("order_voided_with_open_indent"), {
+      description: t("order_voided_with_open_indent_description", {
+        indentNo,
+      }),
+    });
+  }, [isOrderVoided, hasOpenIndent, outward?.eaushadhi_indent_no, t]);
 
   /**
    * What DVDMS reported on the last failed sync, when it reported anything.
@@ -2056,7 +2082,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                 </Card>
               ),
             },
-                        "order-summary": {
+            "order-summary": {
               label: t("order_summary"),
               component: (
                 <Card className="border-none rounded-lg">

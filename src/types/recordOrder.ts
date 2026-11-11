@@ -88,6 +88,22 @@ export interface DvdmsSyncMeta {
   error?: DvdmsSyncError;
 }
 
+/** Where the push to DVDMS has got to. */
+export enum RecordOrderOutwardStatus {
+  created = "created",
+  submitted = "submitted",
+  cancelled = "cancelled",
+  failed = "failed",
+}
+
+/**
+ * The order is with DVDMS: an indent has been raised or is being raised, so
+ * CARE must not void or reopen the order behind its back.
+ */
+export const isOutwardWithDvdms = (status?: string | null) =>
+  status === RecordOrderOutwardStatus.created ||
+  status === RecordOrderOutwardStatus.submitted;
+
 export interface RecordOrderOutward {
   id: string;
   record_order_id: string;

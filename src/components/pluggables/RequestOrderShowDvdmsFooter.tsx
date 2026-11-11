@@ -1,4 +1,4 @@
-import { ComponentType, FC, MouseEvent } from "react";
+import { ComponentType, FC, MouseEvent, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate, useQueryParams } from "raviger";
@@ -12,6 +12,7 @@ import {
   REQUEST_ORDER_STATUS_POLL_INTERVAL_MS,
 } from "@/lib/constants";
 import { dvdmsRecordPath } from "@/lib/paths";
+import { isOutwardWithDvdms } from "@/types/recordOrder";
 import { Button } from "@/components/ui/button";
 // import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import {
@@ -158,6 +159,65 @@ const DvdmsFooterBar: FC<BarProps> = ({
 
   // The core route carries no recordOrderId, so reflect the latest record order.
   const recordOrder = recordOrdersData?.results?.[0];
+
+  /**
+   * The push to DVDMS, once the record order has one. A record order still in
+   * draft or pending has nothing on the DVDMS side yet.
+   */
+  const { data: outwardData } = useQuery({
+    queryKey: ["dvdms_record_order_outward", institute?.id, recordOrder?.id],
+    queryFn: () =>
+      apis.recordOrderOutward.list(institute!.id, recordOrder!.id, {
+        limit: 1,
+        ordering: "-created_date",
+      }),
+    enabled: !!institute?.id && !!recordOrder?.id,
+  });
+
+  /**
+   * A record order still in draft or pending, or one whose push failed or was
+   * cancelled, leaves core's own actions alone.
+   */
+  const isSentToDvdms = isOutwardWithDvdms(outwardData?.results?.[0]?.status);
+
+  /**
+   * Blocks core's "mark as draft / entered in error / abandoned" actions once
+   * the order is with DVDMS.
+   */
+  useEffect(() => {
+    if (!isSentToDvdms) return;
+
+    const blockedIconClasses = [
+      "care-l-pause", // mark as draft
+      "care-l-exclamation-circle", // mark as entered in error
+      "care-l-ban", // mark as abandoned
+    ];
+
+    const blockStatusChange = (event: globalThis.MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const menuItem = target?.closest?.('[role="menuitem"]');
+      if (!menuItem) return;
+      if (
+        !blockedIconClasses.some((iconClass) =>
+          menuItem.querySelector(`.${iconClass}`),
+        )
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      toast.warning(t("order_locked_by_dvdms"), {
+        description: t("order_locked_by_dvdms_description"),
+      });
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    };
+
+    document.addEventListener("click", blockStatusChange, true);
+    return () => document.removeEventListener("click", blockStatusChange, true);
+  }, [isSentToDvdms, t]);
 
   // Core has no "approved" state for a request order: `pending` is the
   // submitted order, which is what DVDMS accepts. A draft has to be submitted

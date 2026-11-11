@@ -518,6 +518,13 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     if (savedRowIndices.length > 0) remove(savedRowIndices);
   }, [savedInwardItemIds, fields, remove]);
 
+  /**
+   * Damaged plus missing — what the items form shows as the shortage. The API
+   * keeps the missing count alone in `quantity_short`.
+   */
+  const shortageOf = (item: RecordDeliveryItem) =>
+    toQuantity(item.quantity_damaged) + toQuantity(item.quantity_short);
+
   const validateItems = (items: DeliveryItemFormValues[]) => {
     if (items.length === 0) {
       toast.error(t("at_least_one_item_required"));
@@ -1272,9 +1279,15 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   </TableHead>
                   <TableHead
                     rowSpan={2}
-                    className="min-w-[100px] text-xs font-semibold"
+                    className="min-w-[120px] text-xs font-semibold"
                   >
-                    {t("dispatched_qty")}
+                    {t("dvdms_dispatched_qty")}
+                  </TableHead>
+                  <TableHead
+                    rowSpan={2}
+                    className="min-w-[120px] text-xs font-semibold"
+                  >
+                    {t("physical_received_qty")}
                   </TableHead>
                   <TableHead
                     rowSpan={2}
@@ -1286,13 +1299,13 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     rowSpan={2}
                     className="min-w-[100px] text-xs font-semibold"
                   >
-                    {t("received_qty")}
+                    {t("good_qty")}
                   </TableHead>
                   <TableHead
                     rowSpan={2}
                     className="min-w-[100px] text-xs font-semibold"
                   >
-                    {t("lost_qty")}
+                    {t("receipt_shortage")}
                   </TableHead>
                 </TableRow>
                 <TableRow className="divide-x divide-gray-200">
@@ -1550,16 +1563,19 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                 {t("requested_qty")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
-                                {t("dispatched_qty")}
+                                {t("dvdms_dispatched_qty")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold text-right">
+                                {t("physical_received_qty")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
                                 {t("damaged_qty")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
-                                {t("received_qty")}
+                                {t("good_qty")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
-                                {t("lost_qty")}
+                                {t("receipt_shortage")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold">
                                 {t("status")}
@@ -1631,20 +1647,37 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                       ? toQuantity(item.quantity_dispatched)
                                       : "—"}
                                   </TableCell>
+                                  {/* Physically received — good plus damaged. */}
+                                  <TableCell className="p-2 text-sm text-right tabular-nums">
+                                    {toQuantity(item.quantity_accepted) +
+                                      toQuantity(item.quantity_damaged)}
+                                  </TableCell>
                                   <TableCell className="p-2 text-sm text-right tabular-nums">
                                     {item.quantity_damaged != null
                                       ? toQuantity(item.quantity_damaged)
                                       : "—"}
                                   </TableCell>
-                                  <TableCell className="p-2 text-sm text-right tabular-nums">
+                                  <TableCell
+                                    className={cn(
+                                      "p-2 text-sm text-right tabular-nums",
+                                      toQuantity(item.quantity_accepted) > 0 &&
+                                        "font-semibold text-green-700",
+                                    )}
+                                  >
                                     {item.quantity_accepted != null
                                       ? toQuantity(item.quantity_accepted)
                                       : "—"}
                                   </TableCell>
-                                  <TableCell className="p-2 text-sm text-right tabular-nums">
-                                    {item.quantity_short != null
-                                      ? toQuantity(item.quantity_short)
-                                      : "—"}
+                                  {/* Shortage — damaged plus missing, derived
+                                      the same way the items form shows it. */}
+                                  <TableCell
+                                    className={cn(
+                                      "p-2 text-sm text-right tabular-nums",
+                                      shortageOf(item) > 0 &&
+                                        "font-semibold text-red-700",
+                                    )}
+                                  >
+                                    {shortageOf(item)}
                                   </TableCell>
                                   <TableCell className="p-2">
                                     <Badge

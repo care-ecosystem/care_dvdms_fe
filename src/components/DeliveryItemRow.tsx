@@ -1,6 +1,6 @@
 import { FC } from "react";
 import { useTranslation } from "react-i18next";
-import { UseFormReturn } from "react-hook-form";
+import { UseFormReturn, useWatch } from "react-hook-form";
 
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { cn, formatDate, toQuantity } from "@/lib/utils";
@@ -45,7 +45,28 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
   const readQuantity = (field: keyof DeliveryItemFormValues) =>
     toQuantity(form.getValues(`items.${index}.${field}`) as string);
 
+  // Watched, not read once: the derived cells below have to follow the two
+  // quantities the user edits.
+  const watchedGood = useWatch({
+    control: form.control,
+    name: `items.${index}.received_quantity`,
+  });
+  const watchedDamaged = useWatch({
+    control: form.control,
+    name: `items.${index}.quantity_damaged`,
+  });
+
   const dispatched = readQuantity("quantity_dispatched");
+
+  /** What physically arrived, whatever condition it is in. */
+  const physicalReceived = toQuantity(watchedGood) + toQuantity(watchedDamaged);
+  /**
+   * Damaged plus missing — everything that cannot go into stock.
+   *
+   * Display only: the API's `quantity_short` carries the missing count alone,
+   * because the backend rejects accepted + damaged + short > dispatched.
+   */
+  const shortage = Math.max(0, dispatched - toQuantity(watchedGood));
   const damagedLimit = Math.max(0, dispatched - readQuantity("quantity_short"));
   const receivedLimit = Math.max(
     0,
@@ -152,7 +173,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   hideClearButton
                 />
               </FormControl>
-               {/* {productKnowledge?.slug && (
+              {/* {productKnowledge?.slug && (
                 <span className="mt-1 block text-xs text-gray-500 break-all">
                   {t("slug")}: {productKnowledge.slug}
                 </span>
@@ -221,6 +242,16 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         />
       </TableCell>
 
+      {/* Physical received — good plus damaged, derived */}
+      <TableCell className="align-top p-2">
+        <Input
+          value={physicalReceived}
+          disabled
+          readOnly
+          className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
+        />
+      </TableCell>
+
       {/* Damaged */}
       <TableCell className="align-top p-2">
         <FormField
@@ -275,26 +306,13 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         />
       </TableCell>
 
-      {/* Short — the dispatched balance left over once damaged and received are known */}
+      {/* Shortage — damaged plus missing, derived */}
       <TableCell className="align-top p-2">
-        <FormField
-          control={form.control}
-          name={`items.${index}.quantity_short`}
-          rules={{ required: true, min: 0 }}
-          render={({ field }) => (
-            <>
-              <FormControl>
-                <Input
-                  {...field}
-                  type="number"
-                  min={0}
-                  disabled
-                  className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
-                />
-              </FormControl>
-              <FormMessage />
-            </>
-          )}
+        <Input
+          value={shortage}
+          disabled
+          readOnly
+          className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
         />
       </TableCell>
     </TableRow>

@@ -93,9 +93,6 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
     setField("quantity_short", String(total - damaged - received));
   };
 
-  const readOnlyQuantityClass =
-    "bg-gray-100 text-gray-600 disabled:opacity-100";
-
   // Product and expiry only matter for stock, so a row with nothing received skips them.
   const requiredWhenReceived = {
     validate: (value: unknown) =>
@@ -200,33 +197,6 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         {physicalReceived}
       </TableCell>
 
-      {/* Damaged */}
-      <TableCell className="align-top p-2">
-        <FormField
-          control={form.control}
-          name={`items.${index}.quantity_damaged`}
-          rules={{ required: true, min: 0 }}
-          render={({ field }) => (
-            <>
-              <FormControl>
-                <Input
-                  {...field}
-                  type="number"
-                  min={0}
-                  max={damagedLimit}
-                  onChange={(event) => {
-                    field.onChange(event);
-                    applyDamaged(event.target.value);
-                  }}
-                  className={QUANTITY_INPUT_CLASS}
-                />
-              </FormControl>
-              <FormMessage />
-            </>
-          )}
-        />
-      </TableCell>
-
       {/* Received (accepted into CARE stock) */}
       <TableCell className="align-top p-2">
         <FormField
@@ -244,6 +214,33 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   onChange={(event) => {
                     field.onChange(event);
                     applyReceived(event.target.value);
+                  }}
+                  className={QUANTITY_INPUT_CLASS}
+                />
+              </FormControl>
+              <FormMessage />
+            </>
+          )}
+        />
+      </TableCell>
+
+      {/* Damaged */}
+      <TableCell className="align-top p-2">
+        <FormField
+          control={form.control}
+          name={`items.${index}.quantity_damaged`}
+          rules={{ required: true, min: 0 }}
+          render={({ field }) => (
+            <>
+              <FormControl>
+                <Input
+                  {...field}
+                  type="number"
+                  min={0}
+                  max={damagedLimit}
+                  onChange={(event) => {
+                    field.onChange(event);
+                    applyDamaged(event.target.value);
                   }}
                   className={QUANTITY_INPUT_CLASS}
                 />

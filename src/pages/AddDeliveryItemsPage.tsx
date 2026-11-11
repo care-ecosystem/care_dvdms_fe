@@ -1277,27 +1277,15 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   </TableHead>
                   <TableHead
                     rowSpan={2}
-                    className="min-w-[120px] text-xs font-semibold"
+                    className="min-w-[88px] text-xs font-semibold whitespace-normal"
                   >
                     {t("dvdms_dispatched_qty")}
                   </TableHead>
                   <TableHead
-                    rowSpan={2}
-                    className="min-w-[120px] text-xs font-semibold"
+                    colSpan={3}
+                    className="text-xs font-semibold text-center border-b"
                   >
-                    {t("physical_received_qty")}
-                  </TableHead>
-                  <TableHead
-                    rowSpan={2}
-                    className="min-w-[100px] text-xs font-semibold"
-                  >
-                    {t("damaged_qty")}
-                  </TableHead>
-                  <TableHead
-                    rowSpan={2}
-                    className="min-w-[100px] text-xs font-semibold"
-                  >
-                    {t("good_qty")}
+                    {t("received_qty")}
                   </TableHead>
                   <TableHead
                     rowSpan={2}
@@ -1307,7 +1295,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   </TableHead>
                   <TableHead
                     rowSpan={2}
-                    className="min-w-[140px] text-xs font-semibold"
+                    className="min-w-[92px] text-xs font-semibold whitespace-normal"
                   >
                     {t("remaining_qty_to_fulfill")}
                   </TableHead>
@@ -1324,6 +1312,15 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   </TableHead>
                   <TableHead className="min-w-[112px] text-xs font-semibold border-r">
                     {t("expiry")}
+                  </TableHead>
+                  <TableHead className="min-w-[100px] text-xs font-semibold">
+                    {t("total")}
+                  </TableHead>
+                  <TableHead className="min-w-[100px] text-xs font-semibold">
+                    {t("good")}
+                  </TableHead>
+                  <TableHead className="min-w-[100px] text-xs font-semibold border-r">
+                    {t("damaged")}
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -1548,44 +1545,82 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                         <Table>
                           <TableHeader className="bg-gray-100">
                             <TableRow className="divide-x divide-gray-200">
-                              <TableHead className="min-w-[170px] text-xs font-semibold">
+                              <TableHead
+                                rowSpan={2}
+                                className="min-w-[170px] text-xs font-semibold"
+                              >
                                 {t("drug")}
                               </TableHead>
-                              <TableHead className="text-xs font-semibold">
+                              <TableHead
+                                rowSpan={2}
+                                className="text-xs font-semibold"
+                              >
                                 {t("batch")}
                               </TableHead>
-                              <TableHead className="text-xs font-semibold">
+                              <TableHead
+                                rowSpan={2}
+                                className="text-xs font-semibold"
+                              >
                                 {t("unit_pack_size")}
                               </TableHead>
-                              <TableHead className="text-xs font-semibold">
+                              <TableHead
+                                rowSpan={2}
+                                className="text-xs font-semibold"
+                              >
                                 {t("expiry")}
                               </TableHead>
-                              <TableHead className="min-w-[210px] text-xs font-semibold">
+                              <TableHead
+                                rowSpan={2}
+                                className="min-w-[210px] text-xs font-semibold"
+                              >
                                 {t("product_knowledge")}
                               </TableHead>
-                              <TableHead className="text-xs font-semibold text-right">
+                              <TableHead
+                                rowSpan={2}
+                                className="text-xs font-semibold text-right"
+                              >
                                 {t("requested_qty")}
                               </TableHead>
-                              <TableHead className="text-xs font-semibold text-right">
+                              <TableHead
+                                rowSpan={2}
+                                className="min-w-[88px] text-xs font-semibold text-right whitespace-normal"
+                              >
                                 {t("dvdms_dispatched_qty")}
                               </TableHead>
-                              <TableHead className="text-xs font-semibold text-right">
-                                {t("physical_received_qty")}
+                              <TableHead
+                                colSpan={3}
+                                className="text-xs font-semibold text-center border-b"
+                              >
+                                {t("received_qty")}
                               </TableHead>
-                              <TableHead className="text-xs font-semibold text-right">
-                                {t("damaged_qty")}
-                              </TableHead>
-                              <TableHead className="text-xs font-semibold text-right">
-                                {t("good_qty")}
-                              </TableHead>
-                              <TableHead className="text-xs font-semibold text-right">
+                              <TableHead
+                                rowSpan={2}
+                                className="text-xs font-semibold text-right"
+                              >
                                 {t("receipt_shortage")}
                               </TableHead>
-                              <TableHead className="text-xs font-semibold text-right">
+                              <TableHead
+                                rowSpan={2}
+                                className="min-w-[92px] text-xs font-semibold text-right whitespace-normal"
+                              >
                                 {t("remaining_qty_to_fulfill")}
                               </TableHead>
-                              <TableHead className="text-xs font-semibold">
+                              <TableHead
+                                rowSpan={2}
+                                className="text-xs font-semibold"
+                              >
                                 {t("status")}
+                              </TableHead>
+                            </TableRow>
+                            <TableRow className="divide-x divide-gray-200">
+                              <TableHead className="text-xs font-semibold text-right">
+                                {t("total")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold text-right">
+                                {t("good")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold text-right">
+                                {t("damaged")}
                               </TableHead>
                             </TableRow>
                           </TableHeader>
@@ -1652,11 +1687,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                     {toQuantity(item.quantity_accepted) +
                                       toQuantity(item.quantity_damaged)}
                                   </TableCell>
-                                  <TableCell className="p-2 text-sm text-right tabular-nums">
-                                    {item.quantity_damaged != null
-                                      ? toQuantity(item.quantity_damaged)
-                                      : "—"}
-                                  </TableCell>
                                   <TableCell
                                     className={cn(
                                       "p-2 text-sm text-right tabular-nums",
@@ -1666,6 +1696,11 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                   >
                                     {item.quantity_accepted != null
                                       ? toQuantity(item.quantity_accepted)
+                                      : "—"}
+                                  </TableCell>
+                                  <TableCell className="p-2 text-sm text-right tabular-nums">
+                                    {item.quantity_damaged != null
+                                      ? toQuantity(item.quantity_damaged)
                                       : "—"}
                                   </TableCell>
                                   {/* Shortage — damaged plus missing, derived

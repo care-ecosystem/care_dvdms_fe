@@ -525,6 +525,16 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   const shortageOf = (item: RecordDeliveryItem) =>
     toQuantity(item.quantity_damaged) + toQuantity(item.quantity_short);
 
+  /** What the order still needs: requested less what came in good condition. */
+  const remainingToFulfillOf = (item: RecordDeliveryItem) => {
+    const requested = requestedQuantityForInwardItem(
+      item.inward_record_item.id,
+    );
+    return requested == null
+      ? undefined
+      : Math.max(0, requested - toQuantity(item.quantity_accepted));
+  };
+
   const validateItems = (items: DeliveryItemFormValues[]) => {
     if (items.length === 0) {
       toast.error(t("at_least_one_item_required"));
@@ -1248,7 +1258,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
               <TableHeader className="bg-gray-100">
                 <TableRow className="divide-x divide-gray-200">
                   <TableHead
-                    colSpan={3}
+                    colSpan={4}
                     className="text-xs font-semibold text-center border-b"
                   >
                     {t("eaushadhi")}
@@ -1258,18 +1268,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     className="min-w-[210px] text-xs font-semibold"
                   >
                     {t("product_knowledge")}
-                  </TableHead>
-                  <TableHead
-                    rowSpan={2}
-                    className="min-w-[120px] text-xs font-semibold"
-                  >
-                    {t("category")}
-                  </TableHead>
-                  <TableHead
-                    rowSpan={2}
-                    className="min-w-[104px] text-xs font-semibold"
-                  >
-                    {t("unit_pack_size")}
                   </TableHead>
                   <TableHead
                     rowSpan={2}
@@ -1307,6 +1305,12 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   >
                     {t("receipt_shortage")}
                   </TableHead>
+                  <TableHead
+                    rowSpan={2}
+                    className="min-w-[140px] text-xs font-semibold"
+                  >
+                    {t("remaining_qty_to_fulfill")}
+                  </TableHead>
                 </TableRow>
                 <TableRow className="divide-x divide-gray-200">
                   <TableHead className="min-w-[180px] text-xs font-semibold">
@@ -1314,6 +1318,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   </TableHead>
                   <TableHead className="min-w-[100px] text-xs font-semibold">
                     {t("batch")}
+                  </TableHead>
+                  <TableHead className="min-w-[104px] text-xs font-semibold">
+                    {t("unit_pack_size")}
                   </TableHead>
                   <TableHead className="min-w-[112px] text-xs font-semibold border-r">
                     {t("expiry")}
@@ -1548,16 +1555,13 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                 {t("batch")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold">
+                                {t("unit_pack_size")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold">
                                 {t("expiry")}
                               </TableHead>
                               <TableHead className="min-w-[210px] text-xs font-semibold">
                                 {t("product_knowledge")}
-                              </TableHead>
-                              <TableHead className="text-xs font-semibold">
-                                {t("category")}
-                              </TableHead>
-                              <TableHead className="text-xs font-semibold">
-                                {t("unit_pack_size")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
                                 {t("requested_qty")}
@@ -1576,6 +1580,9 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
                                 {t("receipt_shortage")}
+                              </TableHead>
+                              <TableHead className="text-xs font-semibold text-right">
+                                {t("remaining_qty_to_fulfill")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold">
                                 {t("status")}
@@ -1610,21 +1617,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                     {item.inward_record_item.batch_number ||
                                       "—"}
                                   </TableCell>
-                                  <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
-                                    {formatDate(
-                                      item.inward_record_item.expiry_date,
-                                    )}
-                                  </TableCell>
-                                  <TableCell className="p-2 text-sm text-gray-900">
-                                    {item.product_knowledge?.name || "—"}
-                                  </TableCell>
-                                  <TableCell className="p-2 text-sm text-gray-900 capitalize whitespace-nowrap">
-                                    {(inwardItem?.drug_id
-                                      ? productKnowledgeByDrugId.get(
-                                          inwardItem.drug_id,
-                                        )?.product_type
-                                      : undefined) || "—"}
-                                  </TableCell>
                                   {/* The mapped DVDMS unit and the pack size
                                       saved onto the product and delivery. */}
                                   <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
@@ -1636,6 +1628,14 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                         ? `${unit.gstrUnitName} (${packSizeOf(unit)})`
                                         : "—";
                                     })()}
+                                  </TableCell>
+                                  <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
+                                    {formatDate(
+                                      item.inward_record_item.expiry_date,
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="p-2 text-sm text-gray-900">
+                                    {item.product_knowledge?.name || "—"}
                                   </TableCell>
                                   <TableCell className="p-2 text-sm text-right tabular-nums">
                                     {requestedQuantityForInwardItem(
@@ -1670,14 +1670,19 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                   </TableCell>
                                   {/* Shortage — damaged plus missing, derived
                                       the same way the items form shows it. */}
+                                  <TableCell className="p-2 text-sm text-right tabular-nums">
+                                    {shortageOf(item)}
+                                  </TableCell>
+                                  {/* What the order still needs: requested
+                                      less what came in good condition. */}
                                   <TableCell
                                     className={cn(
                                       "p-2 text-sm text-right tabular-nums",
-                                      shortageOf(item) > 0 &&
+                                      !!remainingToFulfillOf(item) &&
                                         "font-semibold text-red-700",
                                     )}
                                   >
-                                    {shortageOf(item)}
+                                    {remainingToFulfillOf(item) ?? "—"}
                                   </TableCell>
                                   <TableCell className="p-2">
                                     <Badge

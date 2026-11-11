@@ -67,6 +67,10 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
    * because the backend rejects accepted + damaged + short > dispatched.
    */
   const shortage = Math.max(0, dispatched - toQuantity(watchedGood));
+  const remainingToFulfill =
+    requestedQuantity != null
+      ? Math.max(0, requestedQuantity - toQuantity(watchedGood))
+      : undefined;
   const damagedLimit = Math.max(0, dispatched - readQuantity("quantity_short"));
   const receivedLimit = Math.max(
     0,
@@ -108,21 +112,20 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
           </span>
           {row.drug_id && (
             <span className="text-xs text-gray-500">
-              {t("drug_id")}: {row.drug_id}
+              {t("id")}: {row.drug_id}
             </span>
           )}
         </div>
       </TableCell>
 
-      {/* eAushadhi batch — also the lot number of the CARE product */}
       <TableCell className="align-top p-2 text-sm text-gray-900">
         {row.eaushadhi_batch || "—"}
       </TableCell>
 
-      {/*
-        eAushadhi expiry of the issued batch. It is only editable when eAushadhi
-        did not send one, since a product still needs an expiry to be created.
-      */}
+      <TableCell className="align-top p-2 text-sm text-gray-900 whitespace-nowrap">
+        {unit ? `${unit.gstrUnitName} (${packSizeOf(unit)})` : "—"}
+      </TableCell>
+
       <TableCell className="align-top p-2 text-sm text-gray-900">
         {row.eaushadhi_expiry ? (
           formatDate(row.eaushadhi_expiry)
@@ -184,72 +187,17 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         />
       </TableCell>
 
-      <TableCell className="align-top p-2">
-        <Input
-          value={productKnowledge?.product_type ?? ""}
-          placeholder="-"
-          disabled
-          readOnly
-          className="w-full min-w-0 bg-gray-50 capitalize cursor-default disabled:opacity-100 disabled:text-gray-950"
-        />
+      <TableCell className="align-top p-2 text-sm text-gray-900 tabular-nums">
+        {requestedQuantity ?? "—"}
       </TableCell>
 
-      {/*
-        The DVDMS unit of the mapped drug: its name, and the pack size that is
-        written to the product and the supply delivery. Read-only — it follows
-        the mapping, not an entry on this screen.
-      */}
-      <TableCell className="align-top p-2">
-        <Input
-          value={unit ? `${unit.gstrUnitName} (${packSizeOf(unit)})` : ""}
-          placeholder="-"
-          disabled
-          readOnly
-          className="w-full min-w-0 bg-gray-50 cursor-default disabled:opacity-100 disabled:text-gray-950"
-        />
-      </TableCell>
-
-      {/* What the order asked for — context for the counts, never edited here. */}
-      <TableCell className="align-top p-2">
-        <Input
-          value={requestedQuantity ?? ""}
-          placeholder="-"
-          disabled
-          readOnly
-          className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
-        />
-      </TableCell>
-
-      <TableCell className="align-top p-2">
-        <FormField
-          control={form.control}
-          name={`items.${index}.quantity_dispatched`}
-          rules={{ required: true, min: 0 }}
-          render={({ field }) => (
-            <>
-              <FormControl>
-                <Input
-                  {...field}
-                  type="number"
-                  min={0}
-                  disabled
-                  className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
-                />
-              </FormControl>
-              <FormMessage />
-            </>
-          )}
-        />
+      <TableCell className="align-top p-2 text-sm text-gray-900 tabular-nums">
+        {dispatched}
       </TableCell>
 
       {/* Physical received — good plus damaged, derived */}
-      <TableCell className="align-top p-2">
-        <Input
-          value={physicalReceived}
-          disabled
-          readOnly
-          className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
-        />
+      <TableCell className="align-top p-2 text-sm text-gray-900 tabular-nums">
+        {physicalReceived}
       </TableCell>
 
       {/* Damaged */}
@@ -307,13 +255,18 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
       </TableCell>
 
       {/* Shortage — damaged plus missing, derived */}
-      <TableCell className="align-top p-2">
-        <Input
-          value={shortage}
-          disabled
-          readOnly
-          className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
-        />
+      <TableCell className="align-top p-2 text-sm text-gray-900 tabular-nums">
+        {shortage}
+      </TableCell>
+
+      {/* What is still owed on the order: requested less the good quantity */}
+      <TableCell
+        className={cn(
+          "align-top p-2 text-sm text-gray-900 tabular-nums",
+          !!remainingToFulfill && "font-semibold text-red-700",
+        )}
+      >
+        {remainingToFulfill ?? "—"}
       </TableCell>
     </TableRow>
   );

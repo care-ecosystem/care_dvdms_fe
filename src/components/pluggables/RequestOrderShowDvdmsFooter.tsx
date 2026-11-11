@@ -102,9 +102,7 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
 
     event.preventDefault();
     event.stopPropagation();
-    toast.warning(t("delivery_created_from_dvdms"), {
-      description: t("delivery_created_from_dvdms_description"),
-    });
+    toast.error(t("use_dvdms_flow"));
   };
 
   return (
@@ -207,9 +205,7 @@ const DvdmsFooterBar: FC<BarProps> = ({
 
       event.preventDefault();
       event.stopPropagation();
-      toast.warning(t("order_locked_by_dvdms"), {
-        description: t("order_locked_by_dvdms_description"),
-      });
+      toast.error(t("order_sent_to_dvdms_locked"));
       document.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );

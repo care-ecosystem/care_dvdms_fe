@@ -123,13 +123,13 @@ const OrderSummaryTable: FC<OrderSummaryTableProps> = ({
                 {t("product_knowledge")}
               </TableHead>
               <TableHead className="text-xs font-semibold text-right">
-                {t("quantity")}
+                {t("requested_quantity")}
               </TableHead>
               <TableHead className="text-xs font-semibold text-right">
-                {t("dispatched_quantity")}
+                {t("available_quantity")}
               </TableHead>
               <TableHead className="text-xs font-semibold text-right">
-                {t("remaining_quantity")}
+                {t("remaining_quantity_to_fulfill")}
               </TableHead>
               <TableHead className="text-xs font-semibold">
                 {t("status")}

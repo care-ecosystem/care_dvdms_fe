@@ -235,7 +235,6 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
           <strong>{store.store.name}</strong>
           {store.eaushadhi_store_name &&
             ` (${t("dvdms_store")}: ${store.eaushadhi_store_name})`}
-            
         </p>
       )}
     </div>
@@ -246,6 +245,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
       <SupplierSelect
         value={supplierFilter}
         onChange={handleSupplierFilterChange}
+        className="w-full md:w-[250px]"
       />
     </div>
   );
@@ -281,7 +281,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
           >
             <PlusIcon />
             {isCreatingOrder ? t("creating") : t("create_order")}
-            <ShortcutBadge actionId="create-order"  />
+            <ShortcutBadge actionId="create-order" />
           </Button>
         </div>
       </div>

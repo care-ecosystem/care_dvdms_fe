@@ -110,6 +110,16 @@ export interface RecordOrderOutward {
  * Add an entry as DVDMS starts reporting a code; anything unmapped falls back
  * to `dvdms_error_unknown`.
  */
+/** The codes the backend surfaces on a failed DVDMS call. */
+export enum DvdmsErrorCode {
+  /** No response at all — DVDMS down, DNS, timeout. */
+  unreachable = "DVDMS_UNREACHABLE",
+  /** DVDMS answered and refused the request. */
+  rejected = "DVDMS_REJECTED",
+  /** The failure was on our side. */
+  internal = "INTERNAL_ERROR",
+}
+
 export const DVDMS_ERROR_KEYS: Record<string, string> = {
   save_indent_DVDMS_REJECTED: "dvdms_error_save_indent_dvdms_rejected",
   track_indent_DVDMS_REJECTED: "dvdms_error_track_indent_dvdms_rejected",
@@ -117,6 +127,20 @@ export const DVDMS_ERROR_KEYS: Record<string, string> = {
   acknowledge_issue_DVDMS_REJECTED:
     "dvdms_error_acknowledge_issue_dvdms_rejected",
   DVDMS_REJECTED: "dvdms_error_dvdms_rejected",
+
+  save_indent_DVDMS_UNREACHABLE: "dvdms_error_save_indent_dvdms_unreachable",
+  track_indent_DVDMS_UNREACHABLE: "dvdms_error_track_indent_dvdms_unreachable",
+  fetch_issue_DVDMS_UNREACHABLE: "dvdms_error_fetch_issue_dvdms_unreachable",
+  acknowledge_issue_DVDMS_UNREACHABLE:
+    "dvdms_error_acknowledge_issue_dvdms_unreachable",
+  DVDMS_UNREACHABLE: "dvdms_error_dvdms_unreachable",
+
+  save_indent_INTERNAL_ERROR: "dvdms_error_save_indent_internal_error",
+  track_indent_INTERNAL_ERROR: "dvdms_error_track_indent_internal_error",
+  fetch_issue_INTERNAL_ERROR: "dvdms_error_fetch_issue_internal_error",
+  acknowledge_issue_INTERNAL_ERROR:
+    "dvdms_error_acknowledge_issue_internal_error",
+  INTERNAL_ERROR: "dvdms_error_internal_error",
 };
 
 /**

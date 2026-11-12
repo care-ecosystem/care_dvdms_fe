@@ -23,7 +23,7 @@
     {
       "key": "s",
       "action": "link-order-eaushadhi",
-      "description": "Send Order to DVDMS",
+      "description": "Send to DVDMS",
       "when": "always"
     },
     {

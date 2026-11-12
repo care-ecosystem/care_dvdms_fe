@@ -31,7 +31,7 @@ export const getDeliveryOrderNote = () =>
 const getRequestOrderName = () => {
   const date = formatDate(new Date().toISOString());
   const name = configString("requestOrderName", "").replace(/\{date\}/g, date);
-  return name.trim() || `Send Order to DVDMS - ${date}`;
+  return name.trim() || `Order to DVDMS - ${date}`;
 };
 
 export const getRequestOrderDefaults = () => ({

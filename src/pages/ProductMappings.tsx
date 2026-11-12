@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  AlertCircleIcon,
   ArrowLeftIcon,
   DownloadIcon,
   FolderOpenIcon,
@@ -13,7 +14,11 @@ import {
 } from "lucide-react";
 
 import { apis } from "@/apis";
-import { BatchError, extractErrorMessage, performBatchRequest } from "@/apis/query";
+import {
+  BatchError,
+  extractErrorMessage,
+  performBatchRequest,
+} from "@/apis/query";
 import { BatchRequestBody, BatchResult, HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { goBack } from "@/lib/navigation";
@@ -54,7 +59,18 @@ import {
 } from "@/components/ui/table";
 import FileDropzone from "@/components/FileDropzone";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DvdmsProductMapping } from "@/types/dvdms_config";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DvdmsProductMapping,
+  DvdmsProductMappingArchiveReason,
+} from "@/types/dvdms_config";
 import { ProductKnowledge, ResourceCategory } from "@/types/productKnowledge";
 import { validateCSV } from "@/utils/csvValidation";
 import type {
@@ -93,8 +109,9 @@ async function resolveProductKnowledgeSlugsBatch(
       })),
     };
 
-    const results = await performBatchRequest(payload).catch((error: unknown) =>
-      error instanceof BatchError ? error.results : ([] as BatchResult[]),
+    const results = await performBatchRequest(payload).catch(
+      (error: unknown) =>
+        error instanceof BatchError ? error.results : ([] as BatchResult[]),
     );
 
     chunk.forEach((slug, idx) => {
@@ -125,8 +142,9 @@ async function findExistingMappingDrugIdsBatch(
       })),
     };
 
-    const results = await performBatchRequest(payload).catch((error: unknown) =>
-      error instanceof BatchError ? error.results : ([] as BatchResult[]),
+    const results = await performBatchRequest(payload).catch(
+      (error: unknown) =>
+        error instanceof BatchError ? error.results : ([] as BatchResult[]),
     );
 
     chunk.forEach((drugId, idx) => {
@@ -149,7 +167,10 @@ async function findMappedProductKnowledgeIdsBatch(
 ): Promise<Set<string>> {
   const mapped = new Set<string>();
 
-  for (const chunk of chunkArray(productKnowledgeIds, PRODUCT_MAPPING_BATCH_SIZE)) {
+  for (const chunk of chunkArray(
+    productKnowledgeIds,
+    PRODUCT_MAPPING_BATCH_SIZE,
+  )) {
     const payload: BatchRequestBody = {
       requests: chunk.map((productKnowledgeId, idx) => ({
         reference_id: `pk_check_${idx}`,
@@ -158,8 +179,9 @@ async function findMappedProductKnowledgeIdsBatch(
       })),
     };
 
-    const results = await performBatchRequest(payload).catch((error: unknown) =>
-      error instanceof BatchError ? error.results : ([] as BatchResult[]),
+    const results = await performBatchRequest(payload).catch(
+      (error: unknown) =>
+        error instanceof BatchError ? error.results : ([] as BatchResult[]),
     );
 
     chunk.forEach((productKnowledgeId, idx) => {
@@ -229,6 +251,20 @@ const getErrorMessage = (error: unknown) =>
 
 const MAPPINGS_PAGE_SIZE = 10;
 
+const useErrorToast = (message: string | null | undefined, id: string) =>
+  useEffect(() => {
+    if (message) toast.error(message, { id });
+  }, [message, id]);
+
+const ACTIVE_FILTER = "active";
+const ARCHIVED_FILTER = "archived";
+
+/** Locale key for an archive reason, falling back to the raw value. */
+const archiveReasonKey = (reason?: string | null) =>
+  reason === DvdmsProductMappingArchiveReason.product_archived
+    ? "archive_reason_product_archived"
+    : undefined;
+
 const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   const queryClient = useQueryClient();
@@ -240,14 +276,31 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const instituteId = institute?.id;
 
   const [mappingsPage, setMappingsPage] = useState(1);
+  /** Archived mappings are a separate, read-only view of the same list. */
+  const [showArchived, setShowArchived] = useState(false);
 
-  const { data: mappingsData, isLoading: mappingsLoading } = useQuery({
-    queryKey: ["dvdms_product_mappings", instituteId, mappingsPage],
+  const handleArchivedFilterChange = (value: string) => {
+    setShowArchived(value === ARCHIVED_FILTER);
+    setMappingsPage(1);
+  };
+
+  const {
+    data: mappingsData,
+    isLoading: mappingsLoading,
+    error: mappingsError,
+  } = useQuery({
+    queryKey: [
+      "dvdms_product_mappings",
+      instituteId,
+      mappingsPage,
+      showArchived,
+    ],
     queryFn: () =>
       apis.productMappings.list(instituteId!, {
         limit: MAPPINGS_PAGE_SIZE,
         offset: (mappingsPage - 1) * MAPPINGS_PAGE_SIZE,
         mapping_type: "default_mapping",
+        archived: showArchived,
       }),
     enabled: !!instituteId,
   });
@@ -263,10 +316,15 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     DuplicateProductMappingCsvRow[]
   >([]);
   const [csvReport, setCsvReport] = useState<ProductMappingReportRow[]>([]);
-  const [csvValidation, setCsvValidation] = useState<CsvValidation | null>(null);
+  const [csvValidation, setCsvValidation] = useState<CsvValidation | null>(
+    null,
+  );
   const [isUploadingCsv, setIsUploadingCsv] = useState(false);
   const [isValidatingCsv, setIsValidatingCsv] = useState(false);
-  const [validationProgress, setValidationProgress] = useState({ done: 0, total: 0 });
+  const [validationProgress, setValidationProgress] = useState({
+    done: 0,
+    total: 0,
+  });
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
 
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -300,23 +358,25 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     return () => clearTimeout(timeout);
   }, [productKnowledgeSearch]);
 
-  const { data: productKnowledgeSearchData, isLoading: isSearchingProductKnowledge } =
-    useQuery({
-      queryKey: [
-        "dvdms_product_knowledge_search",
-        facilityId,
-        mappingForm.category?.slug,
-        debouncedProductKnowledgeSearch,
-      ],
-      queryFn: () =>
-        apis.productKnowledge.list({
-          facility: facilityId,
-          name: debouncedProductKnowledgeSearch || undefined,
-          category: mappingForm.category?.slug,
-          limit: 10,
-        }),
-      enabled: mappingOpen && !!mappingForm.category,
-    });
+  const {
+    data: productKnowledgeSearchData,
+    isLoading: isSearchingProductKnowledge,
+  } = useQuery({
+    queryKey: [
+      "dvdms_product_knowledge_search",
+      instituteId,
+      mappingForm.category?.slug,
+      debouncedProductKnowledgeSearch,
+    ],
+    queryFn: () =>
+      apis.productMappings.availableProductKnowledge(instituteId!, {
+        name: debouncedProductKnowledgeSearch || undefined,
+        category: mappingForm.category?.slug,
+        product_type: "medication",
+        limit: 10,
+      }),
+    enabled: mappingOpen && !!instituteId && !!mappingForm.category,
+  });
 
   const productKnowledgeOptions = useMemo(() => {
     const list = productKnowledgeSearchData?.results ?? [];
@@ -326,19 +386,19 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
       : list;
   }, [productKnowledgeSearchData, mappingForm.productKnowledge]);
 
-  const { data: groups = [] } = useQuery({
+  const { data: groups = [], error: groupsError } = useQuery({
     queryKey: ["dvdms_lookup_groups", instituteId],
     queryFn: () => apis.institutes.lookupGroups(instituteId!),
     enabled: !!instituteId,
   });
 
-  const { data: subgroups = [] } = useQuery({
+  const { data: subgroups = [], error: subgroupsError } = useQuery({
     queryKey: ["dvdms_lookup_subgroups", instituteId, groupId],
     queryFn: () => apis.institutes.lookupSubgroups(instituteId!, groupId!),
     enabled: !!instituteId && !!groupId,
   });
 
-  const { data: drugs = [] } = useQuery({
+  const { data: drugs = [], error: drugsError } = useQuery({
     queryKey: ["dvdms_lookup_drugs", instituteId, groupId, subgroupId],
     queryFn: () =>
       apis.institutes.lookupDrugs(instituteId!, {
@@ -347,6 +407,19 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
       }),
     enabled: !!instituteId && !!groupId,
   });
+
+  const groupsErrorMessage =
+    groupsError &&
+    (getErrorMessage(groupsError) || t("dvdms_groups_fetch_error"));
+  const subgroupsErrorMessage =
+    subgroupsError &&
+    (getErrorMessage(subgroupsError) || t("dvdms_subgroups_fetch_error"));
+  const drugsErrorMessage =
+    drugsError && (getErrorMessage(drugsError) || t("dvdms_drugs_fetch_error"));
+
+  useErrorToast(groupsErrorMessage, "dvdms_groups_fetch_error");
+  useErrorToast(subgroupsErrorMessage, "dvdms_subgroups_fetch_error");
+  useErrorToast(drugsErrorMessage, "dvdms_drugs_fetch_error");
 
   const handleCategoryChange = (id: string) => {
     const category = categories.find((c) => c.id === id) ?? null;
@@ -380,9 +453,14 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   };
 
   const invalidateMappings = () =>
-    queryClient.invalidateQueries({
-      queryKey: ["dvdms_product_mappings", instituteId],
-    });
+    Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_product_mappings", instituteId],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_product_knowledge_search", instituteId],
+      }),
+    ]);
 
   const { mutate: createMapping, isPending: isCreating } = useMutation({
     mutationFn: () =>
@@ -441,7 +519,10 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           mapping_type: "default_mapping",
         });
         allMappings.push(...page.results);
-        if (page.results.length !== pageSize || allMappings.length >= page.count) {
+        if (
+          page.results.length !== pageSize ||
+          allMappings.length >= page.count
+        ) {
           break;
         }
         offset += pageSize;
@@ -528,7 +609,11 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   };
 
   const saveMapping = async () => {
-    if (!instituteId || !mappingForm.productKnowledge || !mappingForm.dvdmsDrug) {
+    if (
+      !instituteId ||
+      !mappingForm.productKnowledge ||
+      !mappingForm.dvdmsDrug
+    ) {
       return;
     }
 
@@ -586,7 +671,10 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
       if (!validation.valid) {
         const errors: FormattedError[] = [];
         if (validation.errors.parseError) {
-          errors.push({ type: "parse_error", data: validation.errors.parseError });
+          errors.push({
+            type: "parse_error",
+            data: validation.errors.parseError,
+          });
         }
         if (validation.errors.missingHeaders?.length) {
           errors.push({
@@ -664,7 +752,10 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
         setValidationProgress({ done: 0, total: uniqueSlugs.length });
         const onValidationProgress = (done: number) => {
           if (isStale()) return;
-          setValidationProgress((prev) => ({ ...prev, done: prev.done + done }));
+          setValidationProgress((prev) => ({
+            ...prev,
+            done: prev.done + done,
+          }));
         };
 
         const productKnowledgeBySlug = new Map<string, ProductKnowledge>([
@@ -710,7 +801,11 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           );
           if (!productKnowledge) {
             notFound += 1;
-            addPreUploadRow(row, "FAILED", t("csv_product_knowledge_not_found"));
+            addPreUploadRow(
+              row,
+              "FAILED",
+              t("csv_product_knowledge_not_found"),
+            );
             continue;
           }
           if (productKnowledge.status && productKnowledge.status !== "active") {
@@ -731,7 +826,9 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           new Set(activeRows.map(({ row }) => row.drugId)),
         );
         const uniqueActiveProductKnowledgeIds = Array.from(
-          new Set(activeRows.map(({ productKnowledge }) => productKnowledge.id)),
+          new Set(
+            activeRows.map(({ productKnowledge }) => productKnowledge.id),
+          ),
         );
         setValidationProgress((prev) => ({
           ...prev,
@@ -896,7 +993,9 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           continue;
         }
 
-        const resultByRef = new Map(error.results.map((r) => [r.reference_id, r]));
+        const resultByRef = new Map(
+          error.results.map((r) => [r.reference_id, r]),
+        );
 
         chunk.forEach(({ row }, idx) => {
           const result = resultByRef.get(`create_${idx}`);
@@ -934,7 +1033,10 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           });
         });
       } finally {
-        setUploadProgress((prev) => ({ ...prev, done: prev.done + chunk.length }));
+        setUploadProgress((prev) => ({
+          ...prev,
+          done: prev.done + chunk.length,
+        }));
       }
     }
 
@@ -968,6 +1070,12 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
     }
   };
 
+  const archiveReasonLabel = (reason?: string | null) => {
+    if (!reason) return "—";
+    const key = archiveReasonKey(reason);
+    return key ? t(key) : reason;
+  };
+
   const mappingsTableHeader = (
     <TableHeader>
       <TableRow>
@@ -976,7 +1084,9 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
         <TableHead>{t("dvdms_drug")}</TableHead>
         <TableHead>{t("created_by")}</TableHead>
         <TableHead>{t("created_date")}</TableHead>
-        <TableHead>{t("actions")}</TableHead>
+        <TableHead>
+          {showArchived ? t("archived_reason") : t("actions")}
+        </TableHead>
       </TableRow>
     </TableHeader>
   );
@@ -999,20 +1109,34 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
         </Button>
 
         <div className="mb-4 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-          <div>
+          <div className="flex flex-col gap-2">
             <h3 className="text-lg font-semibold text-gray-900">
               {t("product_mappings")}
             </h3>
             <p className="text-sm text-gray-500">
               {t("product_mappings_subtitle")}
             </p>
+            <Select
+              value={showArchived ? ARCHIVED_FILTER : ACTIVE_FILTER}
+              onValueChange={handleArchivedFilterChange}
+            >
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ACTIVE_FILTER}>{t("active")}</SelectItem>
+                <SelectItem value={ARCHIVED_FILTER}>{t("inactive")}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex flex-wrap justify-end gap-2">
             <Button
               type="button"
               variant="outline"
-              disabled={!instituteId || isDownloadingMappings || mappingsCount === 0}
+              disabled={
+                !instituteId || isDownloadingMappings || mappingsCount === 0
+              }
               onClick={handleDownloadAllMappings}
             >
               {isDownloadingMappings ? (
@@ -1374,7 +1498,9 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                       onChange={handleGroupChange}
                       placeholder={t("dvdms_group_placeholder")}
                       inputPlaceholder={t("search_dvdms_group")}
-                      noOptionsMessage={t("no_dvdms_group_found")}
+                      noOptionsMessage={
+                        groupsErrorMessage || t("no_dvdms_group_found")
+                      }
                       disabled={!instituteId}
                       showClearButton={false}
                     />
@@ -1391,7 +1517,9 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                       onChange={handleSubgroupChange}
                       placeholder={t("dvdms_subgroup_placeholder")}
                       inputPlaceholder={t("search_dvdms_group")}
-                      noOptionsMessage={t("no_dvdms_subgroup_found")}
+                      noOptionsMessage={
+                        subgroupsErrorMessage || t("no_dvdms_subgroup_found")
+                      }
                       disabled={!groupId}
                       showClearButton
                     />
@@ -1411,7 +1539,9 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                       onChange={handleDrugChange}
                       placeholder={t("dvdms_drug_placeholder")}
                       inputPlaceholder={t("search_dvdms_drug")}
-                      noOptionsMessage={t("no_dvdms_drug_found")}
+                      noOptionsMessage={
+                        drugsErrorMessage || t("no_dvdms_drug_found")
+                      }
                       disabled={!groupId}
                       showClearButton={false}
                     />
@@ -1479,6 +1609,19 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
               ))}
             </TableBody>
           </Table>
+        ) : mappingsError || (groupsErrorMessage && mappings.length === 0) ? (
+          <div
+            role="alert"
+            className="flex flex-col items-center justify-center rounded-xl border border-dashed border-red-200 bg-white px-6 py-12 text-center text-red-700 shadow-sm"
+          >
+            <AlertCircleIcon className="size-6 mb-3" />
+            <p className="text-sm">
+              {mappingsError
+                ? getErrorMessage(mappingsError) ||
+                  t("dvdms_product_mappings_fetch_error")
+                : groupsErrorMessage}
+            </p>
+          </div>
         ) : mappings.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white px-6 py-12 text-center text-gray-950 shadow-sm">
             <div className="rounded-full bg-primary/10 p-3 mb-3">
@@ -1502,7 +1645,9 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                         {mapping.product_knowledge && (
                           <span className="text-xs text-gray-500">
                             {t("slug")}:{" "}
-                            {getProductKnowledgeSlugValue(mapping.product_knowledge)}
+                            {getProductKnowledgeSlugValue(
+                              mapping.product_knowledge,
+                            )}
                           </span>
                         )}
                       </div>
@@ -1514,7 +1659,8 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                       <div className="flex min-w-80 flex-col whitespace-normal">
                         <span>{mapping.eaushadhi_drug_details.name}</span>
                         <span className="text-xs text-gray-500">
-                          {t("dvdms_drug_id")}: {mapping.eaushadhi_drug_details.id}
+                          {t("dvdms_drug_id")}:{" "}
+                          {mapping.eaushadhi_drug_details.id}
                           {"\u00A0\u00A0"}({t("group_id")}:{" "}
                           {mapping.eaushadhi_drug_details.group_id})
                         </span>
@@ -1527,16 +1673,31 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
                       {formatDate(mapping.created_date)}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="font-semibold"
-                        onClick={() => openEditMapping(mapping)}
-                      >
-                        <PencilIcon className="size-4" />
-                        {t("edit")}
-                      </Button>
+                      {showArchived ? (
+                        <div className="flex flex-col items-start gap-1">
+                          <Badge variant="destructive" className="rounded-sm">
+                            {t("archived")}
+                          </Badge>
+                          <span className="text-xs text-gray-500">
+                            {archiveReasonLabel(mapping.archived_reason)}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {t("last_updated")}:{" "}
+                            {formatDate(mapping.modified_date)}
+                          </span>
+                        </div>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="font-semibold"
+                          onClick={() => openEditMapping(mapping)}
+                        >
+                          <PencilIcon className="size-4" />
+                          {t("edit")}
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

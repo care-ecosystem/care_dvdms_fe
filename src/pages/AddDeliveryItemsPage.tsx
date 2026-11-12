@@ -45,6 +45,7 @@ import {
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import BackButton from "@/components/BackButton";
 import DeliveryItemRow from "@/components/DeliveryItemRow";
+import useDvdmsUnits, { packSizeOf } from "@/hooks/useDvdmsUnits";
 import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import {
   ShortcutProvider,
@@ -67,10 +68,12 @@ import {
   RECORD_DELIVERY_STATUS_VARIANTS,
   RECORD_INWARD_STATUS_LABELS,
   RECORD_INWARD_STATUS_VARIANTS,
+  DvdmsSyncType,
   RecordDeliveryItem,
   RecordDeliveryItemStatus,
   RecordDeliveryStatus,
   RecordInwardItem,
+  dvdmsErrorKey,
   isRecordDeliveryReceived,
 } from "@/types/recordOrder";
 import { SuperBatchRequestItem } from "@/types/superBatch";
@@ -382,6 +385,39 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     return byDrugId;
   }, [orderProductKnowledgeByDrugId, mappingsByDrugId]);
 
+  const { unitById, isLoading: isUnitsLoading } = useDvdmsUnits(institute?.id);
+
+  /**
+   * The DVDMS unit of each drug — the record order's own drug details first,
+   * then whatever the product mapping lookup filled in. Both carry the
+   * `unit_id` that `lookup/units/` resolves.
+   */
+  const unitIdByDrugId = useMemo(() => {
+    const byDrugId = new Map<string, string>();
+    for (const recordItem of recordOrderItems ?? []) {
+      if (recordItem.drug?.id && recordItem.drug.unit_id) {
+        byDrugId.set(recordItem.drug.id, recordItem.drug.unit_id);
+      }
+    }
+    for (const [drugId, mapping] of mappingsByDrugId ?? []) {
+      const unitId = mapping?.eaushadhi_drug_details?.unit_id;
+      if (unitId && !byDrugId.has(drugId)) byDrugId.set(drugId, unitId);
+    }
+    return byDrugId;
+  }, [recordOrderItems, mappingsByDrugId]);
+
+  const unitForDrugId = (drugId: string) => {
+    const unitId = unitIdByDrugId.get(drugId);
+    return unitId ? unitById.get(unitId) : undefined;
+  };
+
+  /**
+   * The pack size CARE stores on the product and on the supply delivery.
+   * `packSizeOf` falls back to 1 for a missing or unusable unit.
+   */
+  const packSizeForDrugId = (drugId: string) =>
+    packSizeOf(unitForDrugId(drugId));
+
   const supplyRequestByRecordItemId = useMemo(() => {
     const byRecordItemId = new Map<string, string>();
     for (const recordItem of recordOrderItems ?? []) {
@@ -392,10 +428,33 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     return byRecordItemId;
   }, [recordOrderItems]);
 
+  /** What the order asked for, from each item's CARE supply request. */
+  const requestedQuantityByRecordItemId = useMemo(() => {
+    const byRecordItemId = new Map<string, number>();
+    for (const recordItem of recordOrderItems ?? []) {
+      if (recordItem.supply_request?.quantity != null) {
+        byRecordItemId.set(
+          recordItem.id,
+          toQuantity(recordItem.supply_request.quantity),
+        );
+      }
+    }
+    return byRecordItemId;
+  }, [recordOrderItems]);
+
   const inwardItemById = useMemo(
     () => new Map(apiItems.map((item) => [item.id, item])),
     [apiItems],
   );
+
+  const requestedQuantityForInwardItem = (inwardItemId?: string) => {
+    const recordItemId = inwardItemId
+      ? inwardItemById.get(inwardItemId)?.record_order_item
+      : undefined;
+    return recordItemId
+      ? requestedQuantityByRecordItemId.get(recordItemId)
+      : undefined;
+  };
 
   const form = useForm<DeliveryItemsFormValues>({
     defaultValues: { items: [] },
@@ -414,6 +473,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     isRecordInwardsLoading ||
     isRecordOrderItemsLoading ||
     isDrugLookupPending ||
+    isUnitsLoading ||
     isLoadingSavedItems;
 
   const balanceItems = useMemo(
@@ -457,6 +517,23 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       .map(({ index }) => index);
     if (savedRowIndices.length > 0) remove(savedRowIndices);
   }, [savedInwardItemIds, fields, remove]);
+
+  /**
+   * Damaged plus missing — what the items form shows as the shortage. The API
+   * keeps the missing count alone in `quantity_short`.
+   */
+  const shortageOf = (item: RecordDeliveryItem) =>
+    toQuantity(item.quantity_damaged) + toQuantity(item.quantity_short);
+
+  /** What the order still needs: requested less what came in good condition. */
+  const remainingToFulfillOf = (item: RecordDeliveryItem) => {
+    const requested = requestedQuantityForInwardItem(
+      item.inward_record_item.id,
+    );
+    return requested == null
+      ? undefined
+      : Math.max(0, requested - toQuantity(item.quantity_accepted));
+  };
 
   const validateItems = (items: DeliveryItemFormValues[]) => {
     if (items.length === 0) {
@@ -509,7 +586,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     expiration_date: item.expiry_date,
     product_knowledge: item.product_knowledge!.slug,
     charge_item_definition: null,
-    standard_pack_size: toQuantity(item.received_quantity),
+    standard_pack_size: packSizeForDrugId(item.drug_id),
     purchase_price: 0,
     extensions: {},
   });
@@ -519,14 +596,18 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     suppliedItem: string,
   ) => {
     const quantity = toQuantity(item.received_quantity);
+    const packSize = packSizeForDrugId(item.drug_id);
     return {
       supplied_item_type: SUPPLY_DELIVERY_ITEM_TYPE,
       status: SupplyDeliveryStatus.in_progress,
       supplied_item_condition: SupplyDeliveryCondition.normal,
-      supplied_item_quantity: quantity,
+      // The good quantity is how many packs came in, the pack size is the
+      // mapped DVDMS unit's conversion value, so the stocked quantity is the
+      // two multiplied.
+      supplied_item_quantity: quantity * packSize,
       supplied_item: suppliedItem,
-      supplied_item_pack_quantity: 1,
-      supplied_item_pack_size: quantity,
+      supplied_item_pack_quantity: quantity,
+      supplied_item_pack_size: packSize,
       total_purchase_price: 0,
       supply_request: supplyRequestByRecordItemId.get(
         inwardItemById.get(item.inward_record_item)?.record_order_item ?? "",
@@ -825,10 +906,21 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
     const isReceivedChanged =
       isKept && received !== toQuantity(savedItem.quantity_accepted);
     const isExpiryChanged = isKept && item.expiry_date !== savedExpiryOf(row);
+    /**
+     * A row saved before the DVDMS unit was taken into account — or one whose
+     * mapping now resolves to a different unit — carries a pack size, and so a
+     * stocked quantity, that no longer matches. Re-saving the row corrects
+     * both, rather than leaving it to a backfill.
+     */
+    const isPackSizeChanged =
+      isKept &&
+      packSizeForDrugId(item.drug_id) !==
+        Number(product?.standard_pack_size ?? 1);
 
     const needsNewProduct =
       isReceived && (!wasReceived || isProductKnowledgeChanged);
-    const needsNewSupplyDelivery = needsNewProduct || isReceivedChanged;
+    const needsNewSupplyDelivery =
+      needsNewProduct || isReceivedChanged || isPackSizeChanged;
 
     const requests: SuperBatchRequestItem[] = [];
     const newProductRef = `edit-product-${index}`;
@@ -852,13 +944,16 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
           status: ProductStatus.entered_in_error,
         }),
       });
-    } else if (product && (isReceivedChanged || isExpiryChanged)) {
+    } else if (
+      product &&
+      (isReceivedChanged || isExpiryChanged || isPackSizeChanged)
+    ) {
       requests.push({
         reference_id: `update-product-${index}`,
         url: apis.products.detailPath(facilityId, product.id),
         method: HttpMethod.PUT,
         body: productUpdateBody(product, {
-          standard_pack_size: received,
+          standard_pack_size: packSizeForDrugId(item.drug_id),
           ...(isExpiryChanged && { expiration_date: item.expiry_date }),
         }),
       });
@@ -1111,6 +1206,33 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   const hasFailedAcknowledgement =
     recordDeliveryStatus === RecordDeliveryStatus.acknowledgement_failed;
 
+  /**
+   * Acknowledging an issue happens on the backend after the delivery is
+   * received, so a failure only shows up on a later poll — as a DVDMS error on
+   * the delivery, or on the issue it belongs to. Toast it once per failure,
+   * keyed on the sync log, so polling does not keep repeating it.
+   */
+  const acknowledgementError =
+    recordDeliveryDetail?.meta?.error ?? inwardRecord?.meta?.error;
+  const notifiedAcknowledgementErrorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (
+      !acknowledgementError ||
+      acknowledgementError.sync_type !== DvdmsSyncType.acknowledge_issue
+    ) {
+      return;
+    }
+    const errorKey =
+      acknowledgementError.sync_log_id ??
+      acknowledgementError.failed_at ??
+      acknowledgementError.code ??
+      "";
+    if (notifiedAcknowledgementErrorRef.current === errorKey) return;
+    notifiedAcknowledgementErrorRef.current = errorKey;
+    toast.error(t(dvdmsErrorKey(acknowledgementError)));
+  }, [acknowledgementError, t]);
+
   const canApproveDelivery =
     !!recordDelivery?.id &&
     !isRecordDeliveryReceived(recordDeliveryStatus) &&
@@ -1136,38 +1258,32 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
               <TableHeader className="bg-gray-100">
                 <TableRow className="divide-x divide-gray-200">
                   <TableHead
-                    colSpan={3}
+                    colSpan={4}
                     className="text-xs font-semibold text-center border-b"
                   >
                     {t("eaushadhi")}
                   </TableHead>
                   <TableHead
                     rowSpan={2}
-                    className="min-w-[200px] text-xs font-semibold"
+                    className="min-w-[210px] text-xs font-semibold"
                   >
                     {t("product_knowledge")}
                   </TableHead>
                   <TableHead
                     rowSpan={2}
-                    className="min-w-[120px] text-xs font-semibold"
+                    className="min-w-[100px] text-xs font-semibold"
                   >
-                    {t("category")}
+                    {t("requested_qty")}
                   </TableHead>
                   <TableHead
                     rowSpan={2}
-                    className="min-w-[100px] text-xs font-semibold"
+                    className="min-w-[88px] text-xs font-semibold whitespace-normal"
                   >
-                    {t("dispatched")}
+                    {t("dvdms_dispatched_qty")}
                   </TableHead>
                   <TableHead
-                    rowSpan={2}
-                    className="min-w-[100px] text-xs font-semibold"
-                  >
-                    {t("damaged")}
-                  </TableHead>
-                  <TableHead
-                    rowSpan={2}
-                    className="min-w-[100px] text-xs font-semibold"
+                    colSpan={3}
+                    className="text-xs font-semibold text-center border-b"
                   >
                     {t("received_qty")}
                   </TableHead>
@@ -1175,7 +1291,13 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     rowSpan={2}
                     className="min-w-[100px] text-xs font-semibold"
                   >
-                    {t("short")}
+                    {t("receipt_shortage")}
+                  </TableHead>
+                  <TableHead
+                    rowSpan={2}
+                    className="min-w-[92px] text-xs font-semibold whitespace-normal"
+                  >
+                    {t("remaining_qty_to_fulfill")}
                   </TableHead>
                 </TableRow>
                 <TableRow className="divide-x divide-gray-200">
@@ -1185,8 +1307,20 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   <TableHead className="min-w-[100px] text-xs font-semibold">
                     {t("batch")}
                   </TableHead>
-                  <TableHead className="min-w-[140px] text-xs font-semibold border-r">
+                  <TableHead className="min-w-[104px] text-xs font-semibold">
+                    {t("unit_pack_size")}
+                  </TableHead>
+                  <TableHead className="min-w-[112px] text-xs font-semibold border-r">
                     {t("expiry")}
+                  </TableHead>
+                  <TableHead className="min-w-[100px] text-xs font-semibold">
+                    {t("total")}
+                  </TableHead>
+                  <TableHead className="min-w-[100px] text-xs font-semibold">
+                    {t("good")}
+                  </TableHead>
+                  <TableHead className="min-w-[100px] text-xs font-semibold border-r">
+                    {t("damaged")}
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -1197,6 +1331,10 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                     form={tableForm}
                     index={index}
                     facilityId={facilityId}
+                    unit={unitForDrugId(field.drug_id)}
+                    requestedQuantity={requestedQuantityForInwardItem(
+                      field.inward_record_item,
+                    )}
                   />
                 ))}
               </TableBody>
@@ -1242,6 +1380,28 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
               {t("add_delivery_items_description")}
             </p>
           </div>
+          {canEditSavedItems && !isEditingSaved && (
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 sm:flex-none"
+                onClick={() => startEditMutation.mutate()}
+                disabled={
+                  startEditMutation.isPending ||
+                  approveDeliveryMutation.isPending
+                }
+              >
+                {startEditMutation.isPending ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <Edit className="size-4" />
+                )}
+                {t("edit")}
+                <ShortcutBadge actionId="edit-order" />
+              </Button>
+            </div>
+          )}
           {hasFailedAcknowledgement && (
             <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               <Button
@@ -1407,35 +1567,82 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                         <Table>
                           <TableHeader className="bg-gray-100">
                             <TableRow className="divide-x divide-gray-200">
-                              <TableHead className="min-w-[170px] text-xs font-semibold">
+                              <TableHead
+                                rowSpan={2}
+                                className="min-w-[170px] text-xs font-semibold"
+                              >
                                 {t("drug")}
                               </TableHead>
-                              <TableHead className="text-xs font-semibold">
+                              <TableHead
+                                rowSpan={2}
+                                className="text-xs font-semibold"
+                              >
                                 {t("batch")}
                               </TableHead>
-                              <TableHead className="text-xs font-semibold">
+                              <TableHead
+                                rowSpan={2}
+                                className="text-xs font-semibold"
+                              >
+                                {t("unit_pack_size")}
+                              </TableHead>
+                              <TableHead
+                                rowSpan={2}
+                                className="text-xs font-semibold"
+                              >
                                 {t("expiry")}
                               </TableHead>
-                              <TableHead className="min-w-[170px] text-xs font-semibold">
+                              <TableHead
+                                rowSpan={2}
+                                className="min-w-[210px] text-xs font-semibold"
+                              >
                                 {t("product_knowledge")}
                               </TableHead>
-                              <TableHead className="text-xs font-semibold">
-                                {t("category")}
+                              <TableHead
+                                rowSpan={2}
+                                className="text-xs font-semibold text-right"
+                              >
+                                {t("requested_qty")}
+                              </TableHead>
+                              <TableHead
+                                rowSpan={2}
+                                className="min-w-[88px] text-xs font-semibold text-right whitespace-normal"
+                              >
+                                {t("dvdms_dispatched_qty")}
+                              </TableHead>
+                              <TableHead
+                                colSpan={3}
+                                className="text-xs font-semibold text-center border-b"
+                              >
+                                {t("received_qty")}
+                              </TableHead>
+                              <TableHead
+                                rowSpan={2}
+                                className="text-xs font-semibold text-right"
+                              >
+                                {t("receipt_shortage")}
+                              </TableHead>
+                              <TableHead
+                                rowSpan={2}
+                                className="min-w-[92px] text-xs font-semibold text-right whitespace-normal"
+                              >
+                                {t("remaining_qty_to_fulfill")}
+                              </TableHead>
+                              <TableHead
+                                rowSpan={2}
+                                className="text-xs font-semibold"
+                              >
+                                {t("status")}
+                              </TableHead>
+                            </TableRow>
+                            <TableRow className="divide-x divide-gray-200">
+                              <TableHead className="text-xs font-semibold text-right">
+                                {t("total")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
-                                {t("dispatched")}
+                                {t("good")}
                               </TableHead>
                               <TableHead className="text-xs font-semibold text-right">
                                 {t("damaged")}
-                              </TableHead>
-                              <TableHead className="text-xs font-semibold text-right">
-                                {t("received")}
-                              </TableHead>
-                              <TableHead className="text-xs font-semibold text-right">
-                                {t("short")}
-                              </TableHead>
-                              <TableHead className="text-xs font-semibold">
-                                {t("status")}
                               </TableHead>
                             </TableRow>
                           </TableHeader>
@@ -1467,6 +1674,18 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                     {item.inward_record_item.batch_number ||
                                       "—"}
                                   </TableCell>
+                                  {/* The mapped DVDMS unit and the pack size
+                                      saved onto the product and delivery. */}
+                                  <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
+                                    {(() => {
+                                      const unit = inwardItem?.drug_id
+                                        ? unitForDrugId(inwardItem.drug_id)
+                                        : undefined;
+                                      return unit
+                                        ? `${unit.gstrUnitName} (${packSizeOf(unit)})`
+                                        : "—";
+                                    })()}
+                                  </TableCell>
                                   <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
                                     {formatDate(
                                       item.inward_record_item.expiry_date,
@@ -1475,16 +1694,30 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                   <TableCell className="p-2 text-sm text-gray-900">
                                     {item.product_knowledge?.name || "—"}
                                   </TableCell>
-                                  <TableCell className="p-2 text-sm text-gray-900 capitalize whitespace-nowrap">
-                                    {(inwardItem?.drug_id
-                                      ? productKnowledgeByDrugId.get(
-                                          inwardItem.drug_id,
-                                        )?.product_type
-                                      : undefined) || "—"}
+                                  <TableCell className="p-2 text-sm text-right tabular-nums">
+                                    {requestedQuantityForInwardItem(
+                                      item.inward_record_item.id,
+                                    ) ?? "—"}
                                   </TableCell>
                                   <TableCell className="p-2 text-sm text-right tabular-nums">
                                     {item.quantity_dispatched != null
                                       ? toQuantity(item.quantity_dispatched)
+                                      : "—"}
+                                  </TableCell>
+                                  {/* Physically received — good plus damaged. */}
+                                  <TableCell className="p-2 text-sm text-right tabular-nums">
+                                    {toQuantity(item.quantity_accepted) +
+                                      toQuantity(item.quantity_damaged)}
+                                  </TableCell>
+                                  <TableCell
+                                    className={cn(
+                                      "p-2 text-sm text-right tabular-nums",
+                                      toQuantity(item.quantity_accepted) > 0 &&
+                                        "font-semibold text-green-700",
+                                    )}
+                                  >
+                                    {item.quantity_accepted != null
+                                      ? toQuantity(item.quantity_accepted)
                                       : "—"}
                                   </TableCell>
                                   <TableCell className="p-2 text-sm text-right tabular-nums">
@@ -1492,15 +1725,21 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                       ? toQuantity(item.quantity_damaged)
                                       : "—"}
                                   </TableCell>
+                                  {/* Shortage — damaged plus missing, derived
+                                      the same way the items form shows it. */}
                                   <TableCell className="p-2 text-sm text-right tabular-nums">
-                                    {item.quantity_accepted != null
-                                      ? toQuantity(item.quantity_accepted)
-                                      : "—"}
+                                    {shortageOf(item)}
                                   </TableCell>
-                                  <TableCell className="p-2 text-sm text-right tabular-nums">
-                                    {item.quantity_short != null
-                                      ? toQuantity(item.quantity_short)
-                                      : "—"}
+                                  {/* What the order still needs: requested
+                                      less what came in good condition. */}
+                                  <TableCell
+                                    className={cn(
+                                      "p-2 text-sm text-right tabular-nums",
+                                      !!remainingToFulfillOf(item) &&
+                                        "font-semibold text-red-700",
+                                    )}
+                                  >
+                                    {remainingToFulfillOf(item) ?? "—"}
                                   </TableCell>
                                   <TableCell className="p-2">
                                     <Badge
@@ -1537,24 +1776,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                         </span>
                       </div>
                       <div className="flex flex-col-reverse gap-2 shrink-0 sm:flex-row">
-                        {canEditSavedItems && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => startEditMutation.mutate()}
-                            disabled={
-                              startEditMutation.isPending ||
-                              approveDeliveryMutation.isPending
-                            }
-                          >
-                            {startEditMutation.isPending ? (
-                              <Loader2Icon className="size-4 animate-spin" />
-                            ) : (
-                              <Edit className="size-4" />
-                            )}
-                            {t("edit")}
-                          </Button>
-                        )}
                         <Button
                           type="button"
                           onClick={() => approveDeliveryMutation.mutate()}

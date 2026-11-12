@@ -18,6 +18,20 @@ export const careExternalOrderPath = (
 ) =>
   `/facility/${facilityId}/locations/${locationId}/inventory/external/orders/outgoing/${requestOrderId}?flow=dvdms`;
 
+/**
+ * Core's print view of the same external order — the DVDMS screens print
+ * through it rather than keeping a second layout of their own.
+ *
+ * No `?flow=dvdms` here: the print view is read-only, so the plugin's footer
+ * override has nothing to add to it.
+ */
+export const careExternalOrderPrintPath = (
+  facilityId: string,
+  locationId: string,
+  requestOrderId: string,
+) =>
+  `/facility/${facilityId}/locations/${locationId}/inventory/external/orders/outgoing/${requestOrderId}/print`;
+
 export const dvdmsRecordPath = (
   facilityId: string,
   locationId: string,
@@ -34,5 +48,4 @@ export const dvdmsLinkOrderPath = (
   facilityId: string,
   locationId: string,
   requestOrderId: string,
-) =>
-  `${dvdmsBasePath(facilityId, locationId)}/new?order=${requestOrderId}`;
+) => `${dvdmsBasePath(facilityId, locationId)}/new?order=${requestOrderId}`;

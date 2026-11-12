@@ -6,12 +6,13 @@ import { LIST_FETCH_LIMIT } from "@/lib/constants";
 import { RecordDelivery, RecordInward } from "@/types/recordOrder";
 
 /**
- * The issue list can't be filtered by outward record server side, so every page
- * is needed before filtering here. The first page reports the total count; the
- * remaining pages are fetched together in a batch request.
+ * Fetches every issue of an outward record. The first page reports the total
+ * count; the remaining pages are fetched together in a batch request.
  */
-const listAllRecordInwards = async (instituteId: string) => {
+const listAllRecordInwards = async (instituteId: string, outwardId: string) => {
+  const filters = { outward_record: outwardId, ordering: "-created_at" };
   const firstPage = await apis.recordInwards.list(instituteId, {
+    ...filters,
     limit: LIST_FETCH_LIMIT,
   });
 
@@ -29,7 +30,7 @@ const listAllRecordInwards = async (instituteId: string) => {
     requests: remainingOffsets.map((offset) => ({
       url: apis.recordInwards.listPath(instituteId),
       method: HttpMethod.GET,
-      body: { limit: LIST_FETCH_LIMIT, offset },
+      body: { ...filters, limit: LIST_FETCH_LIMIT, offset },
       reference_id: `record_inwards_${offset}`,
     })),
   });
@@ -55,15 +56,11 @@ export default function useRecordInwardDeliveries(
   outwardId: string | undefined,
   { inwardRecordId }: UseRecordInwardDeliveriesOptions = {},
 ) {
-  const { data: allInwardRecords, isLoading: isInwardLoading } = useQuery({
-    queryKey: ["dvdms_record_inwards", instituteId],
-    queryFn: () => listAllRecordInwards(instituteId!),
+  const { data: inwardRecords = [], isLoading: isInwardLoading } = useQuery({
+    queryKey: ["dvdms_record_inwards", instituteId, outwardId],
+    queryFn: () => listAllRecordInwards(instituteId!, outwardId!),
     enabled: !!instituteId && !!outwardId,
   });
-
-  const inwardRecords: RecordInward[] = (allInwardRecords ?? [])
-    .filter((item) => item.outward_record === outwardId)
-    .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
   const inwardRecordIds = inwardRecords.map((record) => record.id);
 

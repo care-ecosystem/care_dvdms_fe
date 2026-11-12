@@ -1,6 +1,6 @@
 import { FC } from "react";
 import { useTranslation } from "react-i18next";
-import { UseFormReturn } from "react-hook-form";
+import { UseFormReturn, useWatch } from "react-hook-form";
 
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { cn, formatDate, toQuantity } from "@/lib/utils";
@@ -9,10 +9,12 @@ import { Input } from "@/components/ui/input";
 import { TableCell, TableRow } from "@/components/ui/table";
 import ProductKnowledgeSelect from "@/components/ProductKnowledgeSelect";
 import { useDeliveryRowItem } from "@/hooks/useDeliveryRowItem";
+import { packSizeOf } from "@/hooks/useDvdmsUnits";
 import {
   DeliveryItemFormValues,
   DeliveryItemsFormValues,
 } from "@/types/deliveryItemForm";
+import { DvdmsLookupUnit } from "@/types/dvdms_config";
 
 const QUANTITY_INPUT_CLASS = "h-9 w-full min-w-[3.5rem]";
 
@@ -20,12 +22,18 @@ type DeliveryItemRowProps = {
   form: UseFormReturn<DeliveryItemsFormValues>;
   index: number;
   facilityId: string;
+  /** The DVDMS unit the drug is mapped to — read-only, it is not the user's to pick. */
+  unit?: DvdmsLookupUnit;
+  /** What the order asked for, from the item's CARE supply request. */
+  requestedQuantity?: number;
 };
 
 const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
   form,
   index,
   facilityId,
+  unit,
+  requestedQuantity,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
@@ -37,7 +45,32 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
   const readQuantity = (field: keyof DeliveryItemFormValues) =>
     toQuantity(form.getValues(`items.${index}.${field}`) as string);
 
+  // Watched, not read once: the derived cells below have to follow the two
+  // quantities the user edits.
+  const watchedGood = useWatch({
+    control: form.control,
+    name: `items.${index}.received_quantity`,
+  });
+  const watchedDamaged = useWatch({
+    control: form.control,
+    name: `items.${index}.quantity_damaged`,
+  });
+
   const dispatched = readQuantity("quantity_dispatched");
+
+  /** What physically arrived, whatever condition it is in. */
+  const physicalReceived = toQuantity(watchedGood) + toQuantity(watchedDamaged);
+  /**
+   * Damaged plus missing — everything that cannot go into stock.
+   *
+   * Display only: the API's `quantity_short` carries the missing count alone,
+   * because the backend rejects accepted + damaged + short > dispatched.
+   */
+  const shortage = Math.max(0, dispatched - toQuantity(watchedGood));
+  const remainingToFulfill =
+    requestedQuantity != null
+      ? Math.max(0, requestedQuantity - toQuantity(watchedGood))
+      : undefined;
   const damagedLimit = Math.max(0, dispatched - readQuantity("quantity_short"));
   const receivedLimit = Math.max(
     0,
@@ -60,9 +93,6 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
     setField("quantity_short", String(total - damaged - received));
   };
 
-  const readOnlyQuantityClass =
-    "bg-gray-100 text-gray-600 disabled:opacity-100";
-
   // Product and expiry only matter for stock, so a row with nothing received skips them.
   const requiredWhenReceived = {
     validate: (value: unknown) =>
@@ -79,21 +109,20 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
           </span>
           {row.drug_id && (
             <span className="text-xs text-gray-500">
-              {t("drug_id")}: {row.drug_id}
+              {t("id")}: {row.drug_id}
             </span>
           )}
         </div>
       </TableCell>
 
-      {/* eAushadhi batch — also the lot number of the CARE product */}
       <TableCell className="align-top p-2 text-sm text-gray-900">
         {row.eaushadhi_batch || "—"}
       </TableCell>
 
-      {/*
-        eAushadhi expiry of the issued batch. It is only editable when eAushadhi
-        did not send one, since a product still needs an expiry to be created.
-      */}
+      <TableCell className="align-top p-2 text-sm text-gray-900 whitespace-nowrap">
+        {unit ? `${unit.gstrUnitName} (${packSizeOf(unit)})` : "—"}
+      </TableCell>
+
       <TableCell className="align-top p-2 text-sm text-gray-900">
         {row.eaushadhi_expiry ? (
           formatDate(row.eaushadhi_expiry)
@@ -123,7 +152,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         )}
       </TableCell>
 
-      {/* CARE product knowledge — its slug is shown once one is picked */}
+      {/* CARE product knowledge */}
       <TableCell className="align-top p-2">
         <FormField
           control={form.control}
@@ -144,31 +173,35 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   hideClearButton
                 />
               </FormControl>
-              {productKnowledge?.slug && (
+              {/* {productKnowledge?.slug && (
                 <span className="mt-1 block text-xs text-gray-500 break-all">
                   {t("slug")}: {productKnowledge.slug}
                 </span>
-              )}
+              )} */}
               <FormMessage />
             </>
           )}
         />
       </TableCell>
 
-      <TableCell className="align-top p-2">
-        <Input
-          value={productKnowledge?.product_type ?? ""}
-          placeholder="-"
-          disabled
-          readOnly
-          className="w-full min-w-0 bg-gray-50 capitalize cursor-default disabled:opacity-100 disabled:text-gray-950"
-        />
+      <TableCell className="align-top p-2 text-sm text-gray-900 tabular-nums">
+        {requestedQuantity ?? "—"}
       </TableCell>
 
+      <TableCell className="align-top p-2 text-sm text-gray-900 tabular-nums">
+        {dispatched}
+      </TableCell>
+
+      {/* Physical received — good plus damaged, derived */}
+      <TableCell className="align-top p-2 text-sm text-gray-900 tabular-nums">
+        {physicalReceived}
+      </TableCell>
+
+      {/* Received (accepted into CARE stock) */}
       <TableCell className="align-top p-2">
         <FormField
           control={form.control}
-          name={`items.${index}.quantity_dispatched`}
+          name={`items.${index}.received_quantity`}
           rules={{ required: true, min: 0 }}
           render={({ field }) => (
             <>
@@ -177,8 +210,12 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
                   {...field}
                   type="number"
                   min={0}
-                  disabled
-                  className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
+                  max={receivedLimit}
+                  onChange={(event) => {
+                    field.onChange(event);
+                    applyReceived(event.target.value);
+                  }}
+                  className={QUANTITY_INPUT_CLASS}
                 />
               </FormControl>
               <FormMessage />
@@ -214,54 +251,19 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         />
       </TableCell>
 
-      {/* Received (accepted into CARE stock) */}
-      <TableCell className="align-top p-2">
-        <FormField
-          control={form.control}
-          name={`items.${index}.received_quantity`}
-          rules={{ required: true, min: 0 }}
-          render={({ field }) => (
-            <>
-              <FormControl>
-                <Input
-                  {...field}
-                  type="number"
-                  min={0}
-                  max={receivedLimit}
-                  onChange={(event) => {
-                    field.onChange(event);
-                    applyReceived(event.target.value);
-                  }}
-                  className={QUANTITY_INPUT_CLASS}
-                />
-              </FormControl>
-              <FormMessage />
-            </>
-          )}
-        />
+      {/* Shortage — damaged plus missing, derived */}
+      <TableCell className="align-top p-2 text-sm text-gray-900 tabular-nums">
+        {shortage}
       </TableCell>
 
-      {/* Short — the dispatched balance left over once damaged and received are known */}
-      <TableCell className="align-top p-2">
-        <FormField
-          control={form.control}
-          name={`items.${index}.quantity_short`}
-          rules={{ required: true, min: 0 }}
-          render={({ field }) => (
-            <>
-              <FormControl>
-                <Input
-                  {...field}
-                  type="number"
-                  min={0}
-                  disabled
-                  className={cn(QUANTITY_INPUT_CLASS, readOnlyQuantityClass)}
-                />
-              </FormControl>
-              <FormMessage />
-            </>
-          )}
-        />
+      {/* What is still owed on the order: requested less the good quantity */}
+      <TableCell
+        className={cn(
+          "align-top p-2 text-sm text-gray-900 tabular-nums",
+          !!remainingToFulfill && "font-semibold text-red-700",
+        )}
+      >
+        {remainingToFulfill ?? "—"}
       </TableCell>
     </TableRow>
   );

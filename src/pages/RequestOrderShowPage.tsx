@@ -20,6 +20,7 @@ import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import {
+  careExternalOrderPrintPath,
   dvdmsBasePath,
   dvdmsLinkOrderPath,
   dvdmsRecordPath,
@@ -56,6 +57,7 @@ import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import { TableSkeleton } from "@/components/SkeletonLoading";
 import BackButton from "@/components/BackButton";
 import DvdmsIssuesTable from "@/components/DvdmsIssuesTable";
+import OrderSummaryTable from "@/components/OrderSummaryTable";
 import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
 import {
   ShortcutProvider,
@@ -66,6 +68,7 @@ import {
   DvdmsIndentStatus,
   RecordOrder,
   RecordOrderOutward,
+  dvdmsErrorKey,
   isRecordDeliveryReceived,
   toDvdmsIndentStatusKey,
 } from "@/types/recordOrder";
@@ -162,6 +165,13 @@ const lookupDrugToSelection = (drug: DvdmsLookupDrug): RecordItemOrderDrug => ({
   drug_category: drug.sstnum_item_cat_no,
 });
 
+/**
+ * Every toast about an order failing to reach DVDMS shares this id, so the
+ * detailed message from the outward's error replaces the generic one the
+ * mutation raised rather than stacking a second toast beside it.
+ */
+const DVDMS_SYNC_ERROR_TOAST_ID = "dvdms-sync-error";
+
 const RequestOrderShowPage: FC<RequestOrderShowPageProps> = (props) => (
   <ShortcutProvider>
     <RequestOrderShowPageContent {...props} />
@@ -186,7 +196,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   );
 
   const [currentTab, setCurrentTab] = useState<
-    "requested-items" | "dvdms-issues"
+    "requested-items" | "dvdms-issues" | "order-summary"
   >("requested-items");
 
   const [tableItems, setTableItems] = useState<SupplyRequest[]>([]);
@@ -376,6 +386,67 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     !hasStaleOutwardFailure
       ? outward.status
       : recordOrder?.status;
+
+  /**
+   * The CARE order was voided while its DVDMS indent is still open.
+   *
+   */
+  const isOrderVoided =
+    order?.status === "entered_in_error" || order?.status === "abandoned";
+  const hasOpenIndent =
+    !!outward?.eaushadhi_indent_no &&
+    !!recordOrder?.status &&
+    !["cancelled", "completed"].includes(recordOrder.status);
+  const notifiedOpenIndentRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isOrderVoided || !hasOpenIndent) return;
+
+    const indentNo = outward?.eaushadhi_indent_no ?? "";
+    if (notifiedOpenIndentRef.current === indentNo) return;
+    notifiedOpenIndentRef.current = indentNo;
+
+    toast.error(t("order_voided_with_open_indent"), {
+      description: t("order_voided_with_open_indent_description", {
+        indentNo,
+      }),
+    });
+  }, [isOrderVoided, hasOpenIndent, outward?.eaushadhi_indent_no, t]);
+
+  /**
+   * What DVDMS reported on the last failed sync, when it reported anything.
+   *
+   * Not gated on the outward's status: a sync can fail — fetching the issue,
+   * say — while the outward stays submitted, so the error is the only sign
+   * anything went wrong.
+   *
+   * Declared with the other top-level hooks, above this page's loading and
+   * not-found returns, so the hook order never changes between renders.
+   */
+  const outwardError = outward?.meta?.error;
+  const notifiedOutwardErrorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const hasFailed = displayStatus === "failed";
+    if (!outwardError && !hasFailed) return;
+
+    // One toast per failure: the outward is polled, so without this the same
+    // error would be reported every few seconds.
+    const errorKey =
+      outwardError?.sync_log_id ??
+      outwardError?.failed_at ??
+      outwardError?.code ??
+      "failed";
+    if (notifiedOutwardErrorRef.current === errorKey) return;
+    notifiedOutwardErrorRef.current = errorKey;
+
+    toast.error(
+      outwardError
+        ? t(dvdmsErrorKey(outwardError))
+        : t("record_order_failed_description"),
+      { id: DVDMS_SYNC_ERROR_TOAST_ID },
+    );
+  }, [outwardError, displayStatus, t]);
 
   const canSyncDvdmsStatus =
     !!outward?.eaushadhi_indent_no &&
@@ -753,7 +824,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       });
     },
     onError: () => {
-      toast.error(t("record_order_approve_failed"));
+      toast.error(t("record_order_approve_failed"), {
+        id: DVDMS_SYNC_ERROR_TOAST_ID,
+      });
     },
   });
 
@@ -780,7 +853,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       });
     },
     onError: () => {
-      toast.error(t("record_order_retry_failed"));
+      toast.error(t("record_order_retry_failed"), {
+        id: DVDMS_SYNC_ERROR_TOAST_ID,
+      });
     },
   });
 
@@ -1004,6 +1079,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     recordOrderStatus === "draft" || recordOrderStatus === "pending";
   const isPendingStatus = recordOrderStatus === "pending";
   const isFailedStatus = displayStatus === "failed";
+
   const isCancelledStatus = recordOrderStatus === "cancelled";
 
   const canMarkAsCompleted =
@@ -1043,7 +1119,15 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
         <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
           <Button
             variant="outline"
-            onClick={() => navigate(`${recordBasePath}/print`)}
+            onClick={() =>
+              navigate(
+                careExternalOrderPrintPath(
+                  facilityId,
+                  locationId,
+                  requestOrderId,
+                ),
+              )
+            }
           >
             <Printer className="size-4" /> {t("print")}
             <ShortcutBadge actionId="print-button" />
@@ -1101,6 +1185,28 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
             >
               <Edit className="size-4" /> {t("edit")}
               <ShortcutBadge actionId="edit-order" />
+            </Button>
+          )}
+          {isPendingStatus && !isEditingItems && (
+            <Button
+              variant="outline"
+              onClick={() => setIsEditingItems(true)}
+              disabled={approveRecordOrderMutation.isPending}
+            >
+              <Edit className="size-4" /> {t("edit")}
+              <ShortcutBadge actionId="edit-order" />
+            </Button>
+          )}
+          {isFailedStatus && (
+            <Button
+              type="button"
+              onClick={() => retryRecordOrderMutation.mutate()}
+              disabled={retryRecordOrderMutation.isPending}
+            >
+              {retryRecordOrderMutation.isPending && (
+                <Loader2Icon className="size-4 animate-spin" />
+              )}
+              {t("resend_to_dvdms")}
             </Button>
           )}
 
@@ -1911,15 +2017,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                           <div className="flex flex-col-reverse sm:flex-row gap-2 shrink-0">
                             <Button
                               type="button"
-                              variant="outline"
-                              className="w-full sm:w-auto"
-                              onClick={() => setIsEditingItems(true)}
-                              disabled={approveRecordOrderMutation.isPending}
-                            >
-                              <Edit className="size-4" /> {t("edit")}
-                            </Button>
-                            <Button
-                              type="button"
                               className="w-full sm:w-auto"
                               onClick={() =>
                                 approveRecordOrderMutation.mutate()
@@ -1934,27 +2031,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                               <ShortcutBadge actionId="link-order-eaushadhi" />
                             </Button>
                           </div>
-                        </div>
-                      )}
-
-                      {isFailedStatus && (
-                        <div className="flex flex-col sm:flex-row gap-3 justify-between bg-white p-4 sm:items-center border border-gray-200 rounded-md">
-                          <div className="flex flex-col gap-2">
-                            <p className="font-bold">
-                              {t("record_order_failed_title")}
-                            </p>
-                            <span className="text-sm text-gray-500">
-                              {t("record_order_failed_description")}
-                            </span>
-                          </div>
-                          <Button
-                            type="button"
-                            className="w-full sm:w-auto shrink-0"
-                            onClick={() => retryRecordOrderMutation.mutate()}
-                            disabled={retryRecordOrderMutation.isPending}
-                          >
-                            {t("resend_to_dvdms")}
-                          </Button>
                         </div>
                       )}
                     </div>
@@ -2002,6 +2078,28 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                         description={t("no_issues_found_description")}
                       />
                     )}
+                  </CardContent>
+                </Card>
+              ),
+            },
+            "order-summary": {
+              label: t("order_summary"),
+              component: (
+                <Card className="border-none rounded-lg">
+                  <CardContent className="space-y-4 p-4">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-950">
+                        {t("order_summary")}
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        {t("order_summary_description")}
+                      </p>
+                    </div>
+
+                    <OrderSummaryTable
+                      facilityId={facilityId}
+                      requestOrderId={requestOrderId}
+                    />
                   </CardContent>
                 </Card>
               ),

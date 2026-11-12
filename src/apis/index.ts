@@ -5,10 +5,7 @@ import {
   PaginatedResponse,
 } from "@/apis/types";
 import { request } from "@/apis/query";
-import {
-  DVDMS_SCHEMA_VERSION,
-  MAX_REQUESTS_PER_BATCH,
-} from "@/lib/constants";
+import { DVDMS_SCHEMA_VERSION, MAX_REQUESTS_PER_BATCH } from "@/lib/constants";
 import { chunk } from "@/lib/utils";
 import { Organization } from "@/types/organization";
 import { Facility } from "@/types/facility";
@@ -32,6 +29,7 @@ import {
   DvdmsLookupGroup,
   DvdmsLookupStore,
   DvdmsLookupSubgroup,
+  DvdmsLookupUnit,
   DvdmsProductMapping,
   DvdmsProductMappingCreatePayload,
   DvdmsProductMappingUpdatePayload,
@@ -71,6 +69,7 @@ import {
 import {
   SUPPLY_DELIVERY_ITEM_TYPE,
   SupplyDeliveryCreatePayload,
+  SupplyDeliveryListItem,
   SupplyDeliveryRetrieve,
   SupplyDeliveryUpsertPayload,
 } from "@/types/supplyDelivery";
@@ -164,6 +163,19 @@ export const apis = {
   },
   supplyDeliveries: {
     path: "/api/v1/supply_delivery/",
+    list: (params: {
+      facility: string;
+      request_order?: string;
+      order?: string;
+      limit?: number;
+      offset?: number;
+      ordering?: string;
+    }) =>
+      request<PaginatedResponse<SupplyDeliveryListItem>>(
+        apis.supplyDeliveries.path,
+        HttpMethod.GET,
+        { ordering: "-created_date", ...params },
+      ),
     create: (payload: SupplyDeliveryCreatePayload) =>
       request<SupplyDeliveryRetrieve>(
         apis.supplyDeliveries.path,
@@ -307,6 +319,7 @@ export const apis = {
     list: (
       instituteId: string,
       params: {
+        outward_record?: string;
         limit?: number;
         offset?: number;
         ordering?: string;
@@ -485,6 +498,11 @@ export const apis = {
         `/api/care_dvdms/institute/${instituteId}/lookup/stores/`,
         HttpMethod.GET,
       ),
+    lookupUnits: (instituteId: string) =>
+      request<DvdmsLookupUnit[]>(
+        `/api/care_dvdms/institute/${instituteId}/lookup/units/`,
+        HttpMethod.GET,
+      ),
     lookupGroups: (instituteId: string) =>
       request<DvdmsLookupGroup[]>(
         `/api/care_dvdms/institute/${instituteId}/lookup/groups/`,
@@ -568,6 +586,7 @@ export const apis = {
         eaushadhi_drug_id?: string;
         product_knowledge_id?: string;
         ordering?: string;
+        archived?: boolean;
       },
     ) =>
       request<PaginatedResponse<DvdmsProductMapping>>(
@@ -580,6 +599,20 @@ export const apis = {
         apis.productMappings.path(instituteId),
         HttpMethod.POST,
         payload,
+      ),
+    availableProductKnowledge: (
+      instituteId: string,
+      params: {
+        name?: string;
+        category?: string;
+        product_type?: string;
+        limit?: number;
+      },
+    ) =>
+      request<PaginatedResponse<ProductKnowledge>>(
+        `${apis.productMappings.path(instituteId)}available-product-knowledge/`,
+        HttpMethod.GET,
+        params,
       ),
     update: (
       instituteId: string,
@@ -639,6 +672,7 @@ export const apis = {
       offset?: number;
       category?: string;
       status?: string;
+      product_type?: string;
       include_instance?: boolean;
     }) =>
       request<PaginatedResponse<ProductKnowledge>>(

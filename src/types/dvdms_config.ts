@@ -95,6 +95,24 @@ export interface DvdmsLookupSubgroup {
   gnumIsvalid: number;
 }
 
+/**
+ * An inventory unit from DVDMS master data (`lookup/units/`). A mapped drug's
+ * `unit_id` points at one of these: the name is what the unit is called, and
+ * `gnumBaseUnitvalue` is how many base units one of them holds — the pack size.
+ */
+export interface DvdmsLookupUnit {
+  gnumUnitId: number;
+  gstrUnitName: string;
+  gnumModuleId?: number;
+  gnumBaseunitId?: number;
+  gnumUnitLevel?: number;
+  gnumDecimalAllowed?: number;
+  gnumBaseUnitvalue?: number;
+  gnumHospitalCode?: number;
+  gnumSeatid?: number;
+  gnumIsvalid?: number;
+}
+
 export interface DvdmsLookupDrug {
   hstnum_item_id: number;
   gnum_hospital_code: number;
@@ -199,12 +217,19 @@ export interface DvdmsProductMappingDrugDetails {
   drug_category: string;
 }
 
+/** Why a mapping was archived, as `archived_reason` reports it. */
+export enum DvdmsProductMappingArchiveReason {
+  product_archived = "PRODUCT_ARCHIVED",
+}
+
 export interface DvdmsProductMapping {
   id: string;
   institute_id: string;
   eaushadhi_drug_details: DvdmsProductMappingDrugDetails;
   product_knowledge: ProductKnowledge | null;
   mapping_type: string | null;
+  archived?: boolean;
+  archived_reason?: string | null;
   usage_count: number | null;
   last_used_date: string | null;
   created_by: DvdmsInstituteUser | null;

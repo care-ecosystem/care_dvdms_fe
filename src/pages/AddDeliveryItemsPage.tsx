@@ -1380,6 +1380,28 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
               {t("add_delivery_items_description")}
             </p>
           </div>
+          {canEditSavedItems && !isEditingSaved && (
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 sm:flex-none"
+                onClick={() => startEditMutation.mutate()}
+                disabled={
+                  startEditMutation.isPending ||
+                  approveDeliveryMutation.isPending
+                }
+              >
+                {startEditMutation.isPending ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <Edit className="size-4" />
+                )}
+                {t("edit")}
+                <ShortcutBadge actionId="edit-order" />
+              </Button>
+            </div>
+          )}
           {hasFailedAcknowledgement && (
             <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               <Button
@@ -1754,24 +1776,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                         </span>
                       </div>
                       <div className="flex flex-col-reverse gap-2 shrink-0 sm:flex-row">
-                        {canEditSavedItems && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => startEditMutation.mutate()}
-                            disabled={
-                              startEditMutation.isPending ||
-                              approveDeliveryMutation.isPending
-                            }
-                          >
-                            {startEditMutation.isPending ? (
-                              <Loader2Icon className="size-4 animate-spin" />
-                            ) : (
-                              <Edit className="size-4" />
-                            )}
-                            {t("edit")}
-                          </Button>
-                        )}
                         <Button
                           type="button"
                           onClick={() => approveDeliveryMutation.mutate()}

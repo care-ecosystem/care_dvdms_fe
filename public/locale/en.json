@@ -322,6 +322,7 @@
   "order_voided_with_open_indent_description": "Indent {{indentNo}} is still active on DVDMS and will not be cancelled automatically. Cancel it on the DVDMS portal so nothing is issued against this order.",
   "origin": "Origin",
   "other_tags": "Other tags",
+  "pack": "Pack",
   "pagination_page_of": "Page {{page}} of {{totalPages}}",
   "partially_received": "Partially received",
   "patient_care": "Patient Care",

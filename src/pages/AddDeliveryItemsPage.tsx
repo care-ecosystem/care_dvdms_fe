@@ -1666,8 +1666,6 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                       )}
                                     </div>
                                   </TableCell>
-                                  {/* Batch, with the mapped DVDMS unit and
-                                      pack size underneath. */}
                                   <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
                                     <div className="flex flex-col">
                                       <span>

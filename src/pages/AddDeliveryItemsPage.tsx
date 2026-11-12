@@ -2,7 +2,12 @@ import { FC, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useQueryParams } from "raviger";
-import { UseFormReturn, useFieldArray, useForm } from "react-hook-form";
+import {
+  FieldArrayWithId,
+  UseFormReturn,
+  useFieldArray,
+  useForm,
+} from "react-hook-form";
 import { ChevronLeftIcon, Edit, Loader2Icon, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -1246,7 +1251,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
 
   const renderItemsForm = (
     tableForm: UseFormReturn<DeliveryItemsFormValues>,
-    rows: { id: string }[],
+    rows: FieldArrayWithId<DeliveryItemsFormValues, "items", "id">[],
     onFormSubmit: ReturnType<typeof form.handleSubmit>,
     isSaving: boolean,
   ) => (
@@ -1258,14 +1263,14 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
               <TableHeader className="bg-gray-100">
                 <TableRow className="divide-x divide-gray-200">
                   <TableHead
-                    colSpan={4}
+                    colSpan={3}
                     className="text-xs font-semibold text-center border-b"
                   >
                     {t("eaushadhi")}
                   </TableHead>
                   <TableHead
                     rowSpan={2}
-                    className="min-w-[210px] text-xs font-semibold"
+                    className="min-w-[280px] text-xs font-semibold"
                   >
                     {t("product_knowledge")}
                   </TableHead>
@@ -1304,11 +1309,8 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                   <TableHead className="min-w-[180px] text-xs font-semibold">
                     {t("drug")}
                   </TableHead>
-                  <TableHead className="min-w-[100px] text-xs font-semibold">
+                  <TableHead className="min-w-[120px] text-xs font-semibold">
                     {t("batch")}
-                  </TableHead>
-                  <TableHead className="min-w-[104px] text-xs font-semibold">
-                    {t("unit_pack_size")}
                   </TableHead>
                   <TableHead className="min-w-[112px] text-xs font-semibold border-r">
                     {t("expiry")}
@@ -1583,17 +1585,11 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                 rowSpan={2}
                                 className="text-xs font-semibold"
                               >
-                                {t("unit_pack_size")}
-                              </TableHead>
-                              <TableHead
-                                rowSpan={2}
-                                className="text-xs font-semibold"
-                              >
                                 {t("expiry")}
                               </TableHead>
                               <TableHead
                                 rowSpan={2}
-                                className="min-w-[210px] text-xs font-semibold"
+                                className="min-w-[280px] text-xs font-semibold"
                               >
                                 {t("product_knowledge")}
                               </TableHead>
@@ -1671,20 +1667,23 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                                     </div>
                                   </TableCell>
                                   <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
-                                    {item.inward_record_item.batch_number ||
-                                      "—"}
-                                  </TableCell>
-                                  {/* The mapped DVDMS unit and the pack size
-                                      saved onto the product and delivery. */}
-                                  <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
-                                    {(() => {
-                                      const unit = inwardItem?.drug_id
-                                        ? unitForDrugId(inwardItem.drug_id)
-                                        : undefined;
-                                      return unit
-                                        ? `${unit.gstrUnitName} (${packSizeOf(unit)})`
-                                        : "—";
-                                    })()}
+                                    <div className="flex flex-col">
+                                      <span>
+                                        {item.inward_record_item.batch_number ||
+                                          "—"}
+                                      </span>
+                                      {(() => {
+                                        const unit = inwardItem?.drug_id
+                                          ? unitForDrugId(inwardItem.drug_id)
+                                          : undefined;
+                                        return unit ? (
+                                          <span className="text-xs text-gray-500">
+                                            {t("pack")}: {unit.gstrUnitName} (
+                                            {packSizeOf(unit)})
+                                          </span>
+                                        ) : null;
+                                      })()}
+                                    </div>
                                   </TableCell>
                                   <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
                                     {formatDate(

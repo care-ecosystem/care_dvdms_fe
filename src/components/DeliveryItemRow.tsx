@@ -116,12 +116,16 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
       </TableCell>
 
       <TableCell className="align-top p-2 text-sm text-gray-900">
-        {row.eaushadhi_batch || "—"}
+        <div className="flex flex-col">
+          <span>{row.eaushadhi_batch || "—"}</span>
+          {unit && (
+            <span className="text-xs text-gray-500 whitespace-nowrap">
+              {t("pack")}: {unit.gstrUnitName} ({packSizeOf(unit)})
+            </span>
+          )}
+        </div>
       </TableCell>
 
-      <TableCell className="align-top p-2 text-sm text-gray-900 whitespace-nowrap">
-        {unit ? `${unit.gstrUnitName} (${packSizeOf(unit)})` : "—"}
-      </TableCell>
 
       <TableCell className="align-top p-2 text-sm text-gray-900">
         {row.eaushadhi_expiry ? (
@@ -151,6 +155,7 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
           />
         )}
       </TableCell>
+
 
       {/* CARE product knowledge */}
       <TableCell className="align-top p-2">

@@ -406,6 +406,7 @@
   "select_product_at_row": "Select a product at row {{row}}",
   "selected_tags": "Selected tags",
   "send_order_to_dvdms": "Send to DVDMS",
+  "send_order_to_dvdms_title": "Send Order to DVDMS",
   "send_order_to_dvdms_description": "Select an approved purchase order to send as an indent to the DVDMS portal",
   "set_as_default": "Set as default",
   "settings": "Settings",

@@ -576,8 +576,13 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
       return false;
     }
 
+    const displayedRowByIndex = new Map(
+      groupFormRows(items)
+        .flatMap((group) => group.members)
+        .map(({ index }, position) => [index, position + 1]),
+    );
     for (const [index, item] of items.entries()) {
-      const row = index + 1;
+      const row = displayedRowByIndex.get(index) ?? index + 1;
 
       if (!hasQuantity(item.received_quantity)) {
         toast.error(t("received_qty_required_at_row", { row }));
@@ -1279,24 +1284,18 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   const canEditSavedItems =
     canApproveDelivery && pendingSavedItems.length === savedItems.length;
 
-  const groupFormRows = (
-    rows: FieldArrayWithId<DeliveryItemsFormValues, "items", "id">[],
+  const groupFormRows = <T extends { inward_record_item: string }>(
+    rows: T[],
   ) => {
     const groups = new Map<
       string,
-      {
-        recordItemId?: string;
-        members: {
-          field: FieldArrayWithId<DeliveryItemsFormValues, "items", "id">;
-          index: number;
-        }[];
-      }
+      { recordItemId?: string; members: { field: T; index: number }[] }
     >();
     rows.forEach((field, index) => {
       const recordItemId = inwardItemById.get(
         field.inward_record_item,
       )?.record_order_item;
-      const key = recordItemId ?? field.id;
+      const key = recordItemId ?? `row-${index}`;
       const group = groups.get(key) ?? { recordItemId, members: [] };
       group.members.push({ field, index });
       groups.set(key, group);

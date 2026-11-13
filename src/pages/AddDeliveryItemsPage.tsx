@@ -530,14 +530,44 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   const shortageOf = (item: RecordDeliveryItem) =>
     toQuantity(item.quantity_damaged) + toQuantity(item.quantity_short);
 
+  const savedItemGroups = useMemo(() => {
+    const groups = new Map<string, RecordDeliveryItem[]>();
+    for (const item of savedItems) {
+      const key =
+        inwardItemById.get(item.inward_record_item.id)?.record_order_item ??
+        item.id;
+      groups.set(key, [...(groups.get(key) ?? []), item]);
+    }
+    return [...groups.values()];
+  }, [savedItems, inwardItemById]);
+
+  const savedAcceptedByRecordItemId = useMemo(() => {
+    const byRecordItemId = new Map<string, number>();
+    for (const item of savedItems) {
+      const recordItemId = inwardItemById.get(
+        item.inward_record_item.id,
+      )?.record_order_item;
+      if (recordItemId) {
+        byRecordItemId.set(
+          recordItemId,
+          (byRecordItemId.get(recordItemId) ?? 0) +
+            toQuantity(item.quantity_accepted),
+        );
+      }
+    }
+    return byRecordItemId;
+  }, [savedItems, inwardItemById]);
+
   /** What the order still needs: requested less what came in good condition. */
-  const remainingToFulfillOf = (item: RecordDeliveryItem) => {
+  const remainingToFulfillOf = (group: RecordDeliveryItem[]) => {
     const requested = requestedQuantityForInwardItem(
-      item.inward_record_item.id,
+      group[0].inward_record_item.id,
     );
-    return requested == null
-      ? undefined
-      : Math.max(0, requested - toQuantity(item.quantity_accepted));
+    const accepted = group.reduce(
+      (total, item) => total + toQuantity(item.quantity_accepted),
+      0,
+    );
+    return requested == null ? undefined : Math.max(0, requested - accepted);
   };
 
   const validateItems = (items: DeliveryItemFormValues[]) => {
@@ -1249,11 +1279,37 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
   const canEditSavedItems =
     canApproveDelivery && pendingSavedItems.length === savedItems.length;
 
+  const groupFormRows = (
+    rows: FieldArrayWithId<DeliveryItemsFormValues, "items", "id">[],
+  ) => {
+    const groups = new Map<
+      string,
+      {
+        recordItemId?: string;
+        members: {
+          field: FieldArrayWithId<DeliveryItemsFormValues, "items", "id">;
+          index: number;
+        }[];
+      }
+    >();
+    rows.forEach((field, index) => {
+      const recordItemId = inwardItemById.get(
+        field.inward_record_item,
+      )?.record_order_item;
+      const key = recordItemId ?? field.id;
+      const group = groups.get(key) ?? { recordItemId, members: [] };
+      group.members.push({ field, index });
+      groups.set(key, group);
+    });
+    return [...groups.values()];
+  };
+
   const renderItemsForm = (
     tableForm: UseFormReturn<DeliveryItemsFormValues>,
     rows: FieldArrayWithId<DeliveryItemsFormValues, "items", "id">[],
     onFormSubmit: ReturnType<typeof form.handleSubmit>,
     isSaving: boolean,
+    countSavedAccepted: boolean,
   ) => (
     <Form {...tableForm}>
       <form onSubmit={onFormSubmit} className="space-y-6">
@@ -1327,18 +1383,26 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((field, index) => (
-                  <DeliveryItemRow
-                    key={field.id}
-                    form={tableForm}
-                    index={index}
-                    facilityId={facilityId}
-                    unit={unitForDrugId(field.drug_id)}
-                    requestedQuantity={requestedQuantityForInwardItem(
-                      field.inward_record_item,
-                    )}
-                  />
-                ))}
+                {groupFormRows(rows).flatMap(({ recordItemId, members }) =>
+                  members.map(({ field, index }) => (
+                    <DeliveryItemRow
+                      key={field.id}
+                      form={tableForm}
+                      index={index}
+                      facilityId={facilityId}
+                      unit={unitForDrugId(field.drug_id)}
+                      requestedQuantity={requestedQuantityForInwardItem(
+                        field.inward_record_item,
+                      )}
+                      groupIndices={members.map((member) => member.index)}
+                      acceptedOutsideForm={
+                        countSavedAccepted && recordItemId
+                          ? savedAcceptedByRecordItemId.get(recordItemId)
+                          : undefined
+                      }
+                    />
+                  )),
+                )}
               </TableBody>
             </Table>
           </div>
@@ -1562,6 +1626,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                       editFields,
                       onSaveEdit,
                       saveEditMutation.isPending,
+                      false,
                     )
                   ) : (
                     <div className="rounded-md border border-gray-200 bg-white overflow-hidden">
@@ -1643,122 +1708,142 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {savedItems.map((item) => {
-                              const inwardItem = inwardItemById.get(
-                                item.inward_record_item.id,
-                              );
+                            {savedItemGroups.flatMap((group) =>
+                              group.map((item, indexInGroup) => {
+                                const inwardItem = inwardItemById.get(
+                                  item.inward_record_item.id,
+                                );
+                                const remaining =
+                                  indexInGroup === 0
+                                    ? remainingToFulfillOf(group)
+                                    : undefined;
 
-                              return (
-                                <TableRow
-                                  key={item.id}
-                                  className="divide-x divide-gray-200"
-                                >
-                                  <TableCell className="p-2 text-sm text-gray-900">
-                                    <div className="flex flex-col whitespace-normal">
-                                      <span>
-                                        {item.inward_record_item.item_name ||
-                                          "—"}
-                                      </span>
-                                      {inwardItem?.drug_id && (
-                                        <span className="text-xs text-gray-500">
-                                          {t("drug_id")}: {inwardItem.drug_id}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
-                                    <div className="flex flex-col">
-                                      <span>
-                                        {item.inward_record_item.batch_number ||
-                                          "—"}
-                                      </span>
-                                      {(() => {
-                                        const unit = inwardItem?.drug_id
-                                          ? unitForDrugId(inwardItem.drug_id)
-                                          : undefined;
-                                        return unit ? (
-                                          <span className="text-xs text-gray-500">
-                                            {t("pack")}: {unit.gstrUnitName} (
-                                            {packSizeOf(unit)})
+                                return (
+                                  <TableRow
+                                    key={item.id}
+                                    className="divide-x divide-gray-200"
+                                  >
+                                    {indexInGroup === 0 && (
+                                      <TableCell
+                                        rowSpan={group.length}
+                                        className="p-2 text-sm text-gray-900"
+                                      >
+                                        <div className="flex flex-col whitespace-normal">
+                                          <span>
+                                            {item.inward_record_item
+                                              .item_name || "—"}
                                           </span>
-                                        ) : null;
-                                      })()}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
-                                    {formatDate(
-                                      item.inward_record_item.expiry_date,
+                                          {inwardItem?.drug_id && (
+                                            <span className="text-xs text-gray-500">
+                                              {t("drug_id")}:{" "}
+                                              {inwardItem.drug_id}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </TableCell>
                                     )}
-                                  </TableCell>
-                                  <TableCell className="p-2 text-sm text-gray-900">
-                                    {item.product_knowledge?.name || "—"}
-                                  </TableCell>
-                                  <TableCell className="p-2 text-sm text-right tabular-nums">
-                                    {requestedQuantityForInwardItem(
-                                      item.inward_record_item.id,
-                                    ) ?? "—"}
-                                  </TableCell>
-                                  <TableCell className="p-2 text-sm text-right tabular-nums">
-                                    {item.quantity_dispatched != null
-                                      ? toQuantity(item.quantity_dispatched)
-                                      : "—"}
-                                  </TableCell>
-                                  {/* Physically received — good plus damaged. */}
-                                  <TableCell className="p-2 text-sm text-right tabular-nums">
-                                    {toQuantity(item.quantity_accepted) +
-                                      toQuantity(item.quantity_damaged)}
-                                  </TableCell>
-                                  <TableCell
-                                    className={cn(
-                                      "p-2 text-sm text-right tabular-nums",
-                                      toQuantity(item.quantity_accepted) > 0 &&
-                                        "font-semibold text-green-700",
-                                    )}
-                                  >
-                                    {item.quantity_accepted != null
-                                      ? toQuantity(item.quantity_accepted)
-                                      : "—"}
-                                  </TableCell>
-                                  <TableCell className="p-2 text-sm text-right tabular-nums">
-                                    {item.quantity_damaged != null
-                                      ? toQuantity(item.quantity_damaged)
-                                      : "—"}
-                                  </TableCell>
-                                  {/* Shortage — damaged plus missing, derived
-                                      the same way the items form shows it. */}
-                                  <TableCell className="p-2 text-sm text-right tabular-nums">
-                                    {shortageOf(item)}
-                                  </TableCell>
-                                  {/* What the order still needs: requested
-                                      less what came in good condition. */}
-                                  <TableCell
-                                    className={cn(
-                                      "p-2 text-sm text-right tabular-nums",
-                                      !!remainingToFulfillOf(item) &&
-                                        "font-semibold text-red-700",
-                                    )}
-                                  >
-                                    {remainingToFulfillOf(item) ?? "—"}
-                                  </TableCell>
-                                  <TableCell className="p-2">
-                                    <Badge
-                                      className="rounded-sm"
-                                      variant={
-                                        RECORD_DELIVERY_ITEM_STATUS_VARIANTS[
-                                          item.status
-                                        ] ?? "secondary"
-                                      }
-                                    >
-                                      {t(
-                                        RECORD_DELIVERY_ITEM_STATUS_LABELS[
-                                          item.status
-                                        ] ?? item.status,
+                                    <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
+                                      <div className="flex flex-col">
+                                        <span>
+                                          {item.inward_record_item
+                                            .batch_number || "—"}
+                                        </span>
+                                        {(() => {
+                                          const unit = inwardItem?.drug_id
+                                            ? unitForDrugId(inwardItem.drug_id)
+                                            : undefined;
+                                          return unit ? (
+                                            <span className="text-xs text-gray-500">
+                                              {t("pack")}: {unit.gstrUnitName} (
+                                              {packSizeOf(unit)})
+                                            </span>
+                                          ) : null;
+                                        })()}
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="p-2 text-sm text-gray-900 whitespace-nowrap">
+                                      {formatDate(
+                                        item.inward_record_item.expiry_date,
                                       )}
-                                    </Badge>
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
+                                    </TableCell>
+                                    <TableCell className="p-2 text-sm text-gray-900">
+                                      {item.product_knowledge?.name || "—"}
+                                    </TableCell>
+                                    {indexInGroup === 0 && (
+                                      <TableCell
+                                        rowSpan={group.length}
+                                        className="p-2 text-sm text-right tabular-nums"
+                                      >
+                                        {requestedQuantityForInwardItem(
+                                          item.inward_record_item.id,
+                                        ) ?? "—"}
+                                      </TableCell>
+                                    )}
+                                    <TableCell className="p-2 text-sm text-right tabular-nums">
+                                      {item.quantity_dispatched != null
+                                        ? toQuantity(item.quantity_dispatched)
+                                        : "—"}
+                                    </TableCell>
+                                    {/* Physically received — good plus damaged. */}
+                                    <TableCell className="p-2 text-sm text-right tabular-nums">
+                                      {toQuantity(item.quantity_accepted) +
+                                        toQuantity(item.quantity_damaged)}
+                                    </TableCell>
+                                    <TableCell
+                                      className={cn(
+                                        "p-2 text-sm text-right tabular-nums",
+                                        toQuantity(item.quantity_accepted) >
+                                          0 && "font-semibold text-green-700",
+                                      )}
+                                    >
+                                      {item.quantity_accepted != null
+                                        ? toQuantity(item.quantity_accepted)
+                                        : "—"}
+                                    </TableCell>
+                                    <TableCell className="p-2 text-sm text-right tabular-nums">
+                                      {item.quantity_damaged != null
+                                        ? toQuantity(item.quantity_damaged)
+                                        : "—"}
+                                    </TableCell>
+                                    {/* Shortage — damaged plus missing, derived
+                                      the same way the items form shows it. */}
+                                    <TableCell className="p-2 text-sm text-right tabular-nums">
+                                      {shortageOf(item)}
+                                    </TableCell>
+                                    {/* What the order still needs: requested
+                                        less what came in good condition. */}
+                                    {indexInGroup === 0 && (
+                                      <TableCell
+                                        rowSpan={group.length}
+                                        className={cn(
+                                          "p-2 text-sm text-right tabular-nums",
+                                          !!remaining &&
+                                            "font-semibold text-red-700",
+                                        )}
+                                      >
+                                        {remaining ?? "—"}
+                                      </TableCell>
+                                    )}
+                                    <TableCell className="p-2">
+                                      <Badge
+                                        className="rounded-sm"
+                                        variant={
+                                          RECORD_DELIVERY_ITEM_STATUS_VARIANTS[
+                                            item.status
+                                          ] ?? "secondary"
+                                        }
+                                      >
+                                        {t(
+                                          RECORD_DELIVERY_ITEM_STATUS_LABELS[
+                                            item.status
+                                          ] ?? item.status,
+                                        )}
+                                      </Badge>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              }),
+                            )}
                           </TableBody>
                         </Table>
                       </div>
@@ -1801,7 +1886,7 @@ const AddDeliveryItemsPageContent: FC<AddDeliveryItemsPageProps> = ({
             {fields.length > 0 && (
               <Card className="bg-gray-50 py-4 rounded-md">
                 <CardContent className="space-y-4">
-                  {renderItemsForm(form, fields, onSubmit, isProcessing)}
+                  {renderItemsForm(form, fields, onSubmit, isProcessing, true)}
                 </CardContent>
               </Card>
             )}

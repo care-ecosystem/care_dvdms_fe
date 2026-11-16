@@ -8,11 +8,7 @@ import { toast } from "sonner";
 import { apis } from "@/apis";
 import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
-import {
-  ACKNOWLEDGEMENT_POLL_INTERVAL_MS,
-  I18N_NAMESPACE,
-  LIST_FETCH_LIMIT,
-} from "@/lib/constants";
+import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
 import { TableSkeleton } from "@/components/SkeletonLoading";
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
@@ -232,14 +228,6 @@ const DvdmsIssuesTable: FC<DvdmsIssuesTableProps> = ({
         return response.results;
       },
       enabled: !!instituteId && hasIssueDeliveries,
-      refetchInterval: (query) =>
-        query.state.data?.some(
-          (result) =>
-            (result.data as RecordDeliveryDetail | undefined)?.status ===
-            RecordDeliveryStatus.received,
-        )
-          ? ACKNOWLEDGEMENT_POLL_INTERVAL_MS
-          : false,
     });
 
   const deliveryDetailByIssueId = new Map<

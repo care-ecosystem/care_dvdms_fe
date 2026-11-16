@@ -26,6 +26,8 @@ type DeliveryItemRowProps = {
   unit?: DvdmsLookupUnit;
   /** What the order asked for, from the item's CARE supply request. */
   requestedQuantity?: number;
+  groupIndices: number[];
+  acceptedOutsideForm?: number;
 };
 
 const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
@@ -34,6 +36,8 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
   facilityId,
   unit,
   requestedQuantity,
+  groupIndices,
+  acceptedOutsideForm = 0,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
@@ -56,6 +60,14 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
     name: `items.${index}.quantity_damaged`,
   });
 
+  const watchedGroupGood = useWatch({
+    control: form.control,
+    name: groupIndices.map(
+      (groupIndex) => `items.${groupIndex}.received_quantity` as const,
+    ),
+  });
+  const isFirstInGroup = groupIndices[0] === index;
+
   const dispatched = readQuantity("quantity_dispatched");
 
   /** What physically arrived, whatever condition it is in. */
@@ -69,7 +81,13 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
   const shortage = Math.max(0, dispatched - toQuantity(watchedGood));
   const remainingToFulfill =
     requestedQuantity != null
-      ? Math.max(0, requestedQuantity - toQuantity(watchedGood))
+      ? Math.max(
+          0,
+          watchedGroupGood.reduce(
+            (remaining, good) => remaining - toQuantity(good),
+            requestedQuantity - acceptedOutsideForm,
+          ),
+        )
       : undefined;
   const damagedLimit = Math.max(0, dispatched - readQuantity("quantity_short"));
   const receivedLimit = Math.max(
@@ -102,18 +120,20 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
   return (
     <TableRow className="divide-x divide-gray-200 hover:bg-gray-50/50">
       {/* eAushadhi drug */}
-      <TableCell className="align-top p-2">
-        <div className="flex flex-col whitespace-normal">
-          <span className="text-sm font-medium text-gray-900">
-            {row.drug_name || "—"}
-          </span>
-          {row.drug_id && (
-            <span className="text-xs text-gray-500">
-              {t("id")}: {row.drug_id}
+      {isFirstInGroup && (
+        <TableCell rowSpan={groupIndices.length} className="align-top p-2">
+          <div className="flex flex-col whitespace-normal">
+            <span className="text-sm font-medium text-gray-900">
+              {row.drug_name || "—"}
             </span>
-          )}
-        </div>
-      </TableCell>
+            {row.drug_id && (
+              <span className="text-xs text-gray-500">
+                {t("id")}: {row.drug_id}
+              </span>
+            )}
+          </div>
+        </TableCell>
+      )}
 
       <TableCell className="align-top p-2 text-sm text-gray-900">
         <div className="flex flex-col">
@@ -189,9 +209,14 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
         />
       </TableCell>
 
-      <TableCell className="align-top p-2 text-sm text-gray-900 tabular-nums">
-        {requestedQuantity ?? "—"}
-      </TableCell>
+      {isFirstInGroup && (
+        <TableCell
+          rowSpan={groupIndices.length}
+          className="align-top p-2 text-sm text-gray-900 tabular-nums"
+        >
+          {requestedQuantity ?? "—"}
+        </TableCell>
+      )}
 
       <TableCell className="align-top p-2 text-sm text-gray-900 tabular-nums">
         {dispatched}
@@ -262,14 +287,17 @@ const DeliveryItemRow: FC<DeliveryItemRowProps> = ({
       </TableCell>
 
       {/* What is still owed on the order: requested less the good quantity */}
-      <TableCell
-        className={cn(
-          "align-top p-2 text-sm text-gray-900 tabular-nums",
-          !!remainingToFulfill && "font-semibold text-red-700",
-        )}
-      >
-        {remainingToFulfill ?? "—"}
-      </TableCell>
+      {isFirstInGroup && (
+        <TableCell
+          rowSpan={groupIndices.length}
+          className={cn(
+            "align-top p-2 text-sm text-gray-900 tabular-nums",
+            !!remainingToFulfill && "font-semibold text-red-700",
+          )}
+        >
+          {remainingToFulfill ?? "—"}
+        </TableCell>
+      )}
     </TableRow>
   );
 };

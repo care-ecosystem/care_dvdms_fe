@@ -101,11 +101,6 @@ const MAX_ITEMS_PER_BATCH = 50;
 const DVDMS_SUBMISSION_POLL_INTERVAL_MS = 5_000;
 const DVDMS_SUBMISSION_POLL_WINDOW_MS = 2 * 60 * 1_000;
 
-const DVDMS_INDENT_STATUS_POLL_INTERVAL_MS = 15_000;
-const DVDMS_INDENT_STATUS_POLL_MAX_INTERVAL_MS = 2 * 60 * 1_000;
-const DVDMS_INDENT_STATUS_POLL_WINDOW_MS = 10 * 60 * 1_000;
-const DVDMS_INDENT_STATUS_POLL_MAX_FAILURES = 2;
-
 const drugsKey = (groupId: number, subgroupId?: number) =>
   `${groupId}:${subgroupId ?? ""}`;
 
@@ -927,10 +922,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     },
   });
 
-  const [indentStatusPollFailures, setIndentStatusPollFailures] = useState(0);
-  const [hasPollWindowElapsed, setHasPollWindowElapsed] = useState(false);
-  const isFetchingInwardsRef = useRef(false);
-
   const fetchInwardsMutation = useMutation({
     mutationFn: () => {
       if (!institute?.id || !recordOrder?.id) {
@@ -938,14 +929,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       }
       return apis.recordOrderOutward.fetchInwards(institute.id, recordOrder.id);
     },
-    onMutate: () => {
-      isFetchingInwardsRef.current = true;
-    },
-    onSettled: () => {
-      isFetchingInwardsRef.current = false;
-    },
     onSuccess: () => {
-      setIndentStatusPollFailures(0);
       queryClient.invalidateQueries({
         queryKey: [
           "dvdms_record_order_outward",
@@ -955,11 +939,11 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       });
       queryClient.invalidateQueries({ queryKey: ["dvdms_record_inwards"] });
       queryClient.invalidateQueries({
+        queryKey: ["dvdms_record_delivery_detail"],
+      });
+      queryClient.invalidateQueries({
         queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
       });
-    },
-    onError: () => {
-      setIndentStatusPollFailures((previous) => previous + 1);
     },
   });
   const indentStatus = outward?.eaushadhi_indent_status
@@ -969,49 +953,28 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     indentStatus === DvdmsIndentStatus.issued &&
     !isInwardsLoading &&
     dvdmsIssues.length === 0;
-  /**
-   * Pull while the indent is pending or in process, then until the first issue
-   * is fetched. Any other indent status is final.
-   */
-  const shouldPollDvdms =
-    canSyncDvdmsStatus &&
-    outward?.status !== "failed" &&
-    (!indentStatus ||
-      indentStatus === DvdmsIndentStatus.issue_in_process ||
-      isAwaitingFirstIssue) &&
-    indentStatusPollFailures < DVDMS_INDENT_STATUS_POLL_MAX_FAILURES &&
-    !hasPollWindowElapsed;
 
-  const { mutate: fetchInwards } = fetchInwardsMutation;
+  const [isRefreshingInwards, setIsRefreshingInwards] = useState(false);
 
   /**
-   * Issuing can take long, so the wait doubles after every pull up to a cap.
-   * Polling gives up after a window; the manual sync button still works.
+   * Re-reads the issues DVDMS has already sent, without asking DVDMS for them again.
    */
-  useEffect(() => {
-    if (!shouldPollDvdms) return;
-
-    const deadline = Date.now() + DVDMS_INDENT_STATUS_POLL_WINDOW_MS;
-    let delay = DVDMS_INDENT_STATUS_POLL_INTERVAL_MS;
-    let timer: ReturnType<typeof setTimeout>;
-    const pull = () => {
-      if (Date.now() >= deadline) {
-        setHasPollWindowElapsed(true);
-        return;
-      }
-      // A tick skipped for an in-flight fetch retries without backing off.
-      const skipped = isFetchingInwardsRef.current;
-      if (!skipped) fetchInwards();
-      timer = setTimeout(pull, delay);
-      if (!skipped) {
-        delay = Math.min(delay * 2, DVDMS_INDENT_STATUS_POLL_MAX_INTERVAL_MS);
-      }
-    };
-
-    pull();
-    return () => clearTimeout(timer);
-  }, [shouldPollDvdms, fetchInwards]);
-
+  const refreshInwards = async () => {
+    if (isRefreshingInwards) return;
+    setIsRefreshingInwards(true);
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_record_inwards", institute?.id, outward?.id],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["dvdms_record_deliveries", institute?.id],
+        }),
+      ]);
+    } finally {
+      setIsRefreshingInwards(false);
+    }
+  };
   const handleSupplyDeliveryAction = (action: string) => {
     if (action !== "save") return;
     if (isSavingItemsRef.current) return;
@@ -1147,17 +1110,22 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
             <Button
               variant="primary"
               onClick={() =>
-                fetchInwardsMutation.mutate(undefined, {
-                  onSuccess: () => toast.success(t("eaushadhi_status_synced")),
-                  onError: () => toast.error(t("eaushadhi_status_sync_failed")),
-                })
+                isAwaitingFirstIssue
+                  ? refreshInwards()
+                  : fetchInwardsMutation.mutate(undefined, {
+                      onSuccess: () =>
+                        toast.success(t("eaushadhi_status_synced")),
+                      onError: () =>
+                        toast.error(t("eaushadhi_status_sync_failed")),
+                    })
               }
-              disabled={fetchInwardsMutation.isPending}
+              disabled={fetchInwardsMutation.isPending || isRefreshingInwards}
             >
               <RefreshCw
                 className={cn(
                   "size-4",
-                  fetchInwardsMutation.isPending && "animate-spin",
+                  (fetchInwardsMutation.isPending || isRefreshingInwards) &&
+                    "animate-spin",
                 )}
               />{" "}
               {t("fetch_dvdms_status")}
@@ -1333,7 +1301,11 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                     {t("eaushadhi_indent_status")}
                   </label>
                   <div>
-                    {outward.eaushadhi_indent_status ? (
+                    {isAwaitingFirstIssue ? (
+                      <Badge variant="yellow" className="rounded-sm">
+                        {t("processing_received_issue")}
+                      </Badge>
+                    ) : outward.eaushadhi_indent_status ? (
                       <DvdmsIssueStatusBadge
                         status={outward.eaushadhi_indent_status}
                       />
@@ -2063,7 +2035,8 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
                         issues={dvdmsIssues}
                         recordBasePath={recordBasePath}
                       />
-                    ) : isAwaitingFirstIssue && shouldPollDvdms ? (
+                    ) : isAwaitingFirstIssue &&
+                      fetchInwardsMutation.isPending ? (
                       <EmptyState
                         icon={
                           <Loader2Icon className="text-primary size-6 animate-spin" />

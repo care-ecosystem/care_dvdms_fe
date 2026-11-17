@@ -630,6 +630,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                             size="icon"
                             className="absolute top-1 right-1 size-6"
                             aria-label={t("remove")}
+                            disabled={isSaving}
                             onClick={() => removeSubstore(index)}
                           >
                             <XIcon className="size-4" />

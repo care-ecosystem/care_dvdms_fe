@@ -125,6 +125,8 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
 
   const { mutate: saveInstitute, isPending: isSaving } = useMutation({
     mutationFn: async (payload: DvdmsInstitutePayload) => {
+      const row = form.getValues("mapping");
+      const substores = form.getValues("substores");
       let savedInstitute;
       try {
         savedInstitute = institute
@@ -136,8 +138,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
 
       if (hasInstitute) {
         try {
-          const row = form.getValues("mapping");
-
           if (row.store_mapping_id) {
             await apis.storeMappings.update(
               facilityId,
@@ -188,7 +188,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
             form.setValue("mapping.supplier_mapping_id", created.id);
           }
 
-          const substores = form.getValues("substores");
           for (const [index, substore] of substores.entries()) {
             const payload = {
               store: substore.location!.id,

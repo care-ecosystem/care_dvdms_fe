@@ -2,11 +2,11 @@ import { FC, useEffect, useMemo, useState } from "react";
 import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Loader2Icon } from "lucide-react";
+import { Loader2Icon, PlusIcon, XIcon } from "lucide-react";
 
 import { apis } from "@/apis";
 import { I18N_NAMESPACE } from "@/lib/constants";
@@ -50,6 +50,7 @@ import {
   DvdmsFacilityConfig,
   DvdmsInstitutePayload,
   DvdmsLookupStore,
+  DvdmsStoreMeta,
   DvdmsSupplierMapping,
 } from "@/types/dvdms_config";
 import { LocationRead } from "@/types/location";
@@ -96,6 +97,20 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   });
   const storeOptions = stores ?? EMPTY_STORES;
 
+  const storeMeta = (storeId: string): DvdmsStoreMeta | undefined => {
+    const store = storeOptions.find(
+      (option) => String(option.hstnumStoreId) === storeId,
+    );
+    return (
+      store && {
+        sststrTypeName: store.sststrTypeName,
+        hstnumParentStoreId: store.hstnumParentStoreId,
+        hststrParentStoreName: store.hststrParentStoreName,
+        parentTypeName: store.parentTypeName,
+      }
+    );
+  };
+
   const { data: storeMappingsData } = useQuery({
     queryKey: ["dvdms_store_mappings", facilityId, institute?.id],
     queryFn: () => apis.storeMappings.list(facilityId, institute!.id),
@@ -132,6 +147,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 store: row.location?.id,
                 eaushadhi_store_id: row.eaushadhi_store_id,
                 eaushadhi_store_name: row.eaushadhi_store_name,
+                meta: storeMeta(row.eaushadhi_store_id),
               },
             );
           } else if (row.location) {
@@ -143,6 +159,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 eaushadhi_store_id: row.eaushadhi_store_id,
                 eaushadhi_store_name: row.eaushadhi_store_name,
                 is_default: true,
+                meta: storeMeta(row.eaushadhi_store_id),
               },
             );
             form.setValue("mapping.store_mapping_id", created.id);
@@ -170,6 +187,31 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
             );
             form.setValue("mapping.supplier_mapping_id", created.id);
           }
+
+          const substores = form.getValues("substores");
+          for (const [index, substore] of substores.entries()) {
+            const payload = {
+              store: substore.location!.id,
+              eaushadhi_store_id: substore.eaushadhi_store_id,
+              eaushadhi_store_name: substore.eaushadhi_store_name,
+              meta: storeMeta(substore.eaushadhi_store_id),
+            };
+            if (substore.store_mapping_id) {
+              await apis.storeMappings.update(
+                facilityId,
+                savedInstitute.id,
+                substore.store_mapping_id,
+                payload,
+              );
+            } else {
+              const created = await apis.storeMappings.create(
+                facilityId,
+                savedInstitute.id,
+                { ...payload, is_default: false },
+              );
+              form.setValue(`substores.${index}.store_mapping_id`, created.id);
+            }
+          }
         } catch (error: unknown) {
           throw new Error(getErrorMessage(error) || t("dvdms_mapping_save_error"));
         }
@@ -189,8 +231,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         queryKey: ["dvdms_supplier_mappings", savedInstitute.id],
       });
     },
-    onError: (error: { message?: string }) =>
-      toast.error(error?.message || t("dvdms_mapping_save_error")),
   });
 
   const formSchema = useMemo(() => {
@@ -225,6 +265,17 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         store_mapping_id: z.custom<string | undefined>(),
         supplier_mapping_id: z.custom<string | undefined>(),
       }),
+      substores: z.array(
+        z.object({
+          eaushadhi_store_id: z.string().min(1, t("eaushadhi_store_required")),
+          eaushadhi_store_name: z.custom<string>(),
+          location: z.custom<LocationRead | null>(
+            (value) => !!value,
+            t("location_required"),
+          ),
+          store_mapping_id: z.custom<string | undefined>(),
+        }),
+      ),
     });
   }, [t, hasInstitute]);
 
@@ -235,9 +286,15 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       eaushadhi_user_ref_id: "",
       eaushadhi_institute_name: "",
       mapping: EMPTY_MAPPING,
+      substores: [],
     },
   });
   const isDirty = form.formState.isDirty;
+  const {
+    fields: substoreFields,
+    append: appendSubstore,
+    remove: removeSubstore,
+  } = useFieldArray({ control: form.control, name: "substores" });
 
   useEffect(() => {
     if (!institute || isDirty) return;
@@ -253,7 +310,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     if (!institute || isDirty) return;
     if (!storeMappingsData || !supplierMappingsData) return;
 
-    const store = storeMappingsData.results[0];
+    const store = storeMappingsData.results.find((s) => s.is_default);
     const supplier = supplierMappingsData.results[0];
     if (store || supplier) {
       const mapping: DvdmsSupplierMapping = {
@@ -268,6 +325,17 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       };
       form.setValue("mapping", mapping);
     }
+    form.setValue(
+      "substores",
+      storeMappingsData.results
+        .filter((s) => !s.is_default)
+        .map((s) => ({
+          eaushadhi_store_id: s.eaushadhi_store_id,
+          eaushadhi_store_name: s.eaushadhi_store_name,
+          location: s.store,
+          store_mapping_id: s.id,
+        })),
+    );
   }, [institute, isDirty, storeMappingsData, supplierMappingsData]);
 
   const { data: suppliersData } = useQuery({
@@ -549,6 +617,103 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                         </div>
                       </div>
                     </div>
+
+                    {substoreFields.map((substore, index) => (
+                      <div
+                        key={substore.id}
+                        className="relative border border-gray-200 rounded-lg p-3 pt-5 mt-3"
+                      >
+                        {!substore.store_mapping_id && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-1 right-1 size-6"
+                            aria-label={t("remove")}
+                            onClick={() => removeSubstore(index)}
+                          >
+                            <XIcon className="size-4" />
+                          </Button>
+                        )}
+                        <div className="grid grid-cols-2 gap-3 w-full">
+                          <FormField
+                            control={form.control}
+                            name={`substores.${index}.eaushadhi_store_id`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel
+                                  aria-required
+                                  className="text-xs font-medium text-gray-600"
+                                >
+                                  {t("eaushadhi_store")}
+                                </FormLabel>
+                                <FormControl>
+                                  <EaushadhiStorePicker
+                                    storeOptions={storeOptions}
+                                    value={field.value}
+                                    onValueChange={(store) => {
+                                      field.onChange(
+                                        store
+                                          ? String(store.hstnumStoreId)
+                                          : "",
+                                      );
+                                      form.setValue(
+                                        `substores.${index}.eaushadhi_store_name`,
+                                        store?.hststrStoreName ?? "",
+                                      );
+                                    }}
+                                    placeholder={t(
+                                      "eaushadhi_store_placeholder",
+                                    )}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name={`substores.${index}.location`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel
+                                  aria-required
+                                  className="text-xs font-medium text-gray-600"
+                                >
+                                  {t("location")}
+                                </FormLabel>
+                                <FormControl>
+                                  <LocationPicker
+                                    facilityId={facilityId}
+                                    value={field.value}
+                                    onValueChange={field.onChange}
+                                    placeholder={t("location_placeholder")}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      </div>
+                    ))}
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full mt-3"
+                      onClick={() =>
+                        appendSubstore({
+                          eaushadhi_store_id: "",
+                          eaushadhi_store_name: "",
+                          location: null,
+                        })
+                      }
+                    >
+                      <PlusIcon className="size-4" />
+                      {t("add_substore")}
+                    </Button>
                   </div>
 
                   <hr className="border-gray-200" />

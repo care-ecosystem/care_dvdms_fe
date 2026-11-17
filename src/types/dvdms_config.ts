@@ -20,13 +20,23 @@ export interface DvdmsStoreMapping {
   eaushadhi_store_name: string;
   is_default: boolean;
   store: Pick<LocationRead, "id" | "name" | "form"> | null;
+  meta: DvdmsStoreMeta | null;
 }
+
+export type DvdmsStoreMeta = Pick<
+  DvdmsLookupStore,
+  | "sststrTypeName"
+  | "hstnumParentStoreId"
+  | "hststrParentStoreName"
+  | "parentTypeName"
+>;
 
 export type DvdmsStoreMappingPayload = {
   store: string;
   eaushadhi_store_id: string;
   eaushadhi_store_name: string;
   is_default: boolean;
+  meta?: DvdmsStoreMeta;
 };
 
 export type DvdmsStoreMappingUpdatePayload = {
@@ -34,6 +44,7 @@ export type DvdmsStoreMappingUpdatePayload = {
   eaushadhi_store_id?: string;
   eaushadhi_store_name?: string;
   is_default?: boolean;
+  meta?: DvdmsStoreMeta;
 };
 
 export interface DvdmsSupplierOrgMapping {
@@ -132,11 +143,19 @@ export interface DvdmsLookupDrug {
   hstnum_itembrand_id: number;
 }
 
+export interface DvdmsSubstoreMapping {
+  eaushadhi_store_id: string;
+  eaushadhi_store_name: string;
+  location: LocationRead | null;
+  store_mapping_id?: string;
+}
+
 export interface DvdmsFacilityConfig {
   eaushadhi_institute_id: string;
   eaushadhi_user_ref_id: string;
   eaushadhi_institute_name: string;
   mapping: DvdmsSupplierMapping;
+  substores: DvdmsSubstoreMapping[];
 }
 
 export interface DvdmsInstitute {

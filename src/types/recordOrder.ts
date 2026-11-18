@@ -51,6 +51,10 @@ export interface RecordOrderInstituteSupplier {
 }
 
 export interface RecordOrder {
+  /**
+   * Empty (null from the API) only for a draft order with no record order yet,
+   * which just the order list returns. Lookups by `order` never include one.
+   */
   id: string;
   name: string;
   order: RecordOrderRequestOrder;
@@ -58,6 +62,8 @@ export interface RecordOrder {
   institute_supplier: RecordOrderInstituteSupplier;
   care_indent_no: string | null;
   status: string;
+  /** The status shown in the order list, e.g. draft covers pending and created. */
+  effective_status?: string;
   created_by: RecordOrderUser | null;
   updated_by: RecordOrderUser | null;
   created_date: string;

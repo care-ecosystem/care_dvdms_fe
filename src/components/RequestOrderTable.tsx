@@ -4,7 +4,7 @@ import { navigate } from "raviger";
 import { Eye, PackageIcon } from "lucide-react";
 
 import { I18N_NAMESPACE } from "@/lib/constants";
-import { dvdmsRecordPath } from "@/lib/paths";
+import { careExternalOrderPath, dvdmsRecordPath } from "@/lib/paths";
 import { formatDate, formatUserName } from "@/lib/utils";
 import { TableSkeleton } from "@/components/SkeletonLoading";
 import DvdmsIssueStatusBadge from "@/components/DvdmsIssueStatusBadge";
@@ -54,7 +54,10 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
 
   const handleViewDetails = (order: RecordOrder) => {
     navigate(
-      dvdmsRecordPath(facilityId, locationId, order.order.id, order.id),
+      // A draft with no record order yet opens as a plain Care order.
+      order.id
+        ? dvdmsRecordPath(facilityId, locationId, order.order.id, order.id)
+        : careExternalOrderPath(facilityId, locationId, order.order.id),
     );
   };
 
@@ -77,8 +80,6 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
         <TableRow>
           <TableHead>{t("name")}</TableHead>
           {showIndentNo && <TableHead>{t("eaushadhi_indent_no")}</TableHead>}
-          <TableHead>{t("dvdms_store")}</TableHead>
-          <TableHead>{t("dvdms_warehouse")}</TableHead>
           <TableHead>{t("status")}</TableHead>
           <TableHead>{t("priority")}</TableHead>
           <TableHead>{t("created_by")}</TableHead>
@@ -89,7 +90,7 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
         {orders.map((order) => {
           const outward = outwardByOrderId[order.id];
           return (
-            <TableRow key={order.id}>
+            <TableRow key={order.id || order.order.id}>
               <TableCell className="font-medium">{order.name}</TableCell>
               {showIndentNo && (
                 <TableCell>
@@ -106,37 +107,6 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
                 </TableCell>
               )}
               <TableCell>
-                <div className="flex flex-col">
-                  <span className="font-medium text-gray-900">
-                    {order.institute_store?.eaushadhi_store_name ||
-                      order.institute_store?.store?.name ||
-                      "—"}
-                  </span>
-                  {order.institute_store?.eaushadhi_store_name &&
-                    order.institute_store?.store?.name && (
-                      <span className="text-xs text-gray-500">
-                        {t("care_location")}: {order.institute_store.store.name}
-                      </span>
-                    )}
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-col">
-                  <span className="font-medium text-gray-900">
-                    {order.institute_supplier?.eaushadhi_warehouse_name ||
-                      order.institute_supplier?.supplier?.name ||
-                      "—"}
-                  </span>
-                  {order.institute_supplier?.eaushadhi_warehouse_name &&
-                    order.institute_supplier?.supplier?.name && (
-                      <span className="text-xs text-gray-500">
-                        {t("care_supplier")}:{" "}
-                        {order.institute_supplier.supplier.name}
-                      </span>
-                    )}
-                </div>
-              </TableCell>
-              <TableCell>
                 {showsDvdmsIndentStatus(order.status) &&
                 outward?.eaushadhi_indent_status ? (
                   <DvdmsIssueStatusBadge
@@ -145,10 +115,12 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
                 ) : (
                   <Badge
                     variant={
-                      REQUEST_ORDER_STATUS_VARIANTS[order.status] ?? "secondary"
+                      REQUEST_ORDER_STATUS_VARIANTS[
+                        order.effective_status ?? order.status
+                      ] ?? "secondary"
                     }
                   >
-                    {t(order.status)}
+                    {t(order.effective_status ?? order.status)}
                   </Badge>
                 )}
               </TableCell>
@@ -173,7 +145,10 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
                 </div>
               </TableCell>
               <TableCell>
-                <Button variant="outline" onClick={() => handleViewDetails(order)}>
+                <Button
+                  variant="outline"
+                  onClick={() => handleViewDetails(order)}
+                >
                   <Eye />
                   {t("see_details")}
                 </Button>

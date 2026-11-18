@@ -7,6 +7,7 @@ import {
 import { request } from "@/apis/query";
 import { DVDMS_SCHEMA_VERSION, MAX_REQUESTS_PER_BATCH } from "@/lib/constants";
 import { chunk } from "@/lib/utils";
+import { FilterUser } from "@/components/ui/multi-filter/utils/Utils";
 import { Organization } from "@/types/organization";
 import { Facility } from "@/types/facility";
 import { LocationRead } from "@/types/location";
@@ -61,11 +62,7 @@ import {
   RecordItemOrderPayload,
 } from "@/types/recordOrderItem";
 import { RecordOrderProductMapping } from "@/types/productMapping";
-import {
-  AvailableRequestOrder,
-  RequestOrder,
-  RequestOrderCreatePayload,
-} from "@/types/requestOrder";
+import { RequestOrder, RequestOrderCreatePayload } from "@/types/requestOrder";
 import {
   SUPPLY_DELIVERY_ITEM_TYPE,
   SupplyDeliveryCreatePayload,
@@ -103,6 +100,21 @@ export const apis = {
     get: (facilityId: string) =>
       request<Facility>(`/api/v1/facility/${facilityId}/`, HttpMethod.GET),
   },
+  users: {
+    current: () =>
+      request<FilterUser>("/api/v1/users/getcurrentuser/", HttpMethod.GET),
+  },
+  facilityUsers: {
+    list: (
+      facilityId: string,
+      params: { search_text?: string; limit?: number },
+    ) =>
+      request<PaginatedResponse<FilterUser>>(
+        `/api/v1/facility/${facilityId}/users/`,
+        HttpMethod.GET,
+        params,
+      ),
+  },
   requestOrders: {
     list: (
       facilityId: string,
@@ -114,6 +126,8 @@ export const apis = {
         priority?: string;
         origin_isnull?: boolean;
         supplier?: string;
+        intent?: string;
+        ordering?: string;
       },
     ) =>
       request<PaginatedResponse<RequestOrder>>(
@@ -192,27 +206,6 @@ export const apis = {
         { datapoints },
       ),
   },
-  availableRequestOrders: {
-    path: (instituteId: string) =>
-      `/api/care_dvdms/institute/${instituteId}/available_request_orders/`,
-    list: (
-      instituteId: string,
-      params: {
-        location: string;
-        limit?: number;
-        offset?: number;
-        priority?: string;
-        status?: string;
-        supplier?: string;
-        ordering?: string;
-      },
-    ) =>
-      request<PaginatedResponse<AvailableRequestOrder>>(
-        apis.availableRequestOrders.path(instituteId),
-        HttpMethod.GET,
-        params,
-      ),
-  },
   recordOrders: {
     list: (
       instituteId: string,
@@ -220,7 +213,14 @@ export const apis = {
         limit?: number;
         offset?: number;
         order?: string;
+        location?: string;
+        tab?: string;
         status?: string;
+        indent_no?: string;
+        priority?: string;
+        created_by?: string;
+        created_date_after?: string;
+        created_date_before?: string;
         supplier?: string;
         ordering?: string;
       } = {},

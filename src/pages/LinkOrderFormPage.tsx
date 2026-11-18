@@ -47,7 +47,7 @@ import {
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
 import {
-  AvailableRequestOrder,
+  RequestOrder,
   REQUEST_ORDER_PRIORITY_VARIANTS,
   REQUEST_ORDER_STATUS_VARIANTS,
 } from "@/types/requestOrder";
@@ -68,7 +68,7 @@ const LinkOrderFormPage: FC<LinkOrderFormPageProps> = (props) => (
 );
 
 type OrderCardProps = {
-  order: AvailableRequestOrder;
+  order: RequestOrder;
   isChecking: boolean;
   onSelect: () => void;
   onOpen: () => void;
@@ -120,7 +120,10 @@ const OrderCard: FC<OrderCardProps> = ({
         </div>
 
         <div
-          className={cn("grid grid-cols-2 gap-3", !isSelectable && "opacity-50")}
+          className={cn(
+            "grid grid-cols-2 gap-3",
+            !isSelectable && "opacity-50",
+          )}
         >
           <div className="min-w-0">
             <p className="text-xs font-medium text-gray-500 uppercase">
@@ -128,14 +131,6 @@ const OrderCard: FC<OrderCardProps> = ({
             </p>
             <p className="text-sm font-semibold text-gray-900 wrap-break-word">
               {order.destination?.name ?? "—"}
-            </p>
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-gray-500 uppercase">
-              {t("items")}
-            </p>
-            <p className="text-sm font-semibold text-gray-900">
-              {order.item_count} {t("items")}
             </p>
           </div>
           <div>
@@ -152,7 +147,9 @@ const OrderCard: FC<OrderCardProps> = ({
             </p>
             <Badge
               className="rounded-sm"
-              variant={REQUEST_ORDER_PRIORITY_VARIANTS[order.priority] ?? "secondary"}
+              variant={
+                REQUEST_ORDER_PRIORITY_VARIANTS[order.priority] ?? "secondary"
+              }
             >
               {t(order.priority)}
             </Badge>
@@ -248,13 +245,14 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
     queryFn: () => apis.institutes.get(facilityId),
   });
 
+  // Orders already linked are caught on selection, which opens their record order.
   const {
     data: availableOrdersResponse,
     isFetching: isAvailableOrdersFetching,
   } = useQuery({
     queryKey: [
-      "dvdms_available_request_orders",
-      institute?.id,
+      "dvdms_link_request_orders",
+      facilityId,
       locationId,
       supplierFilter?.id,
       statusFilter,
@@ -262,16 +260,16 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
       page,
     ],
     queryFn: () =>
-      apis.availableRequestOrders.list(institute!.id, {
-        location: locationId,
+      apis.requestOrders.list(facilityId, {
+        destination: locationId,
+        intent: "order",
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
         ordering: "-created_date",
-        ...(statusFilter ? { status: statusFilter } : {}),
+        status: statusFilter || "draft,pending",
         ...(priorityFilter ? { priority: priorityFilter } : {}),
         ...(supplierFilter ? { supplier: supplierFilter.id } : {}),
       }),
-    enabled: !!institute?.id,
   });
 
   const availableOrders = availableOrdersResponse?.results ?? [];
@@ -285,34 +283,34 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
     if (lastPage !== undefined && page > lastPage) setPage(lastPage);
   }, [lastPage, page]);
 
-  const { data: selectedOrder, isLoading: isSelectedOrderLoading } = useQuery(
-    {
-      queryKey: ["dvdms_request_order", facilityId, selectedOrderId],
-      queryFn: () => apis.requestOrders.retrieve(facilityId, selectedOrderId!),
-      enabled: !!selectedOrderId,
-    },
-  );
-
-  const selectedOrderItemCount = availableOrders.find(
-    (order) => order.id === selectedOrderId,
-  )?.item_count;
+  const { data: selectedOrder, isLoading: isSelectedOrderLoading } = useQuery({
+    queryKey: ["dvdms_request_order", facilityId, selectedOrderId],
+    queryFn: () => apis.requestOrders.retrieve(facilityId, selectedOrderId!),
+    enabled: !!selectedOrderId,
+  });
 
   const clearSelectedOrder = () => setQueryParams({}, { replace: true });
 
-  const handleSelectOrder = async (order: AvailableRequestOrder) => {
+  const handleSelectOrder = async (order: RequestOrder) => {
     if (!institute) return;
     setCheckingOrderId(order.id);
     try {
-      const existingRecordOrders = await apis.recordOrders.list(
-        institute.id,
-        { order: order.id, limit: 1, ordering: "-created_date" },
-      );
+      const existingRecordOrders = await apis.recordOrders.list(institute.id, {
+        order: order.id,
+        limit: 1,
+        ordering: "-created_date",
+      });
       const latestRecordOrder = existingRecordOrders.results[0];
       const hasBlockingRecordOrder =
         !!latestRecordOrder && latestRecordOrder.status !== "cancelled";
       if (hasBlockingRecordOrder) {
         navigate(
-          dvdmsRecordPath(facilityId, locationId, order.id, latestRecordOrder.id),
+          dvdmsRecordPath(
+            facilityId,
+            locationId,
+            order.id,
+            latestRecordOrder.id,
+          ),
         );
         return;
       }
@@ -366,8 +364,12 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
     const matchedSupplier = suppliers.find(
       (item) => item.supplier?.id === selectedOrder.supplier?.id,
     );
-    const supplier = matchedSupplier ?? suppliers.find((item) => item.is_default);
-    form.setValue("eaushadhiWarehouseId", supplier?.eaushadhi_warehouse_id ?? "");
+    const supplier =
+      matchedSupplier ?? suppliers.find((item) => item.is_default);
+    form.setValue(
+      "eaushadhiWarehouseId",
+      supplier?.eaushadhi_warehouse_id ?? "",
+    );
     form.setValue(
       "eaushadhiWarehouseName",
       supplier?.eaushadhi_warehouse_name ?? "",
@@ -387,7 +389,12 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
 
   const { mutate: createRecordOrder, isPending: isCreating } = useMutation({
     mutationFn: async (name: string) => {
-      if (!selectedOrder || !institute || !selectedWarehouseId || !selectedStoreId) {
+      if (
+        !selectedOrder ||
+        !institute ||
+        !selectedWarehouseId ||
+        !selectedStoreId
+      ) {
         return Promise.reject(new Error("Select a supplier and store first."));
       }
 
@@ -559,14 +566,6 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
                   </p>
                   <p className="font-semibold text-gray-950 wrap-break-word">
                     {selectedOrder.destination?.name ?? "—"}
-                  </p>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-gray-500 uppercase">
-                    {t("items")}
-                  </p>
-                  <p className="font-semibold text-gray-950 wrap-break-word">
-                    {selectedOrderItemCount ?? "—"} {t("items")}
                   </p>
                 </div>
               </CardContent>

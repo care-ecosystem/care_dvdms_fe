@@ -58,41 +58,6 @@ export const buildDvdmsRequestOrder = (
   status: "draft",
 });
 
-export interface AvailableRequestOrderLocation {
-  id: string;
-  name: string;
-  status: string;
-  operational_status: string;
-  form: string;
-}
-
-export interface AvailableRequestOrderSupplier {
-  id: string;
-  name: string;
-  active: boolean;
-  org_type: string;
-}
-
-export interface AvailableRequestOrder {
-  id: string;
-  name: string;
-  category: string;
-  intent: string;
-  priority: string;
-  reason: string;
-  status: string;
-  note: string | null;
-  tags: TagConfig[];
-  origin: AvailableRequestOrderLocation | null;
-  destination: AvailableRequestOrderLocation | null;
-  supplier: AvailableRequestOrderSupplier | null;
-  item_count: number;
-  created_by: RequestOrderUser | null;
-  updated_by: RequestOrderUser | null;
-  created_date: string;
-  modified_date: string;
-}
-
 export type RequestOrderBadgeVariant =
   | "secondary"
   | "yellow"

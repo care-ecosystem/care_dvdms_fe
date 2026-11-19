@@ -19,6 +19,17 @@ export const DVDMS_LOOKUP_STALE_TIME_MS = 12 * 60 * 60 * 1_000;
 
 export const DVDMS_SCHEMA_VERSION = "1";
 
+export const DISCARDED_RECORD_ORDER_STATUSES: string[] = [
+  "entered_in_error",
+  "abandoned",
+];
+
+export const TERMINAL_RECORD_ORDER_STATUSES: string[] = [
+  "completed",
+  "rejected",
+  ...DISCARDED_RECORD_ORDER_STATUSES,
+];
+
 export const DEFAULT_RECORD_ORDER_NAME = "{order_name}";
 export const DEFAULT_DELIVERY_ORDER_NAME = "{order_name}";
 export const DEFAULT_DELIVERY_ORDER_NOTE = "";

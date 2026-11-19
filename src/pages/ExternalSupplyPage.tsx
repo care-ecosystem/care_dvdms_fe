@@ -2,60 +2,173 @@ import { FC, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
-import { PlusIcon, SendIcon } from "lucide-react";
+import { PlusIcon, SearchIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
-import { I18N_NAMESPACE } from "@/lib/constants";
-import { careExternalOrderPath, dvdmsBasePath } from "@/lib/paths";
+import {
+  I18N_NAMESPACE,
+  TERMINAL_RECORD_ORDER_STATUSES,
+} from "@/lib/constants";
+import { careExternalOrderPath } from "@/lib/paths";
 import DvdmsNotConfigured from "@/components/DvdmsNotConfigured";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
-import DraftOrderTable from "@/components/DraftOrderTable";
 import RequestOrderTable from "@/components/RequestOrderTable";
-import SupplierSelect from "@/components/SupplierSelect";
+import { Input } from "@/components/ui/input";
+import { format } from "date-fns";
+import MultiFilter from "@/components/ui/multi-filter/MultiFilter";
+import {
+  createdByFilter,
+  dateFilter,
+  optionsFilter,
+} from "@/components/ui/multi-filter/filterConfigs";
+import useMultiFilterState from "@/components/ui/multi-filter/utils/useMultiFilterState";
+import {
+  FilterDateRange,
+  FilterUser,
+  longDateRangeOptions,
+} from "@/components/ui/multi-filter/utils/Utils";
 import { Pagination } from "@/components/ui/pagination";
 import {
   ShortcutProvider,
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
-import { Organization } from "@/types/organization";
 import { hasDvdmsIndent, RecordOrderOutward } from "@/types/recordOrder";
-import { buildDvdmsRequestOrder } from "@/types/requestOrder";
+import {
+  buildDvdmsRequestOrder,
+  REQUEST_ORDER_PRIORITY_VARIANTS,
+  REQUEST_ORDER_STATUS_VARIANTS,
+} from "@/types/requestOrder";
 import useDvdmsLocation from "@/hooks/useDvdmsLocation";
+import { useDebounce } from "@/hooks/useDebounce";
 import { getRequestOrderTags } from "@/utils/pluginConfig";
 
 const PAGE_SIZE = 14;
 
-type TabValue = "unsent" | "tracking" | "draft";
+type TabValue = "unsent" | "sent" | "completed";
 
-const UNSENT_STATUSES = ["draft", "pending", "failed", "cancelled"];
-
-const TRACKING_STATUSES = ["approved", "rejected", "completed"];
-
-const TABS_CONFIG: { value: TabValue; label: string; status?: string }[] = [
+const TABS_CONFIG: { value: TabValue; label: string; statuses: string[] }[] = [
   {
-    value: "tracking",
-    label: "order_tracking",
-    status: TRACKING_STATUSES.join(","),
+    value: "sent",
+    label: "sent_orders",
+    statuses: ["approved", "issue_in_process", "issued"],
   },
   {
     value: "unsent",
     label: "unsent_orders",
-    status: UNSENT_STATUSES.join(","),
+    statuses: ["draft", "pending", "approved", "failed"],
   },
   {
-    value: "draft",
-    label: "draft_orders",
+    value: "completed",
+    label: "completed_orders",
+    statuses: TERMINAL_RECORD_ORDER_STATUSES,
   },
 ];
 
+const PRIORITIES = ["routine", "urgent", "asap", "stat"];
+
 const EMPTY_MESSAGE_KEYS: Record<TabValue, string> = {
   unsent: "no_unsent_orders",
-  tracking: "no_tracking_orders",
-  draft: "no_draft_orders",
+  sent: "no_sent_orders",
+  completed: "no_completed_orders",
+};
+
+type Filters = {
+  indentNo: string;
+  priority: string;
+  createdBy: string;
+  createdAfter: string;
+  createdBefore: string;
+  status: string;
+};
+
+const NO_FILTERS: Filters = {
+  indentNo: "",
+  priority: "",
+  createdBy: "",
+  createdAfter: "",
+  createdBefore: "",
+  status: "",
+};
+
+const STATUS_VARIANTS: Record<string, string> = {
+  ...REQUEST_ORDER_STATUS_VARIANTS,
+  issue_in_process: "yellow",
+  issued: "green",
+};
+
+// An approved record order is shown by its outward record: still being sent
+// (created) while unsent, with an indent number (submitted) once sent.
+const APPROVED_LABEL_BY_TAB: Partial<Record<TabValue, Record<string, string>>> =
+  {
+    unsent: { approved: "created" },
+    sent: { approved: "submitted" },
+  };
+
+const OrderFilterBar: FC<{
+  facilityId: string;
+  statuses: string[];
+  statusLabels?: Record<string, string>;
+  onChange: (update: Partial<Filters>) => void;
+}> = ({ facilityId, statuses, statusLabels, onChange }) => {
+  const { t } = useTranslation(I18N_NAMESPACE);
+
+  const filters = [
+    optionsFilter(
+      "status",
+      t("status"),
+      statuses,
+      STATUS_VARIANTS,
+      t,
+      undefined,
+      statusLabels,
+    ),
+    optionsFilter(
+      "priority",
+      t("priority"),
+      PRIORITIES,
+      REQUEST_ORDER_PRIORITY_VARIANTS,
+      t,
+    ),
+    createdByFilter("created_by", t("created_by")),
+    dateFilter("created_date", t("creation_date"), longDateRangeOptions),
+  ];
+
+  const onFilterUpdate = (query: Record<string, unknown>) => {
+    const update: Partial<Filters> = {};
+    if ("status" in query) update.status = (query.status as string) || "";
+    if ("priority" in query) update.priority = (query.priority as string) || "";
+    if ("created_by" in query) {
+      update.createdBy = (query.created_by as FilterUser | null)?.id ?? "";
+    }
+    if ("created_date" in query) {
+      const range = query.created_date as FilterDateRange | null | undefined;
+      update.createdAfter = range?.from ? format(range.from, "yyyy-MM-dd") : "";
+      update.createdBefore = range?.to ? format(range.to, "yyyy-MM-dd") : "";
+    }
+    onChange(update);
+  };
+
+  const state = useMultiFilterState(filters, onFilterUpdate);
+
+  return (
+    <div className="w-full min-w-0 sm:w-auto">
+      <MultiFilter
+        selectedFilters={state.selectedFilters}
+        onFilterChange={state.handleFilterChange}
+        onOperationChange={state.handleOperationChange}
+        onClearAll={state.handleClearAll}
+        onClearFilter={state.handleClearFilter}
+        className="w-full min-w-0 items-start sm:w-auto sm:flex-row sm:flex-wrap sm:items-center"
+        triggerButtonClassName="self-start sm:self-center"
+        clearAllButtonClassName="self-center"
+        facilityId={facilityId}
+      />
+    </div>
+  );
 };
 
 type ExternalSupplyPageProps = {
@@ -76,24 +189,20 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
   const { t } = useTranslation(I18N_NAMESPACE);
   useShortcutSubContext("facility:inventory");
   const queryClient = useQueryClient();
-  const [currentTab, setCurrentTab] = useState<TabValue>("tracking");
-  const [supplierFilter, setSupplierFilter] = useState<Organization>();
+  const [currentTab, setCurrentTab] = useState<TabValue>("sent");
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [page, setPage] = useState(1);
 
   const handleTabChange = (value: TabValue) => {
     setCurrentTab(value);
+    setFilters(NO_FILTERS);
     setPage(1);
   };
 
-  const handleSupplierFilterChange = (supplier?: Organization) => {
-    setSupplierFilter(supplier);
+  const updateFilters = (update: Partial<Filters>) => {
+    setFilters((prev) => ({ ...prev, ...update }));
     setPage(1);
   };
-
-  const { data: facility } = useQuery({
-    queryKey: ["facility", facilityId],
-    queryFn: () => apis.facilities.get(facilityId),
-  });
 
   const {
     institute,
@@ -108,10 +217,13 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
     enabled: !!institute?.id,
   });
 
+  const supplierMappings = supplierMappingsResponse?.results ?? [];
+  const defaultMapping =
+    supplierMappings.find((item) => item.is_default) ?? supplierMappings[0];
+
   const { mutate: createOrder, isPending: isCreatingOrder } = useMutation({
     mutationFn: async () => {
-      const mappings = supplierMappingsResponse?.results ?? [];
-      const mapping = mappings.find((item) => item.is_default) ?? mappings[0];
+      const mapping = defaultMapping;
       if (!mapping?.supplier) {
         throw new Error("no_supplier_mapping");
       }
@@ -130,9 +242,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
     },
     onSuccess: (order) => {
       toast.success(t("order_created_successfully"));
-      queryClient.invalidateQueries({
-        queryKey: ["dvdms_available_request_orders"],
-      });
+      queryClient.invalidateQueries({ queryKey: ["dvdms_record_orders"] });
       navigate(careExternalOrderPath(facilityId, locationId, order.id));
     },
     onError: (error) =>
@@ -143,49 +253,41 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
       ),
   });
 
-  const currentStatus = TABS_CONFIG.find(
-    (tab) => tab.value === currentTab,
-  )!.status;
+  const currentTabConfig = TABS_CONFIG.find((tab) => tab.value === currentTab)!;
 
-  const isDraftTab = currentTab === "draft";
+  const dateParams = {
+    ...(filters.createdBy ? { created_by: filters.createdBy } : {}),
+    ...(filters.createdAfter
+      ? { created_date_after: filters.createdAfter }
+      : {}),
+    ...(filters.createdBefore
+      ? { created_date_before: filters.createdBefore }
+      : {}),
+  };
 
-  const { data: draftData, isLoading: isDraftLoading } = useQuery({
-    queryKey: [
-      "dvdms_available_request_orders",
-      institute?.id,
-      locationId,
-      supplierFilter?.id,
-      page,
-    ],
-    queryFn: () =>
-      apis.availableRequestOrders.list(institute!.id, {
-        location: locationId,
-        status: "draft",
-        limit: PAGE_SIZE,
-        offset: (page - 1) * PAGE_SIZE,
-        ordering: "-created_date",
-        ...(supplierFilter ? { supplier: supplierFilter.id } : {}),
-      }),
-    enabled: !!institute?.id && isDraftTab,
-  });
+  const indentNo = useDebounce(filters.indentNo, 300);
 
   const { data, isLoading } = useQuery({
     queryKey: [
       "dvdms_record_orders",
       institute?.id,
       currentTab,
-      supplierFilter?.id,
+      { ...filters, indentNo },
       page,
     ],
     queryFn: () =>
       apis.recordOrders.list(institute!.id, {
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
-        status: currentStatus,
+        tab: currentTab,
+        location: locationId,
+        ...(filters.status ? { status: filters.status } : {}),
         ordering: "-created_date",
-        ...(supplierFilter ? { supplier: supplierFilter.id } : {}),
+        ...(indentNo ? { indent_no: indentNo } : {}),
+        ...(filters.priority ? { priority: filters.priority } : {}),
+        ...dateParams,
       }),
-    enabled: !!institute?.id && !isDraftTab,
+    enabled: !!institute?.id,
   });
 
   const orders = data?.results ?? [];
@@ -226,10 +328,6 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
       <h1 className="text-xl font-semibold text-gray-900">
         {t("dvdms_external_supply")}
       </h1>
-      <p className="text-sm text-gray-500">
-        {t("manage_external_supply_for")}{" "}
-        <strong>{facility?.name ?? facilityId}</strong>
-      </p>
       {store && (
         <p className="text-sm text-gray-500">
           <strong>{store.store.name}</strong>
@@ -237,15 +335,35 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
             ` (${t("dvdms_store")}: ${store.eaushadhi_store_name})`}
         </p>
       )}
+      {defaultMapping?.eaushadhi_warehouse_name && (
+        <p className="text-sm text-gray-500">
+          {t("dvdms_warehouse")}:{" "}
+          <strong>{defaultMapping.eaushadhi_warehouse_name}</strong>
+        </p>
+      )}
     </div>
   );
 
   const renderFilters = () => (
-    <div className="flex flex-col md:flex-row gap-4">
-      <SupplierSelect
-        value={supplierFilter}
-        onChange={handleSupplierFilterChange}
-        className="w-full md:w-[250px]"
+    <div className="flex flex-wrap items-start gap-2 pb-2">
+      {currentTab !== "unsent" && (
+        <div className="relative w-full sm:w-auto">
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-gray-500" />
+          <Input
+            className="h-9 w-full pl-10 sm:w-64"
+            placeholder={t("search_indent_no")}
+            aria-label={t("eaushadhi_indent_no")}
+            value={filters.indentNo}
+            onChange={(e) => updateFilters({ indentNo: e.target.value })}
+          />
+        </div>
+      )}
+      <OrderFilterBar
+        key={currentTab}
+        facilityId={facilityId}
+        statuses={currentTabConfig.statuses}
+        statusLabels={APPROVED_LABEL_BY_TAB[currentTab]}
+        onChange={updateFilters}
       />
     </div>
   );
@@ -264,16 +382,6 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         {renderHeading()}
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() =>
-              navigate(`${dvdmsBasePath(facilityId, locationId)}/new`)
-            }
-          >
-            <SendIcon />
-            {t("send_order_to_dvdms")}
-            <ShortcutBadge actionId="link-order-eaushadhi" />
-          </Button>
           <Button
             variant="primary"
             onClick={() => createOrder()}
@@ -309,31 +417,20 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
             className="mt-2 space-y-4"
           >
             {renderFilters()}
-            {tab.value === "draft" ? (
-              <DraftOrderTable
-                facilityId={facilityId}
-                locationId={locationId}
-                orders={draftData?.results ?? []}
-                isLoading={isDraftLoading}
-                emptyMessage={t(EMPTY_MESSAGE_KEYS[tab.value])}
-                skeletonCount={PAGE_SIZE}
-              />
-            ) : (
-              <RequestOrderTable
-                facilityId={facilityId}
-                locationId={locationId}
-                orders={orders}
-                isLoading={isLoading || isOutwardLoading}
-                emptyMessage={t(EMPTY_MESSAGE_KEYS[tab.value])}
-                showIndentNo={tab.value === "tracking"}
-                outwardByOrderId={outwardByOrderId}
-                skeletonCount={PAGE_SIZE}
-              />
-            )}
+            <RequestOrderTable
+              facilityId={facilityId}
+              locationId={locationId}
+              orders={orders}
+              isLoading={isLoading || isOutwardLoading}
+              emptyMessage={t(EMPTY_MESSAGE_KEYS[tab.value])}
+              showIndentNo={tab.value !== "unsent"}
+              outwardByOrderId={outwardByOrderId}
+              skeletonCount={PAGE_SIZE}
+            />
             <Pagination
               page={page}
               pageSize={PAGE_SIZE}
-              totalCount={(isDraftTab ? draftData : data)?.count ?? 0}
+              totalCount={data?.count ?? 0}
               onPageChange={setPage}
             />
           </TabsContent>

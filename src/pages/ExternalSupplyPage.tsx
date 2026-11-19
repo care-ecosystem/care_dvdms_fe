@@ -7,7 +7,10 @@ import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
-import { I18N_NAMESPACE } from "@/lib/constants";
+import {
+  I18N_NAMESPACE,
+  TERMINAL_RECORD_ORDER_STATUSES,
+} from "@/lib/constants";
 import { careExternalOrderPath } from "@/lib/paths";
 import DvdmsNotConfigured from "@/components/DvdmsNotConfigured";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -56,12 +59,12 @@ const TABS_CONFIG: { value: TabValue; label: string; statuses: string[] }[] = [
   {
     value: "unsent",
     label: "unsent_orders",
-    statuses: ["draft", "pending", "approved", "failed", "cancelled"],
+    statuses: ["draft", "pending", "approved", "failed"],
   },
   {
     value: "completed",
     label: "completed_orders",
-    statuses: ["completed", "rejected"],
+    statuses: TERMINAL_RECORD_ORDER_STATUSES,
   },
 ];
 

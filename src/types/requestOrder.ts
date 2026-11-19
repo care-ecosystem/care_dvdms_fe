@@ -59,11 +59,7 @@ export const buildDvdmsRequestOrder = (
 });
 
 export type RequestOrderBadgeVariant =
-  | "secondary"
-  | "yellow"
-  | "green"
-  | "destructive"
-  | "indigo";
+  "secondary" | "yellow" | "green" | "destructive" | "indigo";
 
 export const REQUEST_ORDER_STATUS_VARIANTS: Record<
   string,
@@ -74,7 +70,8 @@ export const REQUEST_ORDER_STATUS_VARIANTS: Record<
   approved: "indigo",
   completed: "green",
   rejected: "destructive",
-  cancelled: "destructive",
+  entered_in_error: "destructive",
+  abandoned: "destructive",
   failed: "destructive",
   created: "yellow",
   submitted: "indigo",

@@ -54,7 +54,6 @@
   "confirming": "Confirming...",
   "continue_to_drug_mapping": "Continue to Drug Mapping",
   "create_delivery": "Create Delivery",
-  "create_new_record_order": "Create New Record Order",
   "create_order": "Create Order",
   "created": "Created",
   "created_by": "Created By",
@@ -272,7 +271,6 @@
   "manage_dvdms_config_for": "Manage DVDMS configuration for",
   "manage_external_supply_for": "Manage external supply for",
   "mark_as_approved": "Mark as Approved",
-  "mark_as_cancelled": "Mark as Cancelled",
   "mark_as_completed": "Mark as Completed",
   "mark_as_damaged": "Mark as Damaged",
   "more": "more",
@@ -352,8 +350,6 @@
   "record_delivery_approved": "Delivery approved successfully",
   "record_order_approve_failed": "Failed to send this order to DVDMS",
   "record_order_approved": "Order sent to DVDMS — waiting for the indent number",
-  "record_order_cancel_failed": "Failed to cancel record order",
-  "record_order_cancelled": "Record order cancelled successfully",
   "record_order_complete_failed": "Failed to mark record order as completed",
   "record_order_completed": "Record order marked as completed",
   "record_order_created_successfully": "Record order created successfully",
@@ -492,5 +488,10 @@
   "facility_required_for_facility_user_filter": "Facility is required to filter by user",
   "sent_orders": "Sent Orders",
   "completed_orders": "Completed Orders",
-  "no_sent_orders": "No sent orders found"
+  "no_sent_orders": "No sent orders found",
+  "mark_as_entered_in_error": "Mark as Entered in Error",
+  "mark_as_abandoned": "Mark as Abandoned",
+  "record_order_marked_as": "Record order marked as {{status}}",
+  "record_order_mark_failed": "Failed to update record order",
+  "entered_in_error": "Entered in Error"
 }

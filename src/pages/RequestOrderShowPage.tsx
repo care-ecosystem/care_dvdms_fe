@@ -10,7 +10,6 @@ import {
   EllipsisVertical,
   Inbox,
   Loader2Icon,
-  Plus,
   Printer,
   RefreshCw,
 } from "lucide-react";
@@ -18,11 +17,15 @@ import {
 import { apis } from "@/apis";
 import { BatchError, performSuperBatchRequest } from "@/apis/query";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
-import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
+import {
+  DISCARDED_RECORD_ORDER_STATUSES,
+  I18N_NAMESPACE,
+  LIST_FETCH_LIMIT,
+  TERMINAL_RECORD_ORDER_STATUSES,
+} from "@/lib/constants";
 import {
   careExternalOrderPrintPath,
   dvdmsBasePath,
-  dvdmsLinkOrderPath,
   dvdmsRecordPath,
 } from "@/lib/paths";
 import {
@@ -391,7 +394,9 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const hasOpenIndent =
     !!outward?.eaushadhi_indent_no &&
     !!recordOrder?.status &&
-    !["cancelled", "completed"].includes(recordOrder.status);
+    ![...DISCARDED_RECORD_ORDER_STATUSES, "completed"].includes(
+      recordOrder.status,
+    );
   const notifiedOpenIndentRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -446,7 +451,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const canSyncDvdmsStatus =
     !!outward?.eaushadhi_indent_no &&
     !!recordOrder?.status &&
-    !["rejected", "completed", "cancelled"].includes(recordOrder.status);
+    !TERMINAL_RECORD_ORDER_STATUSES.includes(recordOrder.status);
 
   const {
     inwardRecords: dvdmsIssues,
@@ -854,23 +859,24 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
     },
   });
 
-  const cancelRecordOrderMutation = useMutation({
-    mutationFn: () => {
+  const discardRecordOrderMutation = useMutation({
+    mutationFn: (status: "entered_in_error" | "abandoned") => {
       if (!institute?.id || !recordOrder?.id) {
         throw new Error("Missing institute or record order");
       }
-      return apis.recordOrders.update(institute.id, recordOrder.id, {
-        status: "cancelled",
-      });
+      return apis.recordOrders.update(institute.id, recordOrder.id, { status });
     },
-    onSuccess: () => {
-      toast.success(t("record_order_cancelled"));
+    onSuccess: (_, status) => {
+      toast.success(t("record_order_marked_as", { status: t(status) }));
       queryClient.invalidateQueries({
         queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["dvdms_request_order", facilityId, requestOrderId],
+      });
     },
     onError: () => {
-      toast.error(t("record_order_cancel_failed"));
+      toast.error(t("record_order_mark_failed"));
     },
   });
 
@@ -1043,12 +1049,15 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
   const isPendingStatus = recordOrderStatus === "pending";
   const isFailedStatus = displayStatus === "failed";
 
-  const isCancelledStatus = recordOrderStatus === "cancelled";
-
   const canMarkAsCompleted =
     areAllIssuesDelivered &&
     !!recordOrderStatus &&
-    !["draft", "pending", "completed", "cancelled"].includes(recordOrderStatus);
+    ![
+      "draft",
+      "pending",
+      "completed",
+      ...DISCARDED_RECORD_ORDER_STATUSES,
+    ].includes(recordOrderStatus);
 
   return (
     <div className="md:px-6 py-0 space-y-4 min-w-0">
@@ -1095,17 +1104,6 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
             <Printer className="size-4" /> {t("print")}
             <ShortcutBadge actionId="print-button" />
           </Button>
-          {isCancelledStatus && (
-            <Button
-              onClick={() =>
-                navigate(
-                  dvdmsLinkOrderPath(facilityId, locationId, requestOrderId),
-                )
-              }
-            >
-              <Plus className="size-4" /> {t("create_new_record_order")}
-            </Button>
-          )}
           {canSyncDvdmsStatus && (
             <Button
               variant="primary"
@@ -1188,10 +1186,18 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
-                onClick={() => cancelRecordOrderMutation.mutate()}
-                disabled={cancelRecordOrderMutation.isPending}
+                onClick={() =>
+                  discardRecordOrderMutation.mutate("entered_in_error")
+                }
+                disabled={discardRecordOrderMutation.isPending}
               >
-                {t("mark_as_cancelled")}
+                {t("mark_as_entered_in_error")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => discardRecordOrderMutation.mutate("abandoned")}
+                disabled={discardRecordOrderMutation.isPending}
+              >
+                {t("mark_as_abandoned")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

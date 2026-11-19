@@ -9,7 +9,11 @@ import { Box, ChevronLeftIcon, InfoIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
-import { I18N_NAMESPACE, LIST_FETCH_LIMIT } from "@/lib/constants";
+import {
+  DISCARDED_RECORD_ORDER_STATUSES,
+  I18N_NAMESPACE,
+  LIST_FETCH_LIMIT,
+} from "@/lib/constants";
 import {
   careExternalOrderPath,
   dvdmsBasePath,
@@ -301,7 +305,8 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
       });
       const latestRecordOrder = existingRecordOrders.results[0];
       const hasBlockingRecordOrder =
-        !!latestRecordOrder && latestRecordOrder.status !== "cancelled";
+        !!latestRecordOrder &&
+        !DISCARDED_RECORD_ORDER_STATUSES.includes(latestRecordOrder.status);
       if (hasBlockingRecordOrder) {
         navigate(
           dvdmsRecordPath(

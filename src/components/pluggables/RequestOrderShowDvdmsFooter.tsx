@@ -173,8 +173,7 @@ const DvdmsFooterBar: FC<BarProps> = ({
   });
 
   /**
-   * A record order still in draft or pending, or one whose push failed or was
-   * cancelled, leaves core's own actions alone.
+   * A record order still in draft or pending, or one whose push failed, leaves core's own actions alone.
    */
   const isSentToDvdms = isOutwardWithDvdms(outwardData?.results?.[0]?.status);
 

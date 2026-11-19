@@ -19,13 +19,11 @@ export const DVDMS_LOOKUP_STALE_TIME_MS = 12 * 60 * 60 * 1_000;
 
 export const DVDMS_SCHEMA_VERSION = "1";
 
-/** Record order statuses for an order that will never be fulfilled. */
 export const DISCARDED_RECORD_ORDER_STATUSES: string[] = [
   "entered_in_error",
   "abandoned",
 ];
 
-/** Record order statuses after which nothing more happens. */
 export const TERMINAL_RECORD_ORDER_STATUSES: string[] = [
   "completed",
   "rejected",

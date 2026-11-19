@@ -12,7 +12,6 @@ import {
   getVariantColorClasses,
 } from "./utils/Utils";
 
-/** A single-select filter whose options are badge-coloured like the table. */
 export const optionsFilter = (
   key: string,
   label: string,
@@ -20,24 +19,29 @@ export const optionsFilter = (
   variants: Record<string, string>,
   t: (key: string) => string,
   icon?: React.ReactNode,
+  labels: Record<string, string> = {},
 ) =>
   createFilterConfig(
     key,
     label,
     "command",
-    values.map((value) => ({
-      value,
-      label: t(value),
-      color: getVariantColorClasses(variants[value] ?? "secondary"),
-    })),
+    values.map((value) => {
+      const shown = labels[value] ?? value;
+      return {
+        value,
+        label: t(shown),
+        color: getVariantColorClasses(variants[shown] ?? "secondary"),
+      };
+    }),
     {
       renderSelected: (selected: FilterValues) => {
         const [first] = selected as string[];
+        const shown = labels[first] ?? first;
         return typeof first === "string" ? (
           <GenericSelectedBadge
-            selectedValue={first}
+            selectedValue={shown}
             selectedLength={(selected as string[]).length}
-            variant={(variants[first] ?? "secondary") as never}
+            variant={(variants[shown] ?? "secondary") as never}
           />
         ) : (
           <></>

@@ -26,6 +26,7 @@ import {
 import {
   RecordOrder,
   RecordOrderOutward,
+  RecordOrderOutwardStatus,
   showsDvdmsIndentStatus,
 } from "@/types/recordOrder";
 
@@ -88,6 +89,12 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
       <TableBody>
         {orders.map((order) => {
           const outward = outwardByOrderId[order.id];
+          const displayStatus =
+            order.status === "approved" &&
+            (outward?.status === RecordOrderOutwardStatus.created ||
+              outward?.status === RecordOrderOutwardStatus.submitted)
+              ? outward.status
+              : order.status;
           return (
             <TableRow key={order.id || order.order.id}>
               <TableCell className="font-medium">{order.name}</TableCell>
@@ -114,10 +121,11 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
                 ) : (
                   <Badge
                     variant={
-                      REQUEST_ORDER_STATUS_VARIANTS[order.status] ?? "secondary"
+                      REQUEST_ORDER_STATUS_VARIANTS[displayStatus] ??
+                      "secondary"
                     }
                   >
-                    {t(order.status)}
+                    {t(displayStatus)}
                   </Badge>
                 )}
               </TableCell>

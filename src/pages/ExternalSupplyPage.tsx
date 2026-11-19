@@ -100,15 +100,32 @@ const STATUS_VARIANTS: Record<string, string> = {
   issued: "green",
 };
 
+// An approved record order is shown by its outward record: still being sent
+// (created) while unsent, with an indent number (submitted) once sent.
+const APPROVED_LABEL_BY_TAB: Partial<Record<TabValue, Record<string, string>>> =
+  {
+    unsent: { approved: "created" },
+    sent: { approved: "submitted" },
+  };
+
 const OrderFilterBar: FC<{
   facilityId: string;
   statuses: string[];
+  statusLabels?: Record<string, string>;
   onChange: (update: Partial<Filters>) => void;
-}> = ({ facilityId, statuses, onChange }) => {
+}> = ({ facilityId, statuses, statusLabels, onChange }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
 
   const filters = [
-    optionsFilter("status", t("status"), statuses, STATUS_VARIANTS, t),
+    optionsFilter(
+      "status",
+      t("status"),
+      statuses,
+      STATUS_VARIANTS,
+      t,
+      undefined,
+      statusLabels,
+    ),
     optionsFilter(
       "priority",
       t("priority"),
@@ -345,6 +362,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
         key={currentTab}
         facilityId={facilityId}
         statuses={currentTabConfig.statuses}
+        statusLabels={APPROVED_LABEL_BY_TAB[currentTab]}
         onChange={updateFilters}
       />
     </div>

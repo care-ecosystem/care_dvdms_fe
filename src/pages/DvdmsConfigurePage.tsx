@@ -1,4 +1,4 @@
-import { FC, useEffect, useMemo, useState } from "react";
+import { FC, useEffect, useMemo, useRef, useState } from "react";
 import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,6 +9,9 @@ import { toast } from "sonner";
 import { Loader2Icon, PlusIcon, XIcon } from "lucide-react";
 
 import { apis } from "@/apis";
+import { BatchError, performSuperBatchRequest } from "@/apis/query";
+import { HttpMethod, PaginatedResponse } from "@/apis/types";
+import { DVDMS_SCHEMA_VERSION, LIST_FETCH_LIMIT } from "@/lib/constants";
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { goBack } from "@/lib/navigation";
 import { LocationPicker } from "@/components/LocationPicker";
@@ -48,6 +51,7 @@ import {
 } from "@/components/ui/sheet";
 import {
   DvdmsFacilityConfig,
+  DvdmsInstitute,
   DvdmsInstitutePayload,
   DvdmsLookupStore,
   DvdmsStoreMeta,
@@ -59,6 +63,38 @@ import { Organization } from "@/types/organization";
 const getErrorMessage = (error: unknown) =>
   (error as { message?: string })?.message;
 
+// First page reports the total; the remaining pages are fetched in one batch.
+const listAllPages = async <T,>(
+  listPath: string,
+  fetchPage: (params: {
+    limit: number;
+    offset?: number;
+  }) => Promise<PaginatedResponse<T>>,
+): Promise<T[]> => {
+  const first = await fetchPage({ limit: LIST_FETCH_LIMIT });
+  const offsets: number[] = [];
+  for (let o = LIST_FETCH_LIMIT; o < first.count; o += LIST_FETCH_LIMIT)
+    offsets.push(o);
+  if (!offsets.length) return first.results;
+  const { results } = await apis.batchRequests.createChunked({
+    requests: offsets.map((offset) => ({
+      url: listPath,
+      method: HttpMethod.GET,
+      body: { limit: LIST_FETCH_LIMIT, offset },
+      reference_id: `page_${offset}`,
+    })),
+  });
+  return [
+    ...first.results,
+    ...results.flatMap(
+      (r) => (r.data as PaginatedResponse<T> | undefined)?.results ?? [],
+    ),
+  ];
+};
+
+// Substore mappings are hidden for now; flip to bring back the blocks and the add button.
+const SHOW_SUBSTORES = false;
+const ID_CHANGE_WARNING_DELAY_MS = 1500;
 const SUPPLIER_ORG_TYPE = "product_supplier";
 const EMPTY_STORES: DvdmsLookupStore[] = [];
 const EMPTY_SUPPLIERS: Organization[] = [];
@@ -89,6 +125,21 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     queryFn: () => apis.institutes.get(facilityId),
   });
   const hasInstitute = !!institute;
+  // After confirming an ID change the mapping sections are hidden, as on first setup.
+  const [mappingsCleared, setMappingsCleared] = useState(false);
+  // Hidden while the ID-change warning is open too, not only after confirming.
+  // `clearsMappings`: the warning is for a User Reference ID change, which
+  // invalidates the store mappings (DVDMS stores are looked up per seat id).
+  const [warning, setWarning] = useState<{
+    clearsMappings: boolean;
+    instituteChanged: boolean;
+    userRefChanged: boolean;
+  } | null>(null);
+  const [instituteIdAcked, setInstituteIdAcked] = useState(false);
+  const showMappings =
+    hasInstitute && !mappingsCleared && !warning?.clearsMappings;
+  // Saved substores removed in the form; deleted on the backend at save time.
+  const [removedStoreIds, setRemovedStoreIds] = useState<string[]>([]);
 
   const { data: stores } = useQuery({
     queryKey: ["dvdms_lookup_stores", institute?.id],
@@ -129,15 +180,67 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       const substores = form.getValues("substores");
       let savedInstitute;
       try {
-        savedInstitute = institute
-          ? await apis.institutes.update(facilityId, payload)
-          : await apis.institutes.create(facilityId, payload);
+        if (institute && mappingsCleared) {
+          // IDs changed: update the institute and delete its old mappings in
+          // one atomic super batch, so a failure leaves everything untouched.
+          const [stores, suppliers] = await Promise.all([
+            listAllPages(
+              apis.storeMappings.listPath(facilityId, institute.id),
+              (params) =>
+                apis.storeMappings.list(facilityId, institute.id, params),
+            ),
+            listAllPages(
+              apis.supplierMappings.listPath(institute.id),
+              (params) => apis.supplierMappings.list(institute.id, params),
+            ),
+          ]);
+          const results = await performSuperBatchRequest({
+            requests: [
+              {
+                reference_id: "institute",
+                url: apis.institutes.path(facilityId),
+                method: HttpMethod.PATCH,
+                body: { ...payload, schema_version: DVDMS_SCHEMA_VERSION },
+              },
+              ...stores.map((m) => ({
+                reference_id: `store-${m.id}`,
+                url: apis.storeMappings.path(facilityId, institute.id, m.id),
+                method: HttpMethod.DELETE,
+              })),
+              ...suppliers.map((m) => ({
+                reference_id: `supplier-${m.id}`,
+                url: apis.supplierMappings.path(institute.id, m.id),
+                method: HttpMethod.DELETE,
+              })),
+            ],
+          });
+          savedInstitute = results.find((r) => r.reference_id === "institute")!
+            .data as DvdmsInstitute;
+        } else {
+          savedInstitute = institute
+            ? await apis.institutes.update(facilityId, payload)
+            : await apis.institutes.create(facilityId, payload);
+        }
       } catch (error: unknown) {
-        throw new Error(getErrorMessage(error) || t("dvdms_institute_save_error"));
+        throw new Error(
+          (error instanceof BatchError
+            ? error.errorMessages[0]
+            : getErrorMessage(error)) || t("dvdms_institute_save_error"),
+        );
       }
 
-      if (hasInstitute) {
+      if (showMappings) {
         try {
+          if (removedStoreIds.length)
+            await performSuperBatchRequest({
+              requests: removedStoreIds.map((id) => ({
+                reference_id: `store-${id}`,
+                url: apis.storeMappings.path(facilityId, savedInstitute.id, id),
+                method: HttpMethod.DELETE,
+              })),
+            });
+          setRemovedStoreIds([]);
+
           if (row.store_mapping_id) {
             await apis.storeMappings.update(
               facilityId,
@@ -212,13 +315,20 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
             }
           }
         } catch (error: unknown) {
-          throw new Error(getErrorMessage(error) || t("dvdms_mapping_save_error"));
+          throw new Error(
+            getErrorMessage(error) || t("dvdms_mapping_save_error"),
+          );
         }
       }
 
       return savedInstitute;
     },
     onSuccess: (savedInstitute) => {
+      setMappingsCleared(false);
+      setInstituteIdAcked(false);
+      setRemovedStoreIds([]);
+      // Stores are looked up with the institute's IDs, so cached ones are stale.
+      queryClient.invalidateQueries({ queryKey: ["dvdms_lookup_stores"] });
       toast.success(t("dvdms_institute_save_success"));
       queryClient.invalidateQueries({
         queryKey: ["dvdms_institute", facilityId],
@@ -233,7 +343,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   });
 
   const formSchema = useMemo(() => {
-    const requiredIfInstitute = (value: unknown) => !hasInstitute || !!value;
+    const requiredIfInstitute = (value: unknown) => !showMappings || !!value;
     return z.object({
       eaushadhi_institute_id: z
         .string()
@@ -276,7 +386,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         }),
       ),
     });
-  }, [t, hasInstitute]);
+  }, [t, showMappings]);
 
   const form = useForm<DvdmsFacilityConfig>({
     resolver: zodResolver(formSchema),
@@ -293,6 +403,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     fields: substoreFields,
     append: appendSubstore,
     remove: removeSubstore,
+    replace: replaceSubstores,
   } = useFieldArray({ control: form.control, name: "substores" });
 
   useEffect(() => {
@@ -344,33 +455,74 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   });
   const supplierOptions = suppliersData?.results ?? EMPTY_SUPPLIERS;
 
+  // Stores/warehouses belong to an institute, so changing either ID invalidates them.
+  const resetMapping = () => {
+    form.setValue("mapping", EMPTY_MAPPING, { shouldDirty: true });
+    replaceSubstores([]);
+    setMappingsCleared(true);
+  };
+
+  const ID_FIELDS = [
+    "eaushadhi_institute_id",
+    "eaushadhi_user_ref_id",
+  ] as const;
+  const differs = (k: (typeof ID_FIELDS)[number]) =>
+    !!institute && form.getValues(k).trim() !== institute[k];
+
+  // Warn once typing pauses, not on every keystroke.
+  const warnTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(warnTimer.current), []);
+
+  const onIdChange = (value: string, onChange: (value: string) => void) => {
+    onChange(value);
+    if (!institute) return;
+    clearTimeout(warnTimer.current);
+    if (!differs("eaushadhi_institute_id")) setInstituteIdAcked(false);
+    if (mappingsCleared && !differs("eaushadhi_user_ref_id")) {
+      // User Reference ID back to the saved value: restore the saved mappings
+      // instead of leaving them hidden (and deleted on save).
+      form.reset({
+        ...form.getValues(),
+        mapping: EMPTY_MAPPING,
+        substores: [],
+      });
+      setMappingsCleared(false);
+    }
+    warnTimer.current = setTimeout(() => {
+      const instituteChanged = differs("eaushadhi_institute_id");
+      const userRefChanged = differs("eaushadhi_user_ref_id");
+      const clearsMappings = userRefChanged && !mappingsCleared;
+      if (clearsMappings || (instituteChanged && !instituteIdAcked))
+        setWarning({ clearsMappings, instituteChanged, userRefChanged });
+    }, ID_CHANGE_WARNING_DELAY_MS);
+  };
+
+  const confirmIdChange = () => {
+    if (warning?.clearsMappings) resetMapping();
+    if (differs("eaushadhi_institute_id")) setInstituteIdAcked(true);
+    setWarning(null);
+  };
+
+  const cancelIdChange = () => {
+    if (institute) ID_FIELDS.forEach((k) => form.setValue(k, institute[k]));
+    setInstituteIdAcked(false);
+    setWarning(null);
+  };
+
   const goBackToFacility = () => {
     goBack(`/facility/${facilityId}/settings/general`);
   };
 
-  const [pendingPayload, setPendingPayload] =
-    useState<DvdmsInstitutePayload | null>(null);
-
-  const save = (payload: DvdmsInstitutePayload) =>
+  const onSubmit = form.handleSubmit((values) =>
     saveInstitute(
-      payload,
-      hasInstitute ? { onSuccess: goBackToFacility } : undefined,
-    );
-
-  const onSubmit = form.handleSubmit((values) => {
-    const payload = {
-      eaushadhi_institute_id: values.eaushadhi_institute_id,
-      eaushadhi_user_ref_id: values.eaushadhi_user_ref_id,
-      eaushadhi_institute_name: values.eaushadhi_institute_name,
-    };
-    // Existing orders/deliveries sync to DVDMS with these IDs, so confirm changes.
-    const idsChanged =
-      !!institute &&
-      (payload.eaushadhi_institute_id !== institute.eaushadhi_institute_id ||
-        payload.eaushadhi_user_ref_id !== institute.eaushadhi_user_ref_id);
-    if (idsChanged) setPendingPayload(payload);
-    else save(payload);
-  });
+      {
+        eaushadhi_institute_id: values.eaushadhi_institute_id,
+        eaushadhi_user_ref_id: values.eaushadhi_user_ref_id,
+        eaushadhi_institute_name: values.eaushadhi_institute_name,
+      },
+      showMappings ? { onSuccess: goBackToFacility } : undefined,
+    ),
+  );
 
   const onOpenChange = (next: boolean) => {
     if (!next) {
@@ -387,17 +539,13 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         <SheetHeader>
           <SheetTitle>{t("dvdms_configuration")}</SheetTitle>
           <SheetDescription>
-            {t("manage_dvdms_config_for")}{" "}
-            <strong>{facility?.name}</strong>.
+            {t("manage_dvdms_config_for")} <strong>{facility?.name}</strong>.
           </SheetDescription>
         </SheetHeader>
 
         <div className="px-1 py-5">
           <Form {...form}>
-            <form
-              onSubmit={onSubmit}
-              className="space-y-8"
-            >
+            <form onSubmit={onSubmit} className="space-y-8">
               <div>
                 <h3 className="text-base font-semibold text-gray-900 mb-1">
                   {t("institute_details")}
@@ -422,6 +570,9 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                             )}
                             className="h-9"
                             {...field}
+                            onChange={(e) =>
+                              onIdChange(e.target.value, field.onChange)
+                            }
                           />
                         </FormControl>
                         <FormMessage />
@@ -442,6 +593,9 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                             placeholder={t("eaushadhi_user_ref_id_placeholder")}
                             className="h-9"
                             {...field}
+                            onChange={(e) =>
+                              onIdChange(e.target.value, field.onChange)
+                            }
                           />
                         </FormControl>
                         <FormMessage />
@@ -473,7 +627,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 </div>
               </div>
 
-              {hasInstitute && (
+              {showMappings && (
                 <>
                   <hr className="border-gray-200" />
 
@@ -506,7 +660,9 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                                     value={field.value}
                                     onValueChange={(store) => {
                                       field.onChange(
-                                        store ? String(store.hstnumStoreId) : "",
+                                        store
+                                          ? String(store.hstnumStoreId)
+                                          : "",
                                       );
                                       form.setValue(
                                         "mapping.eaushadhi_store_name",
@@ -617,12 +773,12 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                       </div>
                     </div>
 
-                    {substoreFields.map((substore, index) => (
-                      <div
-                        key={substore.id}
-                        className="relative border border-gray-200 rounded-lg p-3 pt-5 mt-3"
-                      >
-                        {!substore.store_mapping_id && (
+                    {SHOW_SUBSTORES &&
+                      substoreFields.map((substore, index) => (
+                        <div
+                          key={substore.id}
+                          className="relative border border-gray-200 rounded-lg p-3 pt-5 mt-3"
+                        >
                           <Button
                             type="button"
                             variant="ghost"
@@ -630,90 +786,96 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                             className="absolute top-1 right-1 size-6"
                             aria-label={t("remove")}
                             disabled={isSaving}
-                            onClick={() => removeSubstore(index)}
+                            onClick={() => {
+                              const id = substore.store_mapping_id;
+                              if (id) setRemovedStoreIds((ids) => [...ids, id]);
+                              removeSubstore(index);
+                            }}
                           >
                             <XIcon className="size-4" />
                           </Button>
-                        )}
-                        <div className="grid grid-cols-2 gap-3 w-full">
-                          <FormField
-                            control={form.control}
-                            name={`substores.${index}.eaushadhi_store_id`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel
-                                  aria-required
-                                  className="text-xs font-medium text-gray-600"
-                                >
-                                  {t("eaushadhi_store")}
-                                </FormLabel>
-                                <FormControl>
-                                  <EaushadhiStorePicker
-                                    storeOptions={storeOptions}
-                                    value={field.value}
-                                    onValueChange={(store) => {
-                                      field.onChange(
-                                        store
-                                          ? String(store.hstnumStoreId)
-                                          : "",
-                                      );
-                                      form.setValue(
-                                        `substores.${index}.eaushadhi_store_name`,
-                                        store?.hststrStoreName ?? "",
-                                      );
-                                    }}
-                                    placeholder={t(
-                                      "eaushadhi_store_placeholder",
-                                    )}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
 
-                          <FormField
-                            control={form.control}
-                            name={`substores.${index}.location`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel
-                                  aria-required
-                                  className="text-xs font-medium text-gray-600"
-                                >
-                                  {t("location")}
-                                </FormLabel>
-                                <FormControl>
-                                  <LocationPicker
-                                    facilityId={facilityId}
-                                    value={field.value}
-                                    onValueChange={field.onChange}
-                                    placeholder={t("location_placeholder")}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
+                          <div className="grid grid-cols-2 gap-3 w-full">
+                            <FormField
+                              control={form.control}
+                              name={`substores.${index}.eaushadhi_store_id`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel
+                                    aria-required
+                                    className="text-xs font-medium text-gray-600"
+                                  >
+                                    {t("eaushadhi_store")}
+                                  </FormLabel>
+                                  <FormControl>
+                                    <EaushadhiStorePicker
+                                      storeOptions={storeOptions}
+                                      value={field.value}
+                                      onValueChange={(store) => {
+                                        field.onChange(
+                                          store
+                                            ? String(store.hstnumStoreId)
+                                            : "",
+                                        );
+                                        form.setValue(
+                                          `substores.${index}.eaushadhi_store_name`,
+                                          store?.hststrStoreName ?? "",
+                                        );
+                                      }}
+                                      placeholder={t(
+                                        "eaushadhi_store_placeholder",
+                                      )}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+
+                            <FormField
+                              control={form.control}
+                              name={`substores.${index}.location`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel
+                                    aria-required
+                                    className="text-xs font-medium text-gray-600"
+                                  >
+                                    {t("location")}
+                                  </FormLabel>
+                                  <FormControl>
+                                    <LocationPicker
+                                      facilityId={facilityId}
+                                      value={field.value}
+                                      onValueChange={field.onChange}
+                                      placeholder={t("location_placeholder")}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
 
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full mt-3"
-                      onClick={() =>
-                        appendSubstore({
-                          eaushadhi_store_id: "",
-                          eaushadhi_store_name: "",
-                          location: null,
-                        })
-                      }
-                    >
-                      <PlusIcon className="size-4" />
-                      {t("add_substore")}
-                    </Button>
+                    {SHOW_SUBSTORES && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full mt-3"
+                        onClick={() =>
+                          appendSubstore({
+                            eaushadhi_store_id: "",
+                            eaushadhi_store_name: "",
+                            location: null,
+                          })
+                        }
+                      >
+                        <PlusIcon className="size-4" />
+                        {t("add_substore")}
+                      </Button>
+                    )}
                   </div>
 
                   <hr className="border-gray-200" />
@@ -752,7 +914,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                   {isSaving && <Loader2Icon className="size-4 animate-spin" />}
                   {isSaving
                     ? t("saving")
-                    : hasInstitute
+                    : showMappings
                       ? t("save_and_close")
                       : t("save")}
                 </Button>
@@ -761,27 +923,42 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
           </Form>
         </div>
         <Dialog
-          open={!!pendingPayload}
-          onOpenChange={(open) => !open && setPendingPayload(null)}
+          open={!!warning}
+          onOpenChange={(open) => !open && cancelIdChange()}
         >
           <DialogContent closeLabel={t("close")}>
             <DialogHeader>
-              <DialogTitle>{t("dvdms_institute_ids_change_title")}</DialogTitle>
+              <DialogTitle>{t("dvdms_ids_change_title")}</DialogTitle>
               <DialogDescription>
-                {t("dvdms_institute_ids_change_description")}
+                {t("dvdms_ids_change_description")}
               </DialogDescription>
             </DialogHeader>
+            <ul className="list-disc pl-6 text-sm text-gray-600 space-y-1">
+              {warning?.clearsMappings && (
+                <li>{t("dvdms_ids_change_store_mappings")}</li>
+              )}
+              <li>{t("dvdms_ids_change_product_mappings")}</li>
+              <li>
+                {t(
+                  warning?.instituteChanged && warning.userRefChanged
+                    ? "dvdms_ids_change_lists_both"
+                    : warning?.userRefChanged
+                      ? "dvdms_ids_change_lists_user_ref"
+                      : "dvdms_ids_change_lists_institute",
+                )}
+              </li>
+              <li>{t("dvdms_ids_change_orders")}</li>
+              <li>{t("dvdms_ids_change_acknowledge")}</li>
+              <li>{t("dvdms_ids_change_new_orders")}</li>
+            </ul>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setPendingPayload(null)}>
+              <Button variant="outline" onClick={cancelIdChange}>
                 {t("cancel")}
               </Button>
               <Button
                 variant="primary"
                 disabled={isSaving}
-                onClick={() => {
-                  save(pendingPayload!);
-                  setPendingPayload(null);
-                }}
+                onClick={confirmIdChange}
               >
                 {t("confirm")}
               </Button>

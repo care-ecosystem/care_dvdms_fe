@@ -471,6 +471,8 @@ export const apis = {
       ),
   },
   institutes: {
+    path: (facilityId: string) =>
+      `/api/care_dvdms/facility/${facilityId}/institute/`,
     get: (facilityId: string) =>
       request<DvdmsInstitute>(
         `/api/care_dvdms/facility/${facilityId}/institute/`,
@@ -545,10 +547,17 @@ export const apis = {
       ),
   },
   storeMappings: {
-    list: (facilityId: string, instituteId: string) =>
+    listPath: (facilityId: string, instituteId: string) =>
+      `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
+    list: (
+      facilityId: string,
+      instituteId: string,
+      params: { limit?: number; offset?: number } = {},
+    ) =>
       request<PaginatedResponse<DvdmsStoreMapping>>(
-        `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
+        apis.storeMappings.listPath(facilityId, instituteId),
         HttpMethod.GET,
+        params,
       ),
     create: (
       facilityId: string,
@@ -571,6 +580,8 @@ export const apis = {
         HttpMethod.PATCH,
         payload,
       ),
+    path: (facilityId: string, instituteId: string, mappingId: string) =>
+      `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/${mappingId}/`,
   },
   productMappings: {
     path: (instituteId: string) =>
@@ -625,10 +636,16 @@ export const apis = {
       ),
   },
   supplierMappings: {
-    list: (instituteId: string) =>
+    listPath: (instituteId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/suppliers/`,
+    list: (
+      instituteId: string,
+      params: { limit?: number; offset?: number } = {},
+    ) =>
       request<PaginatedResponse<DvdmsSupplierOrgMapping>>(
-        `/api/care_dvdms/institute/${instituteId}/suppliers/`,
+        apis.supplierMappings.listPath(instituteId),
         HttpMethod.GET,
+        params,
       ),
     create: (instituteId: string, payload: DvdmsSupplierOrgMappingPayload) =>
       request<DvdmsSupplierOrgMapping>(
@@ -646,6 +663,8 @@ export const apis = {
         HttpMethod.PATCH,
         payload,
       ),
+    path: (instituteId: string, mappingId: string) =>
+      `/api/care_dvdms/institute/${instituteId}/suppliers/${mappingId}/`,
   },
   dvdmsInstituteStores: {
     list: (

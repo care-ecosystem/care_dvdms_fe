@@ -4,8 +4,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
 import { toast } from "sonner";
 import {
+  Ban,
   Box,
   ChevronLeft,
+  CircleAlert,
   Edit,
   EllipsisVertical,
   Inbox,
@@ -1185,19 +1187,29 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
               )}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() =>
-                  discardRecordOrderMutation.mutate("entered_in_error")
-                }
-                disabled={discardRecordOrderMutation.isPending}
-              >
-                {t("mark_as_entered_in_error")}
+              <DropdownMenuItem asChild className="text-primary-900">
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    discardRecordOrderMutation.mutate("entered_in_error")
+                  }
+                  disabled={discardRecordOrderMutation.isPending}
+                  className="w-full flex flex-row self-center font-semibold"
+                >
+                  <CircleAlert className="mr-1" />
+                  <span>{t("mark_as_entered_in_error")}</span>
+                </Button>
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => discardRecordOrderMutation.mutate("abandoned")}
-                disabled={discardRecordOrderMutation.isPending}
-              >
-                {t("mark_as_abandoned")}
+              <DropdownMenuItem asChild className="text-primary-900">
+                <Button
+                  variant="ghost"
+                  onClick={() => discardRecordOrderMutation.mutate("abandoned")}
+                  disabled={discardRecordOrderMutation.isPending}
+                  className="w-full flex flex-row justify-stretch items-center font-semibold"
+                >
+                  <Ban className="mr-1" />
+                  {t("mark_as_abandoned")}
+                </Button>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -585,6 +585,7 @@ export const apis = {
         product_knowledge_id?: string;
         ordering?: string;
         archived?: boolean;
+        name?: string;
       },
     ) =>
       request<PaginatedResponse<DvdmsProductMapping>>(

@@ -54,7 +54,6 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
 
   const handleViewDetails = (order: RecordOrder) => {
     navigate(
-      // A draft with no record order yet opens as a plain Care order.
       order.id
         ? dvdmsRecordPath(facilityId, locationId, order.order.id, order.id)
         : careExternalOrderPath(facilityId, locationId, order.order.id),
@@ -115,12 +114,10 @@ const RequestOrderTable: FC<RequestOrderTableProps> = ({
                 ) : (
                   <Badge
                     variant={
-                      REQUEST_ORDER_STATUS_VARIANTS[
-                        order.effective_status ?? order.status
-                      ] ?? "secondary"
+                      REQUEST_ORDER_STATUS_VARIANTS[order.status] ?? "secondary"
                     }
                   >
-                    {t(order.effective_status ?? order.status)}
+                    {t(order.status)}
                   </Badge>
                 )}
               </TableCell>

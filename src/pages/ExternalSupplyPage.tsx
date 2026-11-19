@@ -2,13 +2,13 @@ import { FC, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "raviger";
-import { PlusIcon, SearchIcon, SendIcon } from "lucide-react";
+import { PlusIcon, SearchIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { apis } from "@/apis";
 import { HttpMethod, PaginatedResponse } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
-import { careExternalOrderPath, dvdmsBasePath } from "@/lib/paths";
+import { careExternalOrderPath } from "@/lib/paths";
 import DvdmsNotConfigured from "@/components/DvdmsNotConfigured";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -51,12 +51,12 @@ const TABS_CONFIG: { value: TabValue; label: string; statuses: string[] }[] = [
   {
     value: "sent",
     label: "sent_orders",
-    statuses: ["submitted", "issue_in_process", "issued"],
+    statuses: ["approved", "issue_in_process", "issued"],
   },
   {
     value: "unsent",
     label: "unsent_orders",
-    statuses: ["draft", "failed", "cancelled"],
+    statuses: ["draft", "pending", "approved", "failed", "cancelled"],
   },
   {
     value: "completed",
@@ -175,7 +175,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
 
   const handleTabChange = (value: TabValue) => {
     setCurrentTab(value);
-    setFilters(NO_FILTERS); // statuses differ per tab
+    setFilters(NO_FILTERS);
     setPage(1);
   };
 
@@ -361,16 +361,6 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         {renderHeading()}
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() =>
-              navigate(`${dvdmsBasePath(facilityId, locationId)}/new`)
-            }
-          >
-            <SendIcon />
-            {t("send_order_to_dvdms")}
-            <ShortcutBadge actionId="link-order-eaushadhi" />
-          </Button>
           <Button
             variant="primary"
             onClick={() => createOrder()}

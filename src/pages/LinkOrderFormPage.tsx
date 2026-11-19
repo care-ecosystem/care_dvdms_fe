@@ -245,7 +245,6 @@ const LinkOrderFormPageContent: FC<LinkOrderFormPageProps> = ({
     queryFn: () => apis.institutes.get(facilityId),
   });
 
-  // Orders already linked are caught on selection, which opens their record order.
   const {
     data: availableOrdersResponse,
     isFetching: isAvailableOrdersFetching,

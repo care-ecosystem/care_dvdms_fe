@@ -38,6 +38,8 @@ import {
 } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import Pagination from "@/components/Pagination";
+import { useDebounce } from "@/hooks/useDebounce";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Page from "@/components/ui/page";
 import Autocomplete from "@/components/ui/autocomplete";
@@ -279,6 +281,9 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   /** Archived mappings are a separate, read-only view of the same list. */
   const [showArchived, setShowArchived] = useState(false);
 
+  const [mappingSearch, setMappingSearch] = useState("");
+  const debouncedMappingSearch = useDebounce(mappingSearch.trim(), 300);
+
   const handleArchivedFilterChange = (value: string) => {
     setShowArchived(value === ARCHIVED_FILTER);
     setMappingsPage(1);
@@ -294,6 +299,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
       instituteId,
       mappingsPage,
       showArchived,
+      debouncedMappingSearch,
     ],
     queryFn: () =>
       apis.productMappings.list(instituteId!, {
@@ -301,6 +307,7 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
         offset: (mappingsPage - 1) * MAPPINGS_PAGE_SIZE,
         mapping_type: "default_mapping",
         archived: showArchived,
+        name: debouncedMappingSearch || undefined,
       }),
     enabled: !!instituteId,
   });
@@ -347,16 +354,10 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const categories = categoriesData?.results ?? [];
 
   const [productKnowledgeSearch, setProductKnowledgeSearch] = useState("");
-  const [debouncedProductKnowledgeSearch, setDebouncedProductKnowledgeSearch] =
-    useState("");
-
-  useEffect(() => {
-    const timeout = setTimeout(
-      () => setDebouncedProductKnowledgeSearch(productKnowledgeSearch),
-      300,
-    );
-    return () => clearTimeout(timeout);
-  }, [productKnowledgeSearch]);
+  const debouncedProductKnowledgeSearch = useDebounce(
+    productKnowledgeSearch,
+    300,
+  );
 
   const {
     data: productKnowledgeSearchData,
@@ -517,6 +518,8 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
           limit: pageSize,
           offset,
           mapping_type: "default_mapping",
+          archived: showArchived,
+          name: debouncedMappingSearch || undefined,
         });
         allMappings.push(...page.results);
         if (
@@ -1116,18 +1119,31 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
             <p className="text-sm text-gray-500">
               {t("product_mappings_subtitle")}
             </p>
-            <Select
-              value={showArchived ? ARCHIVED_FILTER : ACTIVE_FILTER}
-              onValueChange={handleArchivedFilterChange}
-            >
-              <SelectTrigger className="w-44">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ACTIVE_FILTER}>{t("active")}</SelectItem>
-                <SelectItem value={ARCHIVED_FILTER}>{t("inactive")}</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                className="w-64"
+                value={mappingSearch}
+                onChange={(e) => {
+                  setMappingSearch(e.target.value);
+                  setMappingsPage(1);
+                }}
+                placeholder={t("search_product_mappings")}
+              />
+              <Select
+                value={showArchived ? ARCHIVED_FILTER : ACTIVE_FILTER}
+                onValueChange={handleArchivedFilterChange}
+              >
+                <SelectTrigger className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ACTIVE_FILTER}>{t("active")}</SelectItem>
+                  <SelectItem value={ARCHIVED_FILTER}>
+                    {t("inactive")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="flex flex-wrap justify-end gap-2">

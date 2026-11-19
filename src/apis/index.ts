@@ -126,8 +126,6 @@ export const apis = {
         priority?: string;
         origin_isnull?: boolean;
         supplier?: string;
-        intent?: string;
-        ordering?: string;
       },
     ) =>
       request<PaginatedResponse<RequestOrder>>(

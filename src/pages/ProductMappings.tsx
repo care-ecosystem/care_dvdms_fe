@@ -354,7 +354,10 @@ const ProductMappings: FC<ProductMappingsProps> = ({ facilityId }) => {
   const categories = categoriesData?.results ?? [];
 
   const [productKnowledgeSearch, setProductKnowledgeSearch] = useState("");
-  const debouncedProductKnowledgeSearch = useDebounce(productKnowledgeSearch, 300);
+  const debouncedProductKnowledgeSearch = useDebounce(
+    productKnowledgeSearch,
+    300,
+  );
 
   const {
     data: productKnowledgeSearchData,

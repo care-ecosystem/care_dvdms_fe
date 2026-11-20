@@ -1,4 +1,11 @@
-import { FC, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FC,
+  SyntheticEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -63,7 +70,6 @@ import { Organization } from "@/types/organization";
 const getErrorMessage = (error: unknown) =>
   (error as { message?: string })?.message;
 
-// First page reports the total; the remaining pages are fetched in one batch.
 const listAllPages = async <T,>(
   listPath: string,
   fetchPage: (params: {
@@ -71,11 +77,15 @@ const listAllPages = async <T,>(
     offset?: number;
   }) => Promise<PaginatedResponse<T>>,
 ): Promise<T[]> => {
-  const first = await fetchPage({ limit: LIST_FETCH_LIMIT });
+  const firstPage = await fetchPage({ limit: LIST_FETCH_LIMIT });
   const offsets: number[] = [];
-  for (let o = LIST_FETCH_LIMIT; o < first.count; o += LIST_FETCH_LIMIT)
-    offsets.push(o);
-  if (!offsets.length) return first.results;
+  for (
+    let offset = LIST_FETCH_LIMIT;
+    offset < firstPage.count;
+    offset += LIST_FETCH_LIMIT
+  )
+    offsets.push(offset);
+  if (!offsets.length) return firstPage.results;
   const { results } = await apis.batchRequests.createChunked({
     requests: offsets.map((offset) => ({
       url: listPath,
@@ -84,17 +94,23 @@ const listAllPages = async <T,>(
       reference_id: `page_${offset}`,
     })),
   });
+  const failed = results.filter(
+    (result) =>
+      result.status_code > 299 ||
+      !(result.data as PaginatedResponse<T> | undefined)?.results,
+  );
+  if (failed.length)
+    throw new BatchError("Failed to fetch a page", { results, failed });
   return [
-    ...first.results,
+    ...firstPage.results,
     ...results.flatMap(
-      (r) => (r.data as PaginatedResponse<T> | undefined)?.results ?? [],
+      (result) => (result.data as PaginatedResponse<T>).results,
     ),
   ];
 };
 
-// Substore mappings are hidden for now; flip to bring back the blocks and the add button.
 const SHOW_SUBSTORES = false;
-const ID_CHANGE_WARNING_DELAY_MS = 300;
+const ID_CHANGE_WARNING_DELAY_MS = 600;
 const SUPPLIER_ORG_TYPE = "product_supplier";
 const EMPTY_STORES: DvdmsLookupStore[] = [];
 const EMPTY_SUPPLIERS: Organization[] = [];
@@ -125,22 +141,11 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     queryFn: () => apis.institutes.get(facilityId),
   });
   const hasInstitute = !!institute;
-  // After confirming an ID change the mapping sections are hidden, as on first setup.
-  const [mappingsCleared, setMappingsCleared] = useState(false);
-  // Hidden while the ID-change warning is open too, not only after confirming.
-  // `clearsMappings`: the warning is for a User Reference ID change, which
-  // invalidates the store mappings (DVDMS stores are looked up per seat id).
-  const [warning, setWarning] = useState<{
-    clearsMappings: boolean;
-    instituteChanged: boolean;
-    userRefChanged: boolean;
-  } | null>(null);
-  const [instituteIdAcked, setInstituteIdAcked] = useState(false);
-  // True from an ID edit until its warning is confirmed or cancelled; blocks saving.
-  const [warningPending, setWarningPending] = useState(false);
-  const showMappings =
-    hasInstitute && !mappingsCleared && !warning?.clearsMappings;
-  // Saved substores removed in the form; deleted on the backend at save time.
+  const [areMappingsCleared, setAreMappingsCleared] = useState(false);
+  const [isIdChangeWarningOpen, setIsIdChangeWarningOpen] = useState(false);
+  const [isWarningPending, setIsWarningPending] = useState(false);
+  const [areIdsEdited, setAreIdsEdited] = useState(false);
+  const showMappings = hasInstitute && !areMappingsCleared && !areIdsEdited;
   const [removedStoreIds, setRemovedStoreIds] = useState<string[]>([]);
 
   const { data: stores } = useQuery({
@@ -182,9 +187,10 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       const substores = form.getValues("substores");
       let savedInstitute;
       try {
-        if (institute && mappingsCleared) {
-          // IDs changed: update the institute and delete its old mappings in
-          // one atomic super batch, so a failure leaves everything untouched.
+        const haveIdsChanged =
+          !!institute &&
+          ID_FIELDS.some((field) => payload[field] !== institute[field]);
+        if (institute && areMappingsCleared && haveIdsChanged) {
           const [stores, suppliers] = await Promise.all([
             listAllPages(
               apis.storeMappings.listPath(facilityId, institute.id),
@@ -204,20 +210,28 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 method: HttpMethod.PATCH,
                 body: { ...payload, schema_version: DVDMS_SCHEMA_VERSION },
               },
-              ...stores.map((m) => ({
-                reference_id: `store-${m.id}`,
-                url: apis.storeMappings.path(facilityId, institute.id, m.id),
+              ...stores.map((storeMapping) => ({
+                reference_id: `store-${storeMapping.id}`,
+                url: apis.storeMappings.path(
+                  facilityId,
+                  institute.id,
+                  storeMapping.id,
+                ),
                 method: HttpMethod.DELETE,
               })),
-              ...suppliers.map((m) => ({
-                reference_id: `supplier-${m.id}`,
-                url: apis.supplierMappings.path(institute.id, m.id),
+              ...suppliers.map((supplierMapping) => ({
+                reference_id: `supplier-${supplierMapping.id}`,
+                url: apis.supplierMappings.path(
+                  institute.id,
+                  supplierMapping.id,
+                ),
                 method: HttpMethod.DELETE,
               })),
             ],
           });
-          savedInstitute = results.find((r) => r.reference_id === "institute")!
-            .data as DvdmsInstitute;
+          savedInstitute = results.find(
+            (result) => result.reference_id === "institute",
+          )!.data as DvdmsInstitute;
         } else {
           savedInstitute = institute
             ? await apis.institutes.update(facilityId, payload)
@@ -326,8 +340,8 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       return savedInstitute;
     },
     onSuccess: (savedInstitute) => {
-      setMappingsCleared(false);
-      setInstituteIdAcked(false);
+      setAreMappingsCleared(false);
+      setAreIdsEdited(false);
       setRemovedStoreIds([]);
       // Stores are looked up with the institute's IDs, so cached ones are stale.
       queryClient.invalidateQueries({ queryKey: ["dvdms_lookup_stores"] });
@@ -418,8 +432,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     });
   }, [institute, isDirty]);
 
-  useEffect(() => {
-    if (!institute || isDirty) return;
+  const applySavedMappings = () => {
     if (!storeMappingsData || !supplierMappingsData) return;
 
     const store = storeMappingsData.results.find((s) => s.is_default);
@@ -448,6 +461,11 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
           store_mapping_id: s.id,
         })),
     );
+  };
+
+  useEffect(() => {
+    if (!institute || isDirty) return;
+    applySavedMappings();
   }, [institute, isDirty, storeMappingsData, supplierMappingsData]);
 
   const { data: suppliersData } = useQuery({
@@ -457,77 +475,66 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   });
   const supplierOptions = suppliersData?.results ?? EMPTY_SUPPLIERS;
 
-  // Stores/warehouses belong to an institute, so changing either ID invalidates them.
   const resetMapping = () => {
     form.setValue("mapping", EMPTY_MAPPING, { shouldDirty: true });
     replaceSubstores([]);
-    setMappingsCleared(true);
+    setAreMappingsCleared(true);
   };
 
   const ID_FIELDS = [
     "eaushadhi_institute_id",
     "eaushadhi_user_ref_id",
   ] as const;
-  const differs = (k: (typeof ID_FIELDS)[number]) =>
-    !!institute && form.getValues(k).trim() !== institute[k];
+  const hasFieldChanged = (field: (typeof ID_FIELDS)[number]) =>
+    !!institute && form.getValues(field).trim() !== institute[field];
 
-  // Warn once typing pauses, not on every keystroke.
-  const warnTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(warnTimer.current), []);
+  const warningTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(warningTimer.current), []);
 
-  const pendingWarning = () => {
-    const instituteChanged = differs("eaushadhi_institute_id");
-    const userRefChanged = differs("eaushadhi_user_ref_id");
-    const clearsMappings = userRefChanged && !mappingsCleared;
-    return clearsMappings || (instituteChanged && !instituteIdAcked)
-      ? { clearsMappings, instituteChanged, userRefChanged }
-      : null;
+  const isWarningRequired = () =>
+    ID_FIELDS.some(hasFieldChanged) && !areMappingsCleared;
+
+  const restoreMappings = () => {
+    applySavedMappings();
+    setAreMappingsCleared(false);
   };
 
   const onIdChange = (value: string, onChange: (value: string) => void) => {
     onChange(value);
     if (!institute) return;
-    clearTimeout(warnTimer.current);
-    if (!differs("eaushadhi_institute_id")) setInstituteIdAcked(false);
-    if (mappingsCleared && !differs("eaushadhi_user_ref_id")) {
-      // User Reference ID back to the saved value: restore the saved mappings
-      // instead of leaving them hidden (and deleted on save).
-      form.reset({
-        ...form.getValues(),
-        mapping: EMPTY_MAPPING,
-        substores: [],
-      });
-      setMappingsCleared(false);
+    clearTimeout(warningTimer.current);
+    setAreIdsEdited(ID_FIELDS.some(hasFieldChanged));
+    if (areMappingsCleared && !ID_FIELDS.some(hasFieldChanged)) {
+      restoreMappings();
     }
-    const pending = pendingWarning();
-    setWarningPending(!!pending);
-    if (!pending) return;
-    warnTimer.current = setTimeout(() => {
-      const next = pendingWarning();
-      if (next) setWarning(next);
-      else setWarningPending(false);
+    setIsWarningPending(isWarningRequired());
+    if (!isWarningRequired()) return;
+    warningTimer.current = setTimeout(() => {
+      if (isWarningRequired()) setIsIdChangeWarningOpen(true);
+      else setIsWarningPending(false);
     }, ID_CHANGE_WARNING_DELAY_MS);
   };
 
   const confirmIdChange = () => {
-    if (warning?.clearsMappings) resetMapping();
-    if (differs("eaushadhi_institute_id")) setInstituteIdAcked(true);
-    setWarning(null);
-    setWarningPending(false);
+    resetMapping();
+    setIsIdChangeWarningOpen(false);
+    setIsWarningPending(false);
   };
 
   const cancelIdChange = () => {
-    if (institute) ID_FIELDS.forEach((k) => form.setValue(k, institute[k]));
-    setInstituteIdAcked(false);
-    setWarning(null);
-    setWarningPending(false);
+    if (institute)
+      ID_FIELDS.forEach((field) => form.setValue(field, institute[field]));
+    if (areMappingsCleared) restoreMappings();
+    setAreIdsEdited(false);
+    setIsIdChangeWarningOpen(false);
+    setIsWarningPending(false);
   };
 
   const goBackToFacility = () => {
     goBack(`/facility/${facilityId}/settings/general`);
   };
 
-  const submit = form.handleSubmit((values) =>
+  const submitForm = form.handleSubmit((values) =>
     saveInstitute(
       {
         eaushadhi_institute_id: values.eaushadhi_institute_id,
@@ -538,8 +545,8 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     ),
   );
 
-  const onSubmit = (e: FormEvent) =>
-    warningPending ? e.preventDefault() : submit(e);
+  const onSubmit = (e: SyntheticEvent) =>
+    isWarningPending ? e.preventDefault() : submitForm(e);
 
   const onOpenChange = (next: boolean) => {
     if (!next) {
@@ -930,7 +937,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 <Button
                   type="submit"
                   variant="primary"
-                  disabled={isSaving || warningPending}
+                  disabled={isSaving || isWarningPending}
                 >
                   {isSaving && <Loader2Icon className="size-4 animate-spin" />}
                   {isSaving
@@ -944,7 +951,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
           </Form>
         </div>
         <Dialog
-          open={!!warning}
+          open={isIdChangeWarningOpen}
           onOpenChange={(open) => !open && cancelIdChange()}
         >
           <DialogContent closeLabel={t("close")}>
@@ -955,19 +962,9 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
               </DialogDescription>
             </DialogHeader>
             <ul className="list-disc pl-6 text-sm text-gray-600 space-y-1">
-              {warning?.clearsMappings && (
-                <li>{t("dvdms_ids_change_store_mappings")}</li>
-              )}
+              <li>{t("dvdms_ids_change_store_mappings")}</li>
               <li>{t("dvdms_ids_change_product_mappings")}</li>
-              <li>
-                {t(
-                  warning?.instituteChanged && warning.userRefChanged
-                    ? "dvdms_ids_change_lists_both"
-                    : warning?.userRefChanged
-                      ? "dvdms_ids_change_lists_user_ref"
-                      : "dvdms_ids_change_lists_institute",
-                )}
-              </li>
+              <li>{t("dvdms_ids_change_lists")}</li>
               <li>{t("dvdms_ids_change_orders")}</li>
               <li>{t("dvdms_ids_change_acknowledge")}</li>
               <li>{t("dvdms_ids_change_new_orders")}</li>

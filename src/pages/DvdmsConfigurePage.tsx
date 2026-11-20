@@ -128,15 +128,26 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     );
   };
 
-  const { data: storeMappingsData } = useQuery({
-    queryKey: ["dvdms_store_mappings", facilityId, institute?.id],
-    queryFn: () => apis.storeMappings.list(facilityId, institute!.id),
+  const { data: defaultStoreMappingsData } = useQuery({
+    queryKey: ["dvdms_store_mappings", facilityId, institute?.id, "default"],
+    queryFn: () =>
+      apis.storeMappings.list(facilityId, institute!.id, { is_default: true }),
+    enabled: hasInstitute,
+  });
+
+  const { data: substoreMappingsData } = useQuery({
+    queryKey: ["dvdms_store_mappings", facilityId, institute?.id, "substores"],
+    queryFn: () =>
+      apis.storeMappings.list(facilityId, institute!.id, {
+        is_default: false,
+      }),
     enabled: hasInstitute,
   });
 
   const { data: supplierMappingsData } = useQuery({
-    queryKey: ["dvdms_supplier_mappings", institute?.id],
-    queryFn: () => apis.supplierMappings.list(institute!.id),
+    queryKey: ["dvdms_supplier_mappings", institute?.id, "default"],
+    queryFn: () =>
+      apis.supplierMappings.list(institute!.id, { is_default: true }),
     enabled: hasInstitute,
   });
 
@@ -168,7 +179,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
           setRemovedStoreIds([]);
 
           if (row.store_mapping_id) {
-            await apis.storeMappings.update(
+            const updated = await apis.storeMappings.update(
               facilityId,
               savedInstitute.id,
               row.store_mapping_id,
@@ -179,6 +190,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 meta: storeMeta(row.eaushadhi_store_id),
               },
             );
+            form.setValue("mapping.store_mapping_id", updated.id);
           } else if (row.location) {
             const created = await apis.storeMappings.create(
               facilityId,
@@ -195,7 +207,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
           }
 
           if (row.supplier_mapping_id) {
-            await apis.supplierMappings.update(
+            const updated = await apis.supplierMappings.update(
               savedInstitute.id,
               row.supplier_mapping_id,
               {
@@ -204,6 +216,7 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 eaushadhi_warehouse_name: row.eaushadhi_warehouse_name,
               },
             );
+            form.setValue("mapping.supplier_mapping_id", updated.id);
           } else if (row.supplier_id) {
             const created = await apis.supplierMappings.create(
               savedInstitute.id,
@@ -225,12 +238,13 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
               meta: storeMeta(substore.eaushadhi_store_id),
             };
             if (substore.store_mapping_id) {
-              await apis.storeMappings.update(
+              const updated = await apis.storeMappings.update(
                 facilityId,
                 savedInstitute.id,
                 substore.store_mapping_id,
                 payload,
               );
+              form.setValue(`substores.${index}.store_mapping_id`, updated.id);
             } else {
               const created = await apis.storeMappings.create(
                 facilityId,
@@ -343,9 +357,14 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   }, [institute, isDirty]);
 
   const applySavedMappings = () => {
-    if (!storeMappingsData || !supplierMappingsData) return;
+    if (
+      !defaultStoreMappingsData ||
+      !substoreMappingsData ||
+      !supplierMappingsData
+    )
+      return;
 
-    const store = storeMappingsData.results.find((s) => s.is_default);
+    const store = defaultStoreMappingsData.results[0];
     const supplier = supplierMappingsData.results[0];
     if (store || supplier) {
       const mapping: DvdmsSupplierMapping = {
@@ -362,21 +381,25 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     }
     form.setValue(
       "substores",
-      storeMappingsData.results
-        .filter((s) => !s.is_default)
-        .map((s) => ({
-          eaushadhi_store_id: s.eaushadhi_store_id,
-          eaushadhi_store_name: s.eaushadhi_store_name,
-          location: s.store,
-          store_mapping_id: s.id,
-        })),
+      substoreMappingsData.results.map((s) => ({
+        eaushadhi_store_id: s.eaushadhi_store_id,
+        eaushadhi_store_name: s.eaushadhi_store_name,
+        location: s.store,
+        store_mapping_id: s.id,
+      })),
     );
   };
 
   useEffect(() => {
     if (!institute || isDirty) return;
     applySavedMappings();
-  }, [institute, isDirty, storeMappingsData, supplierMappingsData]);
+  }, [
+    institute,
+    isDirty,
+    defaultStoreMappingsData,
+    substoreMappingsData,
+    supplierMappingsData,
+  ]);
 
   const { data: suppliersData } = useQuery({
     queryKey: ["dvdms_supplier_organizations"],

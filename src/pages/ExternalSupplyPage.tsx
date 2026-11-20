@@ -211,15 +211,18 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
     isLoading: isConfigLoading,
   } = useDvdmsLocation(facilityId, locationId);
 
-  const { data: supplierMappingsResponse } = useQuery({
-    queryKey: ["dvdms_supplier_mappings", institute?.id],
-    queryFn: () => apis.supplierMappings.list(institute!.id),
+  const {
+    data: supplierMappingsResponse,
+    isSuccess: isSupplierMappingsLoaded,
+  } = useQuery({
+    queryKey: ["dvdms_supplier_mappings", institute?.id, "default"],
+    queryFn: () =>
+      apis.supplierMappings.list(institute!.id, { is_default: true }),
     enabled: !!institute?.id,
   });
 
   const supplierMappings = supplierMappingsResponse?.results ?? [];
-  const defaultMapping =
-    supplierMappings.find((item) => item.is_default) ?? supplierMappings[0];
+  const defaultMapping = supplierMappings[0];
 
   const { mutate: createOrder, isPending: isCreatingOrder } = useMutation({
     mutationFn: async () => {
@@ -274,6 +277,7 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
       currentTab,
       { ...filters, indentNo },
       page,
+      defaultMapping?.supplier?.id,
     ],
     queryFn: () =>
       apis.recordOrders.list(institute!.id, {
@@ -281,13 +285,14 @@ const ExternalSupplyPageContent: FC<ExternalSupplyPageProps> = ({
         offset: (page - 1) * PAGE_SIZE,
         tab: currentTab,
         location: locationId,
+        ...(defaultMapping ? { supplier: defaultMapping?.supplier?.id } : {}),
         ...(filters.status ? { status: filters.status } : {}),
         ordering: "-created_date",
         ...(indentNo ? { indent_no: indentNo } : {}),
         ...(filters.priority ? { priority: filters.priority } : {}),
         ...dateParams,
       }),
-    enabled: !!institute?.id,
+    enabled: !!institute?.id && isSupplierMappingsLoaded,
   });
 
   const orders = data?.results ?? [];

@@ -94,7 +94,11 @@ export const LocationPicker: FC<LocationPickerProps> = ({
   });
 
   const locations = useMemo(
-    () => locationsResponse?.results || [],
+    () =>
+      (locationsResponse?.results || []).filter(
+        (location) =>
+          location.inventory_usage === "store" || location.has_children,
+      ),
     [locationsResponse?.results],
   );
 
@@ -340,9 +344,6 @@ export const LocationPicker: FC<LocationPickerProps> = ({
                       key={location.id}
                       value={location.name}
                       onSelect={() => handleLocationSelect(location)}
-                      disabled={
-                        !isStoreLocation(location) && !location.has_children
-                      }
                       className="flex items-center justify-between px-3 py-3 cursor-pointer transition-colors duration-150 border-b border-gray-200 last:border-b-0"
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">

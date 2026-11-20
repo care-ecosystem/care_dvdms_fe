@@ -471,8 +471,6 @@ export const apis = {
       ),
   },
   institutes: {
-    path: (facilityId: string) =>
-      `/api/care_dvdms/facility/${facilityId}/institute/`,
     get: (facilityId: string) =>
       request<DvdmsInstitute>(
         `/api/care_dvdms/facility/${facilityId}/institute/`,
@@ -547,17 +545,10 @@ export const apis = {
       ),
   },
   storeMappings: {
-    listPath: (facilityId: string, instituteId: string) =>
-      `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
-    list: (
-      facilityId: string,
-      instituteId: string,
-      params: { limit?: number; offset?: number } = {},
-    ) =>
+    list: (facilityId: string, instituteId: string) =>
       request<PaginatedResponse<DvdmsStoreMapping>>(
-        apis.storeMappings.listPath(facilityId, instituteId),
+        `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
         HttpMethod.GET,
-        params,
       ),
     create: (
       facilityId: string,
@@ -636,16 +627,10 @@ export const apis = {
       ),
   },
   supplierMappings: {
-    listPath: (instituteId: string) =>
-      `/api/care_dvdms/institute/${instituteId}/suppliers/`,
-    list: (
-      instituteId: string,
-      params: { limit?: number; offset?: number } = {},
-    ) =>
+    list: (instituteId: string) =>
       request<PaginatedResponse<DvdmsSupplierOrgMapping>>(
-        apis.supplierMappings.listPath(instituteId),
+        `/api/care_dvdms/institute/${instituteId}/suppliers/`,
         HttpMethod.GET,
-        params,
       ),
     create: (instituteId: string, payload: DvdmsSupplierOrgMappingPayload) =>
       request<DvdmsSupplierOrgMapping>(
@@ -663,8 +648,6 @@ export const apis = {
         HttpMethod.PATCH,
         payload,
       ),
-    path: (instituteId: string, mappingId: string) =>
-      `/api/care_dvdms/institute/${instituteId}/suppliers/${mappingId}/`,
   },
   dvdmsInstituteStores: {
     list: (

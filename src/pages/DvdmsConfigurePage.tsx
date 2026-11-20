@@ -16,9 +16,8 @@ import { toast } from "sonner";
 import { Loader2Icon, PlusIcon, XIcon } from "lucide-react";
 
 import { apis } from "@/apis";
-import { BatchError, performSuperBatchRequest } from "@/apis/query";
-import { HttpMethod, PaginatedResponse } from "@/apis/types";
-import { DVDMS_SCHEMA_VERSION, LIST_FETCH_LIMIT } from "@/lib/constants";
+import { performSuperBatchRequest } from "@/apis/query";
+import { HttpMethod } from "@/apis/types";
 import { I18N_NAMESPACE } from "@/lib/constants";
 import { goBack } from "@/lib/navigation";
 import { LocationPicker } from "@/components/LocationPicker";
@@ -58,7 +57,6 @@ import {
 } from "@/components/ui/sheet";
 import {
   DvdmsFacilityConfig,
-  DvdmsInstitute,
   DvdmsInstitutePayload,
   DvdmsLookupStore,
   DvdmsStoreMeta,
@@ -69,45 +67,6 @@ import { Organization } from "@/types/organization";
 
 const getErrorMessage = (error: unknown) =>
   (error as { message?: string })?.message;
-
-const listAllPages = async <T,>(
-  listPath: string,
-  fetchPage: (params: {
-    limit: number;
-    offset?: number;
-  }) => Promise<PaginatedResponse<T>>,
-): Promise<T[]> => {
-  const firstPage = await fetchPage({ limit: LIST_FETCH_LIMIT });
-  const offsets: number[] = [];
-  for (
-    let offset = LIST_FETCH_LIMIT;
-    offset < firstPage.count;
-    offset += LIST_FETCH_LIMIT
-  )
-    offsets.push(offset);
-  if (!offsets.length) return firstPage.results;
-  const { results } = await apis.batchRequests.createChunked({
-    requests: offsets.map((offset) => ({
-      url: listPath,
-      method: HttpMethod.GET,
-      body: { limit: LIST_FETCH_LIMIT, offset },
-      reference_id: `page_${offset}`,
-    })),
-  });
-  const failed = results.filter(
-    (result) =>
-      result.status_code > 299 ||
-      !(result.data as PaginatedResponse<T> | undefined)?.results,
-  );
-  if (failed.length)
-    throw new BatchError("Failed to fetch a page", { results, failed });
-  return [
-    ...firstPage.results,
-    ...results.flatMap(
-      (result) => (result.data as PaginatedResponse<T>).results,
-    ),
-  ];
-};
 
 const SHOW_SUBSTORES = false;
 const ID_CHANGE_WARNING_DELAY_MS = 600;
@@ -187,61 +146,12 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       const substores = form.getValues("substores");
       let savedInstitute;
       try {
-        const haveIdsChanged =
-          !!institute &&
-          ID_FIELDS.some((field) => payload[field] !== institute[field]);
-        if (institute && areMappingsCleared && haveIdsChanged) {
-          const [stores, suppliers] = await Promise.all([
-            listAllPages(
-              apis.storeMappings.listPath(facilityId, institute.id),
-              (params) =>
-                apis.storeMappings.list(facilityId, institute.id, params),
-            ),
-            listAllPages(
-              apis.supplierMappings.listPath(institute.id),
-              (params) => apis.supplierMappings.list(institute.id, params),
-            ),
-          ]);
-          const results = await performSuperBatchRequest({
-            requests: [
-              {
-                reference_id: "institute",
-                url: apis.institutes.path(facilityId),
-                method: HttpMethod.PATCH,
-                body: { ...payload, schema_version: DVDMS_SCHEMA_VERSION },
-              },
-              ...stores.map((storeMapping) => ({
-                reference_id: `store-${storeMapping.id}`,
-                url: apis.storeMappings.path(
-                  facilityId,
-                  institute.id,
-                  storeMapping.id,
-                ),
-                method: HttpMethod.DELETE,
-              })),
-              ...suppliers.map((supplierMapping) => ({
-                reference_id: `supplier-${supplierMapping.id}`,
-                url: apis.supplierMappings.path(
-                  institute.id,
-                  supplierMapping.id,
-                ),
-                method: HttpMethod.DELETE,
-              })),
-            ],
-          });
-          savedInstitute = results.find(
-            (result) => result.reference_id === "institute",
-          )!.data as DvdmsInstitute;
-        } else {
-          savedInstitute = institute
-            ? await apis.institutes.update(facilityId, payload)
-            : await apis.institutes.create(facilityId, payload);
-        }
+        savedInstitute = institute
+          ? await apis.institutes.update(facilityId, payload)
+          : await apis.institutes.create(facilityId, payload);
       } catch (error: unknown) {
         throw new Error(
-          (error instanceof BatchError
-            ? error.errorMessages[0]
-            : getErrorMessage(error)) || t("dvdms_institute_save_error"),
+          getErrorMessage(error) || t("dvdms_institute_save_error"),
         );
       }
 

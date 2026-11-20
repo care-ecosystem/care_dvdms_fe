@@ -1,4 +1,4 @@
-import { FC, useEffect, useMemo, useRef, useState } from "react";
+import { FC, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { navigate } from "raviger";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -94,7 +94,7 @@ const listAllPages = async <T,>(
 
 // Substore mappings are hidden for now; flip to bring back the blocks and the add button.
 const SHOW_SUBSTORES = false;
-const ID_CHANGE_WARNING_DELAY_MS = 1500;
+const ID_CHANGE_WARNING_DELAY_MS = 300;
 const SUPPLIER_ORG_TYPE = "product_supplier";
 const EMPTY_STORES: DvdmsLookupStore[] = [];
 const EMPTY_SUPPLIERS: Organization[] = [];
@@ -136,6 +136,8 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     userRefChanged: boolean;
   } | null>(null);
   const [instituteIdAcked, setInstituteIdAcked] = useState(false);
+  // True from an ID edit until its warning is confirmed or cancelled; blocks saving.
+  const [warningPending, setWarningPending] = useState(false);
   const showMappings =
     hasInstitute && !mappingsCleared && !warning?.clearsMappings;
   // Saved substores removed in the form; deleted on the backend at save time.
@@ -473,6 +475,15 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
   const warnTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(warnTimer.current), []);
 
+  const pendingWarning = () => {
+    const instituteChanged = differs("eaushadhi_institute_id");
+    const userRefChanged = differs("eaushadhi_user_ref_id");
+    const clearsMappings = userRefChanged && !mappingsCleared;
+    return clearsMappings || (instituteChanged && !instituteIdAcked)
+      ? { clearsMappings, instituteChanged, userRefChanged }
+      : null;
+  };
+
   const onIdChange = (value: string, onChange: (value: string) => void) => {
     onChange(value);
     if (!institute) return;
@@ -488,12 +499,13 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       });
       setMappingsCleared(false);
     }
+    const pending = pendingWarning();
+    setWarningPending(!!pending);
+    if (!pending) return;
     warnTimer.current = setTimeout(() => {
-      const instituteChanged = differs("eaushadhi_institute_id");
-      const userRefChanged = differs("eaushadhi_user_ref_id");
-      const clearsMappings = userRefChanged && !mappingsCleared;
-      if (clearsMappings || (instituteChanged && !instituteIdAcked))
-        setWarning({ clearsMappings, instituteChanged, userRefChanged });
+      const next = pendingWarning();
+      if (next) setWarning(next);
+      else setWarningPending(false);
     }, ID_CHANGE_WARNING_DELAY_MS);
   };
 
@@ -501,19 +513,21 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     if (warning?.clearsMappings) resetMapping();
     if (differs("eaushadhi_institute_id")) setInstituteIdAcked(true);
     setWarning(null);
+    setWarningPending(false);
   };
 
   const cancelIdChange = () => {
     if (institute) ID_FIELDS.forEach((k) => form.setValue(k, institute[k]));
     setInstituteIdAcked(false);
     setWarning(null);
+    setWarningPending(false);
   };
 
   const goBackToFacility = () => {
     goBack(`/facility/${facilityId}/settings/general`);
   };
 
-  const onSubmit = form.handleSubmit((values) =>
+  const submit = form.handleSubmit((values) =>
     saveInstitute(
       {
         eaushadhi_institute_id: values.eaushadhi_institute_id,
@@ -523,6 +537,9 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
       showMappings ? { onSuccess: goBackToFacility } : undefined,
     ),
   );
+
+  const onSubmit = (e: FormEvent) =>
+    warningPending ? e.preventDefault() : submit(e);
 
   const onOpenChange = (next: boolean) => {
     if (!next) {
@@ -910,7 +927,11 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                     {t("cancel")}
                   </Button>
                 </SheetClose>
-                <Button type="submit" variant="primary" disabled={isSaving}>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={isSaving || warningPending}
+                >
                   {isSaving && <Loader2Icon className="size-4 animate-spin" />}
                   {isSaving
                     ? t("saving")

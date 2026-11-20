@@ -26,10 +26,18 @@ export type LocationForm =
   | "jdn"
   | "vi";
 
+export type InventoryUsage =
+  | "store"
+  | "supplier"
+  | "consumption"
+  | "adjustment"
+  | "none";
+
 export interface LocationRead {
   id: string;
   name: string;
   form: LocationForm;
+  inventory_usage?: InventoryUsage;
   has_children?: boolean;
   parent?: LocationRead | null;
 }

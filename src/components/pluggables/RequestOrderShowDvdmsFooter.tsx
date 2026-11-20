@@ -62,23 +62,37 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
   const { facilityId, locationId, requestOrderId } = props;
 
   // Core's query key, shared with the core page.
-  const { data: requestOrder } = useQuery({
+  const {
+    data: requestOrder,
+    isLoading: isOrderLoading,
+    isError: isOrderError,
+  } = useQuery({
     queryKey: ["requestOrders", requestOrderId],
     queryFn: () => apis.requestOrders.retrieve(facilityId, requestOrderId),
   });
 
-  const { institute, locationId: storeLocationId } = useDvdmsLocation(
-    facilityId,
-    locationId,
-  );
+  const {
+    institute,
+    locationId: storeLocationId,
+    isLoading: isLocationLoading,
+    isError: isStoresError,
+  } = useDvdmsLocation(facilityId, locationId);
 
-  const { data: supplierMappings } = useQuery({
+  const {
+    data: supplierMappings,
+    isLoading: isSuppliersLoading,
+    isError: isSuppliersError,
+  } = useQuery({
     queryKey: ["dvdms_supplier_mappings", institute?.id],
     queryFn: () => apis.supplierMappings.list(institute!.id),
     enabled: !!institute?.id,
   });
 
-  const { data: recordOrdersData } = useQuery({
+  const {
+    data: recordOrdersData,
+    isLoading: isRecordOrdersLoading,
+    isError: isRecordOrdersError,
+  } = useQuery({
     queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
     queryFn: () =>
       apis.recordOrders.list(institute!.id, {
@@ -102,9 +116,17 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
 
   const isDvdmsFlow = !!recordOrder || isMappedOrder;
 
-  if (!isDvdmsFlow) {
-    return <Base {...props} />;
-  }
+  // Until the lookups settle, or if one fails, the order may still be a DVDMS
+  // one: keep delivery creation blocked rather than let one through.
+  const isUnverified =
+    isOrderLoading ||
+    isLocationLoading ||
+    isSuppliersLoading ||
+    isRecordOrdersLoading ||
+    isOrderError ||
+    isStoresError ||
+    isSuppliersError ||
+    isRecordOrdersError;
 
   /**
    * Blocks core's "Create Delivery Order" action while the order is being
@@ -133,23 +155,27 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
       {/* Inline padding, not a utility class: the core page is outside the
           plugin's Tailwind scope, so plugin utilities would not resolve here. */}
       <div
-        style={{ paddingBottom: "7rem" }}
-        onClickCapture={blockCoreDeliveryCreation}
+        style={isDvdmsFlow ? { paddingBottom: "7rem" } : undefined}
+        onClickCapture={
+          isDvdmsFlow || isUnverified ? blockCoreDeliveryCreation : undefined
+        }
       >
         <Base {...props} />
       </div>
       {/* The bar brings its own shortcut context: it renders inside core's
           tree, which carries no plugin ShortcutProvider. */}
-      <ShortcutProvider>
-        <DvdmsFooterBar
-          facilityId={facilityId}
-          locationId={locationId}
-          requestOrderId={requestOrderId}
-          instituteId={institute?.id}
-          recordOrder={recordOrder}
-          recordOrdersLoaded={!!recordOrdersData}
-        />
-      </ShortcutProvider>
+      {isDvdmsFlow && (
+        <ShortcutProvider>
+          <DvdmsFooterBar
+            facilityId={facilityId}
+            locationId={locationId}
+            requestOrderId={requestOrderId}
+            instituteId={institute?.id}
+            recordOrder={recordOrder}
+            recordOrdersLoaded={!!recordOrdersData}
+          />
+        </ShortcutProvider>
+      )}
     </>
   );
 };

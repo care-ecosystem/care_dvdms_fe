@@ -19,7 +19,11 @@ export default function useDvdmsLocation(
     queryFn: () => apis.institutes.get(facilityId),
   });
 
-  const { data: storesResponse, isLoading: isStoresLoading } = useQuery({
+  const {
+    data: storesResponse,
+    isLoading: isStoresLoading,
+    isError: isStoresError,
+  } = useQuery({
     queryKey: ["dvdms_institute_stores", facilityId, institute?.id],
     queryFn: () =>
       apis.dvdmsInstituteStores.list(facilityId, institute!.id, {
@@ -40,5 +44,6 @@ export default function useDvdmsLocation(
     store,
     locationId: store?.store.id,
     isLoading: isInstituteLoading || isStoresLoading,
+    isError: isStoresError,
   };
 }

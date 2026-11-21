@@ -18,9 +18,8 @@ const manifest = {
     {
       component: "RequestOrderShow",
       replacement: RequestOrderShowDvdmsFooter,
-      // Query params are not part of the override context (raviger's usePath
-      // drops them), so match the route here and gate on ?flow=dvdms inside
-      // the component, where it stays reactive.
+      // Matches the route only; the component decides whether the order is a
+      // DVDMS one.
       condition: {
         custom: (ctx: { route?: string }) =>
           /\/inventory\/external\/orders\/[^/]+\/[^/]+$/.test(ctx.route ?? ""),

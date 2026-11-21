@@ -1,7 +1,7 @@
 import { ComponentType, FC, MouseEvent, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { navigate, useQueryParams } from "raviger";
+import { navigate } from "raviger";
 import { ArrowRight, BadgeCheck, Send } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,14 +12,15 @@ import {
   REQUEST_ORDER_STATUS_POLL_INTERVAL_MS,
 } from "@/lib/constants";
 import { dvdmsRecordPath } from "@/lib/paths";
-import { isOutwardWithDvdms } from "@/types/recordOrder";
+import { isOutwardWithDvdms, RecordOrder } from "@/types/recordOrder";
 import { Button } from "@/components/ui/button";
 // import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
 import {
   ShortcutProvider,
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
-import { RequestOrder } from "@/types/requestOrder";
+import useDvdmsLocation from "@/hooks/useDvdmsLocation";
+import useDvdmsPermissions from "@/hooks/useDvdmsPermissions";
 import { getRecordOrderName } from "@/utils/pluginConfig";
 
 type RequestOrderShowProps = {
@@ -38,8 +39,9 @@ type BarProps = {
   facilityId: string;
   locationId: string;
   requestOrderId: string;
-  /** The core order — DVDMS only accepts a submitted one. */
-  requestOrder?: RequestOrder;
+  instituteId?: string;
+  recordOrder?: RecordOrder;
+  recordOrdersLoaded: boolean;
 };
 
 /**
@@ -47,7 +49,9 @@ type BarProps = {
  *
  * Renders the core page untouched and floats a compact action bar over it —
  * the same shape core uses for the "invoice created / back to appointment"
- * alert — active only on `?flow=dvdms`.
+ * alert — active for a DVDMS order (mapped store and supplier, or an existing
+ * record order). Decided from data, not the URL: core's edit page drops query
+ * params.
  *
  * The bar creates the record order straight from this order — skipping the
  * DVDMS link order form, since the supplier and store are taken from the
@@ -56,32 +60,91 @@ type BarProps = {
  */
 const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
-  const [{ flow }] = useQueryParams<{ flow?: string }>();
   const { facilityId, locationId, requestOrderId } = props;
 
-  const isDvdmsFlow = flow === "dvdms";
+  // Without `canUse` the DVDMS lookups would only be denied, so they are
+  // skipped and the page is left to core.
+  const {
+    canUse,
+    canManage,
+    isLoading: isPermissionsLoading,
+    isError: isPermissionsError,
+  } = useDvdmsPermissions(facilityId);
 
-  // Core's query key, deliberately: the core page invalidates
-  // ["requestOrders", requestOrderId] when the order's status changes.
-  //
-  // The approval itself happens in core's own components, and that
-  // invalidation has not proved reliable across the plugin boundary, so the
-  // order is also polled until it is submitted — the button then unlocks a few
-  // seconds after approval instead of waiting for a page refresh. Polling
-  // stops as soon as the order is out of draft.
-  const { data: requestOrder } = useQuery({
+  // Core's query key, shared with the core page.
+  const {
+    data: requestOrder,
+    isLoading: isOrderLoading,
+    isError: isOrderError,
+  } = useQuery({
     queryKey: ["requestOrders", requestOrderId],
     queryFn: () => apis.requestOrders.retrieve(facilityId, requestOrderId),
-    enabled: isDvdmsFlow,
-    refetchInterval: (query) =>
-      query.state.data?.status === "pending"
-        ? false
-        : REQUEST_ORDER_STATUS_POLL_INTERVAL_MS,
   });
 
-  if (!isDvdmsFlow) {
-    return <Base {...props} />;
-  }
+  const {
+    institute,
+    locationId: storeLocationId,
+    isLoading: isLocationLoading,
+    isError: isStoresError,
+  } = useDvdmsLocation(facilityId, locationId, canUse);
+
+  const {
+    data: supplierMappings,
+    isLoading: isSuppliersLoading,
+    isError: isSuppliersError,
+  } = useQuery({
+    queryKey: ["dvdms_supplier_mappings", institute?.id],
+    queryFn: () => apis.supplierMappings.list(institute!.id),
+    enabled: canUse && !!institute?.id,
+  });
+
+  const {
+    data: recordOrdersData,
+    isLoading: isRecordOrdersLoading,
+    isError: isRecordOrdersError,
+  } = useQuery({
+    queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+    queryFn: () =>
+      apis.recordOrders.list(institute!.id, {
+        order: requestOrderId,
+        limit: LIST_FETCH_LIMIT,
+        ordering: "-created_date",
+      }),
+    enabled: canUse && !!institute?.id,
+  });
+
+  // The core route carries no recordOrderId, so reflect the latest record order.
+  const recordOrder = recordOrdersData?.results?.[0];
+
+  const supplierId = requestOrder?.supplier?.id;
+  const isMappedOrder =
+    storeLocationId === locationId &&
+    !!supplierId &&
+    !!supplierMappings?.results.some(
+      (item) => item.supplier?.id === supplierId,
+    );
+
+  const isDvdmsOrder = canUse && (!!recordOrder || isMappedOrder);
+  const showBar = canManage && isDvdmsOrder;
+
+  // Until the lookups settle, or if one fails, the order may still be a DVDMS
+  // one: keep delivery creation blocked rather than let one through.
+  const isUnverified =
+    isOrderLoading ||
+    isLocationLoading ||
+    isSuppliersLoading ||
+    isRecordOrdersLoading ||
+    isOrderError ||
+    isStoresError ||
+    isSuppliersError ||
+    isRecordOrdersError;
+
+  // Only users who can manage DVDMS are held to its flow; until permissions are
+  // known, block rather than let one through.
+  const blockDelivery =
+    isPermissionsLoading ||
+    isPermissionsError ||
+    (canManage && (isDvdmsOrder || isUnverified));
 
   /**
    * Blocks core's "Create Delivery Order" action while the order is being
@@ -110,21 +173,25 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
       {/* Inline padding, not a utility class: the core page is outside the
           plugin's Tailwind scope, so plugin utilities would not resolve here. */}
       <div
-        style={{ paddingBottom: "7rem" }}
-        onClickCapture={blockCoreDeliveryCreation}
+        style={showBar ? { paddingBottom: "7rem" } : undefined}
+        onClickCapture={blockDelivery ? blockCoreDeliveryCreation : undefined}
       >
         <Base {...props} />
       </div>
       {/* The bar brings its own shortcut context: it renders inside core's
           tree, which carries no plugin ShortcutProvider. */}
-      <ShortcutProvider>
-        <DvdmsFooterBar
-          facilityId={facilityId}
-          locationId={locationId}
-          requestOrderId={requestOrderId}
-          requestOrder={requestOrder}
-        />
-      </ShortcutProvider>
+      {showBar && (
+        <ShortcutProvider>
+          <DvdmsFooterBar
+            facilityId={facilityId}
+            locationId={locationId}
+            requestOrderId={requestOrderId}
+            instituteId={institute?.id}
+            recordOrder={recordOrder}
+            recordOrdersLoaded={!!recordOrdersData}
+          />
+        </ShortcutProvider>
+      )}
     </>
   );
 };
@@ -133,43 +200,37 @@ const DvdmsFooterBar: FC<BarProps> = ({
   facilityId,
   locationId,
   requestOrderId,
-  requestOrder,
+  instituteId,
+  recordOrder,
+  recordOrdersLoaded,
 }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   const queryClient = useQueryClient();
   useShortcutSubContext("facility:inventory");
 
-  const { data: institute } = useQuery({
-    queryKey: ["dvdms_institute", facilityId],
-    queryFn: () => apis.institutes.get(facilityId),
+  // Polled until submitted: core's invalidation after approval has not proved
+  // reliable across the plugin boundary.
+  const { data: requestOrder } = useQuery({
+    queryKey: ["requestOrders", requestOrderId],
+    queryFn: () => apis.requestOrders.retrieve(facilityId, requestOrderId),
+    refetchInterval: (query) =>
+      query.state.data?.status === "pending"
+        ? false
+        : REQUEST_ORDER_STATUS_POLL_INTERVAL_MS,
   });
-
-  const { data: recordOrdersData } = useQuery({
-    queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
-    queryFn: () =>
-      apis.recordOrders.list(institute!.id, {
-        order: requestOrderId,
-        limit: LIST_FETCH_LIMIT,
-        ordering: "-created_date",
-      }),
-    enabled: !!institute?.id,
-  });
-
-  // The core route carries no recordOrderId, so reflect the latest record order.
-  const recordOrder = recordOrdersData?.results?.[0];
 
   /**
    * The push to DVDMS, once the record order has one. A record order still in
    * draft or pending has nothing on the DVDMS side yet.
    */
   const { data: outwardData } = useQuery({
-    queryKey: ["dvdms_record_order_outward", institute?.id, recordOrder?.id],
+    queryKey: ["dvdms_record_order_outward", instituteId, recordOrder?.id],
     queryFn: () =>
-      apis.recordOrderOutward.list(institute!.id, recordOrder!.id, {
+      apis.recordOrderOutward.list(instituteId!, recordOrder!.id, {
         limit: 1,
         ordering: "-created_date",
       }),
-    enabled: !!institute?.id && !!recordOrder?.id,
+    enabled: !!instituteId && !!recordOrder?.id,
   });
 
   /**
@@ -223,8 +284,8 @@ const DvdmsFooterBar: FC<BarProps> = ({
   const { mutate: createRecordOrder, isPending: isCreating } = useMutation({
     mutationFn: async () => {
       const [suppliers, stores] = await Promise.all([
-        apis.supplierMappings.list(institute!.id),
-        apis.dvdmsInstituteStores.list(facilityId, institute!.id, {
+        apis.supplierMappings.list(instituteId!),
+        apis.dvdmsInstituteStores.list(facilityId, instituteId!, {
           limit: LIST_FETCH_LIMIT,
         }),
       ]);
@@ -244,7 +305,7 @@ const DvdmsFooterBar: FC<BarProps> = ({
       if (!storeMapping) {
         throw new Error("No DVDMS store mapping configured for this location.");
       }
-      return apis.recordOrders.create(institute!.id, {
+      return apis.recordOrders.create(instituteId!, {
         name: getRecordOrderName(requestOrder!.name),
         order: requestOrderId,
         institute_store: storeMapping.id,
@@ -256,7 +317,7 @@ const DvdmsFooterBar: FC<BarProps> = ({
       toast.success(t("record_order_created_successfully"));
       queryClient.invalidateQueries({ queryKey: ["dvdms_record_orders"] });
       queryClient.invalidateQueries({
-        queryKey: ["dvdms_record_order_status", institute?.id, requestOrderId],
+        queryKey: ["dvdms_record_order_status", instituteId, requestOrderId],
       });
       navigate(
         dvdmsRecordPath(
@@ -272,7 +333,7 @@ const DvdmsFooterBar: FC<BarProps> = ({
 
   const canSend =
     !!recordOrder ||
-    (isSubmitted && !!institute && !!recordOrdersData && !isCreating);
+    (isSubmitted && !!instituteId && recordOrdersLoaded && !isCreating);
 
   const handleClick = () =>
     recordOrder

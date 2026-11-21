@@ -102,7 +102,10 @@ export const apis = {
   },
   users: {
     current: () =>
-      request<FilterUser>("/api/v1/users/getcurrentuser/", HttpMethod.GET),
+      request<FilterUser & { is_superuser?: boolean }>(
+        "/api/v1/users/getcurrentuser/",
+        HttpMethod.GET,
+      ),
   },
   facilityUsers: {
     list: (

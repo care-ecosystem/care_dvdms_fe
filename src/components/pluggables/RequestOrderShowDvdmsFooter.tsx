@@ -20,6 +20,7 @@ import {
   useShortcutSubContext,
 } from "@/context/ShortcutContext";
 import useDvdmsLocation from "@/hooks/useDvdmsLocation";
+import useDvdmsPermissions from "@/hooks/useDvdmsPermissions";
 import { getRecordOrderName } from "@/utils/pluginConfig";
 
 type RequestOrderShowProps = {
@@ -61,6 +62,15 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
   const { t } = useTranslation(I18N_NAMESPACE);
   const { facilityId, locationId, requestOrderId } = props;
 
+  // Without `canUse` the DVDMS lookups would only be denied, so they are
+  // skipped and the page is left to core.
+  const {
+    canUse,
+    canManage,
+    isLoading: isPermissionsLoading,
+    isError: isPermissionsError,
+  } = useDvdmsPermissions(facilityId);
+
   // Core's query key, shared with the core page.
   const {
     data: requestOrder,
@@ -76,7 +86,7 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
     locationId: storeLocationId,
     isLoading: isLocationLoading,
     isError: isStoresError,
-  } = useDvdmsLocation(facilityId, locationId);
+  } = useDvdmsLocation(facilityId, locationId, canUse);
 
   const {
     data: supplierMappings,
@@ -85,7 +95,7 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
   } = useQuery({
     queryKey: ["dvdms_supplier_mappings", institute?.id],
     queryFn: () => apis.supplierMappings.list(institute!.id),
-    enabled: !!institute?.id,
+    enabled: canUse && !!institute?.id,
   });
 
   const {
@@ -100,7 +110,7 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
         limit: LIST_FETCH_LIMIT,
         ordering: "-created_date",
       }),
-    enabled: !!institute?.id,
+    enabled: canUse && !!institute?.id,
   });
 
   // The core route carries no recordOrderId, so reflect the latest record order.
@@ -114,7 +124,8 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
       (item) => item.supplier?.id === supplierId,
     );
 
-  const isDvdmsFlow = !!recordOrder || isMappedOrder;
+  const isDvdmsOrder = canUse && (!!recordOrder || isMappedOrder);
+  const showBar = canManage && isDvdmsOrder;
 
   // Until the lookups settle, or if one fails, the order may still be a DVDMS
   // one: keep delivery creation blocked rather than let one through.
@@ -127,6 +138,13 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
     isStoresError ||
     isSuppliersError ||
     isRecordOrdersError;
+
+  // Only users who can manage DVDMS are held to its flow; until permissions are
+  // known, block rather than let one through.
+  const blockDelivery =
+    isPermissionsLoading ||
+    isPermissionsError ||
+    (canManage && (isDvdmsOrder || isUnverified));
 
   /**
    * Blocks core's "Create Delivery Order" action while the order is being
@@ -155,16 +173,14 @@ const RequestOrderShowDvdmsFooter: FC<Props> = ({ __base: Base, ...props }) => {
       {/* Inline padding, not a utility class: the core page is outside the
           plugin's Tailwind scope, so plugin utilities would not resolve here. */}
       <div
-        style={isDvdmsFlow ? { paddingBottom: "7rem" } : undefined}
-        onClickCapture={
-          isDvdmsFlow || isUnverified ? blockCoreDeliveryCreation : undefined
-        }
+        style={showBar ? { paddingBottom: "7rem" } : undefined}
+        onClickCapture={blockDelivery ? blockCoreDeliveryCreation : undefined}
       >
         <Base {...props} />
       </div>
       {/* The bar brings its own shortcut context: it renders inside core's
           tree, which carries no plugin ShortcutProvider. */}
-      {isDvdmsFlow && (
+      {showBar && (
         <ShortcutProvider>
           <DvdmsFooterBar
             facilityId={facilityId}

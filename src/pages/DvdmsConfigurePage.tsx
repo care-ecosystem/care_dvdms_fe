@@ -467,7 +467,10 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
     goBack(`/facility/${facilityId}/settings/general`);
   };
 
-  const submitForm = form.handleSubmit((values) =>
+  const [isMappingWarningOpen, setIsMappingWarningOpen] = useState(false);
+
+  const save = () => {
+    const values = form.getValues();
     saveInstitute(
       {
         eaushadhi_institute_id: values.eaushadhi_institute_id,
@@ -475,7 +478,24 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
         eaushadhi_institute_name: values.eaushadhi_institute_name,
       },
       showMappings ? { onSuccess: goBackToFacility } : undefined,
-    ),
+    );
+  };
+
+  const isSavedMappingChanged = () => {
+    const store = defaultStoreMappingsData?.results[0];
+    const supplier = supplierMappingsData?.results[0];
+    if (!showMappings || (!store && !supplier)) return false;
+    const row = form.getValues("mapping");
+    return (
+      row.location?.id !== store?.store?.id ||
+      row.eaushadhi_store_id !== (store?.eaushadhi_store_id ?? "") ||
+      row.eaushadhi_warehouse_id !== (supplier?.eaushadhi_warehouse_id ?? "") ||
+      row.supplier_id !== (supplier?.supplier?.id ?? "")
+    );
+  };
+
+  const submitForm = form.handleSubmit(() =>
+    isSavedMappingChanged() ? setIsMappingWarningOpen(true) : save(),
   );
 
   const onSubmit = (e: SyntheticEvent) =>
@@ -909,6 +929,41 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
                 variant="primary"
                 disabled={isSaving}
                 onClick={confirmIdChange}
+              >
+                {t("confirm")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={isMappingWarningOpen}
+          onOpenChange={setIsMappingWarningOpen}
+        >
+          <DialogContent closeLabel={t("close")}>
+            <DialogHeader>
+              <DialogTitle>{t("dvdms_mapping_change_title")}</DialogTitle>
+              <DialogDescription>
+                {t("dvdms_mapping_change_description")}
+              </DialogDescription>
+            </DialogHeader>
+            <ul className="list-disc pl-6 text-sm text-gray-600 space-y-1">
+              <li>{t("dvdms_mapping_change_orders")}</li>
+              <li>{t("dvdms_mapping_change_new_orders")}</li>
+            </ul>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIsMappingWarningOpen(false)}
+              >
+                {t("cancel")}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={isSaving}
+                onClick={() => {
+                  setIsMappingWarningOpen(false);
+                  save();
+                }}
               >
                 {t("confirm")}
               </Button>

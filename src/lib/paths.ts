@@ -7,23 +7,17 @@ export const dvdmsBasePath = (facilityId: string, locationId: string) =>
 /**
  * A CARE external outgoing order, which lives under the order's destination
  * location — always the DVDMS store location on these pages.
- *
- * Carries `?flow=dvdms`: the core page is reached from DVDMS, and that param is
- * what switches on the plugin's "send to DVDMS" footer override there.
  */
 export const careExternalOrderPath = (
   facilityId: string,
   locationId: string,
   requestOrderId: string,
 ) =>
-  `/facility/${facilityId}/locations/${locationId}/inventory/external/orders/outgoing/${requestOrderId}?flow=dvdms`;
+  `/facility/${facilityId}/locations/${locationId}/inventory/external/orders/outgoing/${requestOrderId}`;
 
 /**
  * Core's print view of the same external order — the DVDMS screens print
  * through it rather than keeping a second layout of their own.
- *
- * No `?flow=dvdms` here: the print view is read-only, so the plugin's footer
- * override has nothing to add to it.
  */
 export const careExternalOrderPrintPath = (
   facilityId: string,
@@ -39,13 +33,3 @@ export const dvdmsRecordPath = (
   recordOrderId: string,
 ) =>
   `${dvdmsBasePath(facilityId, locationId)}/orders/${requestOrderId}/records/${recordOrderId}`;
-
-/**
- * The DVDMS "link order" form, with a CARE request order preselected — where
- * an order is actually sent across to DVDMS.
- */
-export const dvdmsLinkOrderPath = (
-  facilityId: string,
-  locationId: string,
-  requestOrderId: string,
-) => `${dvdmsBasePath(facilityId, locationId)}/new?order=${requestOrderId}`;

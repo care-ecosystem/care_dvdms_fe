@@ -1,3 +1,4 @@
+import { DISCARDED_RECORD_ORDER_STATUSES } from "@/lib/constants";
 import { RequestOrderBadgeVariant } from "@/types/requestOrder";
 
 export interface RecordOrderPayload {
@@ -51,6 +52,10 @@ export interface RecordOrderInstituteSupplier {
 }
 
 export interface RecordOrder {
+  /**
+   * Empty (null from the API) only for a draft order with no record order yet,
+   * which just the order list returns. Lookups by `order` never include one.
+   */
   id: string;
   name: string;
   order: RecordOrderRequestOrder;
@@ -92,7 +97,6 @@ export interface DvdmsSyncMeta {
 export enum RecordOrderOutwardStatus {
   created = "created",
   submitted = "submitted",
-  cancelled = "cancelled",
   failed = "failed",
 }
 
@@ -172,7 +176,12 @@ export const dvdmsErrorKey = (error?: DvdmsSyncError | null) => {
   );
 };
 
-const STATUSES_WITHOUT_INDENT = ["draft", "pending", "failed", "cancelled"];
+const STATUSES_WITHOUT_INDENT = [
+  "draft",
+  "pending",
+  "failed",
+  ...DISCARDED_RECORD_ORDER_STATUSES,
+];
 
 export const hasDvdmsIndent = (status: string) =>
   !STATUSES_WITHOUT_INDENT.includes(status);

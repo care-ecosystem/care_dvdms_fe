@@ -3,7 +3,6 @@ import { lazy } from "react";
 const DvdmsConfigurePage = lazy(() => import("./pages/DvdmsConfigurePage"));
 const DvdmsEntryPage = lazy(() => import("./pages/DvdmsEntryPage"));
 const ExternalSupplyPage = lazy(() => import("./pages/ExternalSupplyPage"));
-const LinkOrderFormPage = lazy(() => import("./pages/LinkOrderFormPage"));
 const RequestOrderShowPage = lazy(() => import("./pages/RequestOrderShowPage"));
 const RequestOrderEditPage = lazy(() => import("./pages/RequestOrderEditPage"));
 const PrintRequestOrderPage = lazy(
@@ -33,13 +32,6 @@ const routes = {
     facilityId: string;
     locationId: string;
   }) => <ExternalSupplyPage facilityId={facilityId} locationId={locationId} />,
-  "/facility/:facilityId/dvdms/locations/:locationId/new": ({
-    facilityId,
-    locationId,
-  }: {
-    facilityId: string;
-    locationId: string;
-  }) => <LinkOrderFormPage facilityId={facilityId} locationId={locationId} />,
   "/facility/:facilityId/dvdms/locations/:locationId/orders/:requestOrderId/records/:recordOrderId":
     ({
       facilityId,

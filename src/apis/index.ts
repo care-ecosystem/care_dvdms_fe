@@ -7,6 +7,7 @@ import {
 import { request } from "@/apis/query";
 import { DVDMS_SCHEMA_VERSION, MAX_REQUESTS_PER_BATCH } from "@/lib/constants";
 import { chunk } from "@/lib/utils";
+import { FilterUser } from "@/components/ui/multi-filter/utils/Utils";
 import { Organization } from "@/types/organization";
 import { Facility } from "@/types/facility";
 import { LocationRead } from "@/types/location";
@@ -61,11 +62,7 @@ import {
   RecordItemOrderPayload,
 } from "@/types/recordOrderItem";
 import { RecordOrderProductMapping } from "@/types/productMapping";
-import {
-  AvailableRequestOrder,
-  RequestOrder,
-  RequestOrderCreatePayload,
-} from "@/types/requestOrder";
+import { RequestOrder, RequestOrderCreatePayload } from "@/types/requestOrder";
 import {
   SUPPLY_DELIVERY_ITEM_TYPE,
   SupplyDeliveryCreatePayload,
@@ -102,6 +99,24 @@ export const apis = {
   facilities: {
     get: (facilityId: string) =>
       request<Facility>(`/api/v1/facility/${facilityId}/`, HttpMethod.GET),
+  },
+  users: {
+    current: () =>
+      request<FilterUser & { is_superuser?: boolean }>(
+        "/api/v1/users/getcurrentuser/",
+        HttpMethod.GET,
+      ),
+  },
+  facilityUsers: {
+    list: (
+      facilityId: string,
+      params: { search_text?: string; limit?: number },
+    ) =>
+      request<PaginatedResponse<FilterUser>>(
+        `/api/v1/facility/${facilityId}/users/`,
+        HttpMethod.GET,
+        params,
+      ),
   },
   requestOrders: {
     list: (
@@ -192,27 +207,6 @@ export const apis = {
         { datapoints },
       ),
   },
-  availableRequestOrders: {
-    path: (instituteId: string) =>
-      `/api/care_dvdms/institute/${instituteId}/available_request_orders/`,
-    list: (
-      instituteId: string,
-      params: {
-        location: string;
-        limit?: number;
-        offset?: number;
-        priority?: string;
-        status?: string;
-        supplier?: string;
-        ordering?: string;
-      },
-    ) =>
-      request<PaginatedResponse<AvailableRequestOrder>>(
-        apis.availableRequestOrders.path(instituteId),
-        HttpMethod.GET,
-        params,
-      ),
-  },
   recordOrders: {
     list: (
       instituteId: string,
@@ -220,7 +214,14 @@ export const apis = {
         limit?: number;
         offset?: number;
         order?: string;
+        location?: string;
+        tab?: string;
         status?: string;
+        indent_no?: string;
+        priority?: string;
+        created_by?: string;
+        created_date_after?: string;
+        created_date_before?: string;
         supplier?: string;
         ordering?: string;
       } = {},
@@ -547,10 +548,15 @@ export const apis = {
       ),
   },
   storeMappings: {
-    list: (facilityId: string, instituteId: string) =>
+    list: (
+      facilityId: string,
+      instituteId: string,
+      params: { is_default?: boolean } = {},
+    ) =>
       request<PaginatedResponse<DvdmsStoreMapping>>(
         `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/`,
         HttpMethod.GET,
+        params,
       ),
     create: (
       facilityId: string,
@@ -573,6 +579,8 @@ export const apis = {
         HttpMethod.PATCH,
         payload,
       ),
+    path: (facilityId: string, instituteId: string, mappingId: string) =>
+      `/api/care_dvdms/facility/${facilityId}/institute/${instituteId}/stores/${mappingId}/`,
   },
   productMappings: {
     path: (instituteId: string) =>
@@ -587,6 +595,7 @@ export const apis = {
         product_knowledge_id?: string;
         ordering?: string;
         archived?: boolean;
+        name?: string;
       },
     ) =>
       request<PaginatedResponse<DvdmsProductMapping>>(
@@ -626,10 +635,11 @@ export const apis = {
       ),
   },
   supplierMappings: {
-    list: (instituteId: string) =>
+    list: (instituteId: string, params: { is_default?: boolean } = {}) =>
       request<PaginatedResponse<DvdmsSupplierOrgMapping>>(
         `/api/care_dvdms/institute/${instituteId}/suppliers/`,
         HttpMethod.GET,
+        params,
       ),
     create: (instituteId: string, payload: DvdmsSupplierOrgMappingPayload) =>
       request<DvdmsSupplierOrgMapping>(

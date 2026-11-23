@@ -3,4 +3,5 @@ export interface Facility {
   name: string;
   address?: string | null;
   phone_number?: string | null;
+  permissions?: string[];
 }

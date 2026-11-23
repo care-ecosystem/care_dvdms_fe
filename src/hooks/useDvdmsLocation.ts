@@ -13,13 +13,19 @@ import { LIST_FETCH_LIMIT } from "@/lib/constants";
 export default function useDvdmsLocation(
   facilityId: string,
   locationId?: string,
+  enabled = true,
 ) {
   const { data: institute, isLoading: isInstituteLoading } = useQuery({
     queryKey: ["dvdms_institute", facilityId],
     queryFn: () => apis.institutes.get(facilityId),
+    enabled,
   });
 
-  const { data: storesResponse, isLoading: isStoresLoading } = useQuery({
+  const {
+    data: storesResponse,
+    isLoading: isStoresLoading,
+    isError: isStoresError,
+  } = useQuery({
     queryKey: ["dvdms_institute_stores", facilityId, institute?.id],
     queryFn: () =>
       apis.dvdmsInstituteStores.list(facilityId, institute!.id, {
@@ -40,5 +46,6 @@ export default function useDvdmsLocation(
     store,
     locationId: store?.store.id,
     isLoading: isInstituteLoading || isStoresLoading,
+    isError: isStoresError,
   };
 }

@@ -94,7 +94,11 @@ export const LocationPicker: FC<LocationPickerProps> = ({
   });
 
   const locations = useMemo(
-    () => locationsResponse?.results || [],
+    () =>
+      (locationsResponse?.results || []).filter(
+        (location) =>
+          location.inventory_usage === "store" || location.has_children,
+      ),
     [locationsResponse?.results],
   );
 
@@ -121,6 +125,9 @@ export const LocationPicker: FC<LocationPickerProps> = ({
     }
   }, [open]);
 
+  const isStoreLocation = (location: LocationRead) =>
+    location.inventory_usage === "store";
+
   const handleLocationSelect = (location: LocationRead) => {
     if (location.has_children) {
       setBreadcrumbs((prev) => [
@@ -128,9 +135,9 @@ export const LocationPicker: FC<LocationPickerProps> = ({
         { id: location.id, name: location.name },
       ]);
       setCurrentParent(location.id);
-      onValueChange(location);
+      if (isStoreLocation(location)) onValueChange(location);
       resetSearch();
-    } else {
+    } else if (isStoreLocation(location)) {
       onValueChange(location);
       setOpen(false);
       resetSearch();

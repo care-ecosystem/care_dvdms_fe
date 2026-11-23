@@ -899,7 +899,6 @@ const DvdmsConfigurePage: FC<DvdmsConfigurePageProps> = ({ facilityId }) => {
               <li>{t("dvdms_ids_change_product_mappings")}</li>
               <li>{t("dvdms_ids_change_lists")}</li>
               <li>{t("dvdms_ids_change_orders")}</li>
-              <li>{t("dvdms_ids_change_acknowledge")}</li>
               <li>{t("dvdms_ids_change_new_orders")}</li>
             </ul>
             <DialogFooter>

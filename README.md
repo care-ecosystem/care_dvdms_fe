@@ -25,13 +25,13 @@ CARE frontend plugin for DVDMS integration, built with React + TypeScript + Modu
 npm install
 ```
 
-### 4. Start development
+### 2. Start development
 ```bash
 npm run dev
 ```
 This builds and watches — your plugin is served at `http://localhost:5177/assets/remoteEntry.js`.
 
-### 5. Register with care_fe
+### 3. Register with care_fe
 In your care_fe environment config, add:
 ```
 http://localhost:5177/assets/remoteEntry.js

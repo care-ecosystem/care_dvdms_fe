@@ -206,6 +206,16 @@ export const apis = {
         HttpMethod.POST,
         { datapoints },
       ),
+    deliveryOrdersPath: "/api/v1/supply_delivery/delivery_orders/",
+    /**
+     * The delivery orders raised against a request order.
+     */
+    listDeliveryOrders: (params: { request_order: string; status?: string }) =>
+      request<{ results: DeliveryOrderRetrieve[] }>(
+        apis.supplyDeliveries.deliveryOrdersPath,
+        HttpMethod.GET,
+        params,
+      ),
   },
   recordOrders: {
     list: (

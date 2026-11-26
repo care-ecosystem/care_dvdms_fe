@@ -308,6 +308,7 @@
   "order_name": "Order Name",
   "order_sent_to_dvdms": "Order sent to DVDMS",
   "order_sent_to_dvdms_locked": "This order has been sent to DVDMS, so it can no longer be edited or cancelled.",
+  "order_sent_to_dvdms_acknowledge_to_complete": "This order has been sent to DVDMS and has to be acknowledged, before it can be marked as completed.",
   "order_summary": "Order Summary",
   "order_summary_description": "What has been received so far from DVDMS for this particular order.",
   "order_voided_with_open_indent": "This order was voided in CARE, but its DVDMS indent is still open",

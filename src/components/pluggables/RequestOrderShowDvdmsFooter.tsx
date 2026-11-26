@@ -271,28 +271,37 @@ const DvdmsFooterBar: FC<BarProps> = ({
   useEffect(() => {
     if (!isSentToDvdms) return;
 
-    const blockedIconClasses = [
-      "care-l-pause", // mark as draft
-      ...(hasCompletedDelivery ? [] : ["care-l-play"]), // mark as completed
-      "care-l-exclamation-circle", // mark as entered in error
-      "care-l-ban", // mark as abandoned
+    const blockedActions = [
+      { iconClass: "care-l-pause", message: "order_sent_to_dvdms_locked" }, // mark as draft
+      // Mark as completed is its own message: it is not locked outright, it is
+      // waiting on the DVDMS issues being acknowledged into a delivery.
+      ...(hasCompletedDelivery
+        ? []
+        : [
+            {
+              iconClass: "care-l-play",
+              message: "order_sent_to_dvdms_acknowledge_to_complete",
+            },
+          ]),
+      {
+        iconClass: "care-l-exclamation-circle", // mark as entered in error
+        message: "order_sent_to_dvdms_locked",
+      },
+      { iconClass: "care-l-ban", message: "order_sent_to_dvdms_locked" }, // mark as abandoned
     ];
 
     const blockStatusChange = (event: globalThis.MouseEvent) => {
       const target = event.target as HTMLElement | null;
       const menuItem = target?.closest?.('[role="menuitem"]');
       if (!menuItem) return;
-      if (
-        !blockedIconClasses.some((iconClass) =>
-          menuItem.querySelector(`.${iconClass}`),
-        )
-      ) {
-        return;
-      }
+      const blockedAction = blockedActions.find(({ iconClass }) =>
+        menuItem.querySelector(`.${iconClass}`),
+      );
+      if (!blockedAction) return;
 
       event.preventDefault();
       event.stopPropagation();
-      toast.error(t("order_sent_to_dvdms_locked"));
+      toast.error(t(blockedAction.message));
       document.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );

@@ -12,6 +12,7 @@ import {
   REQUEST_ORDER_STATUS_POLL_INTERVAL_MS,
 } from "@/lib/constants";
 import { dvdmsRecordPath } from "@/lib/paths";
+import { DeliveryOrderStatus } from "@/types/deliveryOrder";
 import { isOutwardWithDvdms, RecordOrder } from "@/types/recordOrder";
 import { Button } from "@/components/ui/button";
 // import { ShortcutBadge } from "@/components/keyboardShortcutComponents";
@@ -239,14 +240,40 @@ const DvdmsFooterBar: FC<BarProps> = ({
   const isSentToDvdms = isOutwardWithDvdms(outwardData?.results?.[0]?.status);
 
   /**
-   * Blocks core's "mark as draft / entered in error / abandoned" actions once
-   * the order is with DVDMS.
+   * The deliveries raised against this order.
+   */
+  const isRequester = requestOrder?.destination?.id === locationId;
+
+  const deliveryOrdersQueryParams = {
+    request_order: requestOrderId,
+    ...(isRequester && {
+      status: "pending,in_progress,completed",
+    }),
+  };
+
+  const { data: deliveryOrdersData } = useQuery({
+    queryKey: ["deliveryOrders", deliveryOrdersQueryParams],
+    queryFn: () =>
+      apis.supplyDeliveries.listDeliveryOrders(deliveryOrdersQueryParams),
+    enabled: isSentToDvdms,
+  });
+
+  /**
+   * Once a delivery has actually been completed the order has been supplied, Until then action is blocked.
+   */
+  const hasCompletedDelivery = !!deliveryOrdersData?.results?.some(
+    (deliveryOrder) => deliveryOrder.status === DeliveryOrderStatus.completed,
+  );
+
+  /**
+   * Blocks core's "mark as draft / completed / entered in error / abandoned" , if order is sent to dvdms & allows if delivery is completed
    */
   useEffect(() => {
     if (!isSentToDvdms) return;
 
     const blockedIconClasses = [
       "care-l-pause", // mark as draft
+      ...(hasCompletedDelivery ? [] : ["care-l-play"]), // mark as completed
       "care-l-exclamation-circle", // mark as entered in error
       "care-l-ban", // mark as abandoned
     ];
@@ -273,7 +300,7 @@ const DvdmsFooterBar: FC<BarProps> = ({
 
     document.addEventListener("click", blockStatusChange, true);
     return () => document.removeEventListener("click", blockStatusChange, true);
-  }, [isSentToDvdms, t]);
+  }, [isSentToDvdms, hasCompletedDelivery, t]);
 
   // Core has no "approved" state for a request order: `pending` is the
   // submitted order, which is what DVDMS accepts. A draft has to be submitted

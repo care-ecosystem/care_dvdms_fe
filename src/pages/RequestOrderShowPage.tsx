@@ -291,10 +291,7 @@ const RequestOrderShowPageContent: FC<RequestOrderShowPageProps> = ({
       PaginatedResponse<RecordOrderOutward>
     >(["dvdms_record_order_outward", institute?.id, order.id])?.results?.[0];
 
-    const hasIndentDetails =
-      !!outwardRow?.eaushadhi_indent_no &&
-      !!outwardRow?.eaushadhi_indent_status;
-    if (hasIndentDetails) {
+    if (outwardRow?.eaushadhi_indent_no) {
       return false;
     }
 

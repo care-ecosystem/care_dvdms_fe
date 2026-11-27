@@ -33,6 +33,33 @@ const walk = (dir, files = []) => {
 const coreSrc = walk(path.join(core, "src")).map(read).join("\n");
 const strings = (text) => [...text.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 
+// Keys at the top level of the first `{ ... }` after `pattern`. It counts brackets and does not
+// depend on indentation, line breaks or trailing commas.
+const objectKeys = (text, pattern) => {
+  const code = text.replace(/\/\*[\s\S]*?\*\/|(^|\s)\/\/.*$/gm, "$1");
+  const start = code.search(pattern);
+  const open = start < 0 ? -1 : code.indexOf("{", start);
+  if (open < 0) return [];
+  const keys = [];
+  let depth = 0;
+  let segment = "";
+  const flush = () => {
+    const m = segment.match(/^\s*(?:readonly\s+)?(\w+)\s*\??\s*(?::|$)/);
+    if (m) keys.push(m[1]);
+    segment = "";
+  };
+  for (let i = open + 1; i < code.length; i++) {
+    const c = code[i];
+    if (depth === 0 && c === "}") break;
+    if ("{[(".includes(c)) depth++;
+    if ("}])".includes(c)) depth--;
+    if (depth === 0 && (c === "," || c === ";")) flush();
+    else segment += c;
+  }
+  flush();
+  return keys;
+};
+
 // 1. Shared modules: each one must be shared by core too, with the same major version.
 const sharedOf = (file) => {
   const m = read(file).replace(/\/\/.*$/gm, "").match(/shared:\s*\[([^\]]*)\]/);
@@ -71,22 +98,14 @@ for (const name of pluginShared) {
 
 // 2. Manifest: the components and extensions it uses must still exist in core.
 const types = read(path.join(core, "src/pluginTypes.ts"));
-const typeBody = (name) =>
-  types.match(new RegExp(`type ${name} =\\s*\\{([\\s\\S]*?)\\n\\};`))?.[1] ?? "";
-const coreComponents = [
-  ...typeBody("SupportedPluginComponents").matchAll(/^ {2}(\w+)\??:/gm),
-].map((m) => m[1]);
+const coreComponents = objectKeys(types, /type\s+SupportedPluginComponents\s*=/);
 const coreExtensions = strings(
   types.match(/type SupportedPluginExtensions =\s*([^;]+);/)?.[1] ?? "",
 );
 if (!coreComponents.length) fail("Could not read the plugin components of core.");
 
 const manifest = read("src/manifest.tsx");
-const manifestComponents = [
-  ...(manifest.match(/^ {2}components: \{([\s\S]*?)^ {2}\},/m)?.[1] ?? "").matchAll(
-    /^ {4}(\w+):/gm,
-  ),
-].map((m) => m[1]);
+const manifestComponents = objectKeys(manifest, /\bcomponents\s*:/);
 if (!manifestComponents.length) fail("Could not read the components of the manifest.");
 for (const name of manifestComponents) {
   if (!coreComponents.includes(name)) fail(`Component "${name}" is no longer supported by core.`);
